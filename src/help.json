@@ -38,6 +38,10 @@
         " chop or delete",
         "Shift+Undo: redo",
         "Record: export menu",
+        "Play: play/stop the",
+        " Move set (set tempo",
+        " and metronome in",
+        " Move first)",
         "Back: exit (asks if",
         " not exported)"
       ]

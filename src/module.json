@@ -11,5 +11,8 @@
         "interactive": true,
         "command": null,
         "input_extensions": [".wav"]
+    },
+    "capabilities": {
+        "button_passthrough": [85]
     }
 }

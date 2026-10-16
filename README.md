@@ -24,6 +24,7 @@ Status: early development.
 | Delete | Delete the selected slice (merges it into the previous one; Pad 1 is trimmed off) |
 | Undo / Shift+Undo | Undo the last chop or delete / redo it |
 | Record | Export menu: rename, Slices (one WAV per pad), Drum Preset, Cancel |
+| Play | Play / stop Move's set (handled by Move, to practise along) |
 | Back | Exit (asks first if there are changes not exported) |
 
 ## Prerequisites

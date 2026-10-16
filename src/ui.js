@@ -27,6 +27,8 @@
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
  *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
+ *   Play       - Passed through to Move (module.json button_passthrough):
+ *                plays/stops the set to practise along with
  *   Back       - Exit (asks first if there are changes not exported)
  */
 
