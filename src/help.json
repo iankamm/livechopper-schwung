@@ -46,8 +46,15 @@
         " Move set (set tempo",
         " and metronome in",
         " Move first)",
-        "Back: exit (asks if",
-        " not exported)"
+        "Back: menu",
+        " Keep for later:",
+        " leave it running;",
+        " Tools > Chopper >",
+        " Resume to return",
+        " (e.g. after a tempo",
+        " change in Move)",
+        " Discard and exit:",
+        " close for good"
       ]
     },
     {

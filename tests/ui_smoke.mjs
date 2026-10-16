@@ -47,7 +47,7 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
   settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
-  exportReq: 0, exportDone: 0, exportWritten: 0 };
+  exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '' };
 const sets = [];
 g.host_module_get_param = k => {
   if (k === 'status') return `ready ${dsp.frames} ${dsp.rate} ${dsp.playing} ${dsp.pos}`;
@@ -56,10 +56,19 @@ g.host_module_get_param = k => {
   if (k === 'settings') return dsp.settings;
   if (k.startsWith('wave ')) { const c = +k.split(' ')[3]; return 'a0'.repeat(c); }
   if (k === 'error') return '';
+  if (k === 'ui_state') return dsp.uiState;
+  if (k === 'file_path') return dsp.filePath;
   if (k === 'export_result') return `${dsp.exportReq} ${dsp.exportDone} ${dsp.exportWritten}`;
   return null;
 };
-const fakeSet = (k, v) => { sets.push(k + '=' + v); if (k === 'export_slices') dsp.exportReq++; return true; };
+const fakeSet = (k, v) => {
+  sets.push(k + '=' + v);
+  if (k === 'export_slices') dsp.exportReq++;
+  if (k === 'ui_state') dsp.uiState = v;
+  if (k === 'file_path') dsp.filePath = v;
+  return true;
+};
+g.host_hide_module = () => log.push('HIDE');
 g.host_module_set_param = fakeSet;
 g.host_module_set_param_blocking = fakeSet;
 let keyboardText = null;   // what the fake on-screen keyboard "types"; null = cancel
@@ -275,37 +284,79 @@ check(log.some(l => l === `SAY: Exported ${n} slices to test loop Chop 2`), 'sli
 check(lit(RECORD), 'Record lit again');
 dsp.chop = 5; tick(1);                            // more unexported work for the prompt tests
 
-// ---- Exit prompt ----
+// ---- Back menu: Keep for later / Discard and exit (or Exit) / Cancel ----
 const prompt = () => printed.includes('Not exported');
 midi(0xB0, 51, 127); tick(1);
 check(prompt() && exits() === 0, 'Back with unexported changes asks first');
+check(['Keep for later', 'Discard and exit', 'Cancel'].every(t => printed.includes(t)), 'Back menu items: ' + JSON.stringify(printed));
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'prompt: Undo, Delete, Record dark');
 check(!printed.some(t => /Export/.test(t)), 'prompt offers no export');
-check(log.some(l => l === 'SAY: Not exported. Discard and exit'), 'prompt starts on Discard and exit');
+check(log.at(-1) === 'SAY: Not exported. Discard and exit', 'prompt starts on Discard and exit');
 mark = sets.length;
 const fileCount = Object.keys(files).length;
 midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 118, 127); tick(1);
-check(prompt() && sets.length === mark, 'knobs ignored while asking');
+check(prompt() && !sets.slice(mark).some(s => !s.startsWith('ui_state=')), 'knobs ignored while asking');
 check(Object.keys(files).length === fileCount, 'Record ignored while asking');
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 0, 'Back in the prompt cancels');
 check(lit(DELETE) && lit(RECORD), 'Delete and Record lit again after cancelling');
-midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
+midi(0xB0, 51, 127); jog(1); click(); tick(1);
 check(!prompt() && exits() === 0, 'choosing Cancel stays');
-midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
+midi(0xB0, 51, 127); jog(2); click(); tick(1);
 check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
-midi(0xB0, 51, 127); midi(0xB0, 3, 127); tick(1);
+midi(0xB0, 51, 127); click(); tick(1);
 check(exits() === 1, 'clicking the default (Discard and exit) exits');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
 exportPreset();                          // exports it
 midi(0xB0, 51, 127); tick(1);
-check(!prompt() && exits() === 2, 'Back exits straight away when everything is exported');
+check(!prompt() && printed.includes('Leave Chopper') && printed.includes('Exit') && !printed.includes('Discard and exit'),
+      'everything exported: plain Exit, no warning: ' + JSON.stringify(printed));
+click(); tick(1);
+check(exits() === 2, 'Exit exits');
 dsp.chop = 6; tick(1);
 midi(0xB0, 118, 127); jog(1); click(); tick(1);
 dsp.exportDone = dsp.exportReq; dsp.exportWritten = dsp.starts.length; tick(1);
 midi(0xB0, 51, 127); tick(1);
-check(!prompt() && exits() === 3, 'a full slices export counts as exported');
+check(!prompt() && printed.includes('Exit'), 'a full slices export counts as exported');
+midi(0xB0, 51, 127); tick(1);
+
+// ---- Keep for later, then resume ----
+midi(0xB0, 73, 5); midi(0xB0, 74, 5); tick(1);   // zoom in, scale up: remembered
+dsp.chop = 7; tick(1);                            // unexported work
+check(/^1 1 [\d.]+ [\d.]+$/.test(dsp.uiState) && dsp.uiState !== '1 1 0 1', 'ui_state saved as it changes: ' + dsp.uiState);
+mark = sets.length;
+midi(0xB0, 51, 127); jog(-1); click(); tick(1);
+const keptState = dsp.uiState;
+check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
+check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD) && !lit(MUTE), 'hiding turns the buttons off');
+check(log.some(l => l === 'SAY: Kept for later, resume from Tools'), 'hiding announced');
+
+async function freshUi(tag) {
+  await import(pathToFileURL(path.join(dir, 'ui_under_test.mjs')).href + '?' + tag);
+}
+await freshUi('resume');
+g.host_tool_reconnect = true;
+mark = sets.length;
+const logMark = log.length;
+g.init(); tick(2);
+check(!sets.slice(mark).some(s => s.startsWith('file_path=')), 'resume does not reload the file');
+check(log.slice(logMark).includes(`SAY: Resumed test loop.wav, ${dsp.starts.length} slices`), 'resume announced: ' + JSON.stringify(log.slice(logMark)));
+check(!log.slice(logMark).some(l => /SAY: (Chop|Undo|Redo|Deleted)/.test(l)), 'resume does not replay old edits');
+check(dsp.uiState === keptState, 'zoom, scale and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
+check(lit(MUTE) && lit(RECORD), 'buttons lit again after resuming');
+midi(0xB0, 51, 127); tick(1);
+check(prompt(), 'unexported work is still unexported after resuming');
+midi(0xB0, 51, 127); tick(1);
+
+// Reconnect after another tool replaced the DSP: load the file again
+await freshUi('replaced');
+dsp.filePath = '';
+mark = sets.length;
+g.init(); tick(1);
+check(sets.slice(mark).includes('file_path=' + g.host_tool_file_path), 'replaced DSP: file loaded again');
+delete g.host_tool_reconnect;
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));
 console.log(failures ? `${failures} FAILED` : 'all checks passed');

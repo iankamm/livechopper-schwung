@@ -318,6 +318,22 @@ int main(void) {
     param(inst, "gate", "0");
     param(inst, "hold_us", "-1");
 
+    /* ---- Resume support: ui_state round-trips, stop silences ---- */
+    get(inst, "ui_state", set, sizeof set);
+    CHECK(set[0] == 0, "ui_state starts empty");
+    param(inst, "ui_state", "1 1 3.5 2.0");
+    get(inst, "ui_state", set, sizeof set);
+    CHECK(strcmp(set, "1 1 3.5 2.0") == 0, "ui_state kept: %s", set);
+    char longv[300];
+    memset(longv, 'x', sizeof longv - 1); longv[sizeof longv - 1] = 0;
+    param(inst, "ui_state", longv);
+    get(inst, "ui_state", set, sizeof set);
+    CHECK(strlen(set) == sizeof set - 1, "long ui_state truncated safely");
+    note(inst, 68); render(inst, 2);
+    param(inst, "stop", "1");
+    CHECK(field(inst, F_PLAYING) == -1, "stop ends the voice");
+    render(inst, 2);
+
     /* ---- Choke fades the old voice instead of cutting it ---- */
     note(inst, 68); render(inst, 4);
     note(inst, 69);

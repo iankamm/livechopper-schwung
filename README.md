@@ -26,7 +26,7 @@ Status: early development.
 | Undo / Shift+Undo | Undo the last chop or delete / redo it |
 | Record | Export menu: rename, Slices (one WAV per pad), Drum Preset, Cancel |
 | Play | Play / stop Move's set (handled by Move, to practise along) |
-| Back | Exit (asks first if there are changes not exported) |
+| Back | Menu: Keep for later (resume from Tools, e.g. after changing tempo in Move) / Discard and exit / Cancel |
 
 ## Prerequisites
 

@@ -32,6 +32,12 @@
  * count) into "<prefix> 01.wav", "<prefix> 02.wav", ... and publishes how
  * many it wrote; get_param("export_result") reports it.
  *
+ * Resume: "Keep for later" hides the tool and leaves this instance running,
+ * so the slices, undo history and settings are still here when the UI
+ * reconnects. set_param("ui_state") keeps a short opaque string for the UI
+ * (zoom, wave scale, unexported flag) and set_param("stop") fades out any
+ * voice before the pads go back to Move.
+ *
  * Waveform: the worker builds three levels of peak tables at load time, so
  * get_param("wave ...") reads a bounded number of values per column.
  *
@@ -81,6 +87,7 @@
 #define MIN_SLICE_FRAMES 64
 #define PATH_MAX_LEN 512
 #define ERROR_MAX_LEN 64
+#define UI_STATE_MAX_LEN 128
 
 /* 10 minutes of stereo int16 at 44.1 kHz is ~106 MB. */
 #define MAX_SOURCE_FRAMES (44100 * 60 * 10)
@@ -159,6 +166,8 @@ typedef struct {
     uint32_t undo_count; /* bumped on every undo, for the UI */
     uint32_t delete_count; /* bumped on every delete, for the UI */
     uint32_t redo_count; /* bumped on every redo, for the UI */
+
+    char ui_state[UI_STATE_MAX_LEN]; /* opaque to the DSP; kept for a resumed UI */
 
     slice_snapshot_t undo_stack[UNDO_DEPTH];
     int undo_depth;
@@ -1013,6 +1022,18 @@ static void set_param(void *instance, const char *key, const char *val) {
         inst->decay_frames = us_to_frames(inst->decay_us);
         return;
     }
+    if (strcmp(key, "ui_state") == 0) {
+        strncpy(inst->ui_state, val, UI_STATE_MAX_LEN - 1);
+        inst->ui_state[UI_STATE_MAX_LEN - 1] = '\0';
+        return;
+    }
+    if (strcmp(key, "stop") == 0) {
+        if (inst->playing) fade_out_voice(inst);
+        inst->playing = 0;
+        inst->playing_slice = -1;
+        inst->gate_note = -1;
+        return;
+    }
     if (strcmp(key, "gate") == 0) {
         inst->gated = val[0] == '1';
         /* Switched to gated after the pad was let go: release now. */
@@ -1096,6 +1117,9 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         int b = parse_int(&p);
         int cols = parse_int(&p);
         return render_wave(inst, a, b, cols, buf, buf_len);
+    }
+    if (strcmp(key, "ui_state") == 0) {
+        return snprintf(buf, (size_t)buf_len, "%s", inst->ui_state);
     }
     if (strcmp(key, "export_result") == 0) {
         /* "<requested seq> <finished seq> <slices written by the last finished>" */

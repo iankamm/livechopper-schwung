@@ -30,7 +30,8 @@
  *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
- *   Back       - Exit (asks first if there are changes not exported)
+ *   Back       - Menu: Keep for later (hide; resume from Tools) / Discard
+ *                and exit / Cancel
  */
 
 import {
@@ -161,11 +162,18 @@ var lastDeleteCount = 0;
 var editVersion = 0;
 var exportedVersion = 0;
 
-/* Exit confirmation */
+/* Back menu: keep the session for later, exit, or cancel */
 var confirmExit = false;
 var confirmIndex = 0;
-var CONFIRM_ITEMS = ["Discard and exit", "Cancel"];
-var CONFIRM_DISCARD = 0;
+var CONFIRM_KEEP = 0;
+var CONFIRM_EXIT = 1;
+var CONFIRM_CANCEL = 2;
+
+/* Resume: the DSP keeps running while the tool is hidden, and holds a
+ * short string of UI state for when it comes back. */
+var resumed = false;        /* reconnected to a running session */
+var countsSynced = false;   /* DSP edit counters adopted without announcing */
+var lastUiState = "";
 
 /* Export menu: row 0 is the name (click to rename), then the actions. */
 var exportMenu = false;
@@ -722,34 +730,41 @@ function hasUnexported() {
     return loadState === "ready" && editVersion !== exportedVersion;
 }
 
+function confirmItems() {
+    return ["Keep for later", hasUnexported() ? "Discard and exit" : "Exit", "Cancel"];
+}
+
 function requestExit() {
     flushNudge();
     flushSettings();
-    if (!hasUnexported()) {
+    if (loadState !== "ready") {
         exitTool();
         return;
     }
     confirmExit = true;
-    confirmIndex = CONFIRM_DISCARD;
-    announce("Not exported. " + CONFIRM_ITEMS[confirmIndex]);
+    confirmIndex = CONFIRM_EXIT;
+    announce((hasUnexported() ? "Not exported. " : "") + confirmItems()[confirmIndex]);
 }
 
 function confirmMove(ticks) {
     if (ticks === 0) return;
-    confirmIndex = Math.max(0, Math.min(CONFIRM_ITEMS.length - 1, confirmIndex + (ticks > 0 ? 1 : -1)));
-    announce(CONFIRM_ITEMS[confirmIndex]);
+    var items = confirmItems();
+    confirmIndex = Math.max(0, Math.min(items.length - 1, confirmIndex + (ticks > 0 ? 1 : -1)));
+    announce(items[confirmIndex]);
 }
 
 function confirmChoose() {
     confirmExit = false;
-    if (confirmIndex === CONFIRM_DISCARD) {
+    if (confirmIndex === CONFIRM_KEEP) {
+        hideTool();
+    } else if (confirmIndex === CONFIRM_EXIT) {
         exitTool();
     } else {
         announce("Cancelled");
     }
 }
 
-/* While the exit prompt is up: jog chooses, jog click confirms, Back
+/* While the Back menu is up: jog chooses, jog click confirms, Back
  * cancels. Everything else is ignored. */
 function handleConfirmCC(cc, value) {
     if (cc === CC_JOG) {
@@ -762,15 +777,68 @@ function handleConfirmCC(cc, value) {
     }
 }
 
+/* ============ Resume ============ */
+
+/* "<version> <unexported> <zoom> <vScale>" */
+function uiStateString() {
+    return "1 " + (hasUnexported() ? 1 : 0) + " " + zoom + " " + vScale;
+}
+
+/* Keep the DSP's copy current, so a resume finds it however the tool was
+ * left. Sent only when it changes. */
+function saveUiState() {
+    if (loadState !== "ready") return;
+    var st = uiStateString();
+    if (st === lastUiState) return;
+    lastUiState = st;
+    host_module_set_param("ui_state", st);
+}
+
+function restoreUiState() {
+    var p = (host_module_get_param("ui_state") || "").split(" ");
+    if (p[0] !== "1") return;
+    if (p[1] === "1") {
+        editVersion = 1;
+        exportedVersion = 0;
+    }
+    var z = parseFloat(p[2]);
+    if (z >= 0 && z <= ZOOM_MAX) zoom = z;
+    var v = parseFloat(p[3]);
+    if (v >= VSCALE_MIN && v <= VSCALE_MAX) vScale = v;
+    lastUiState = uiStateString();
+}
+
+/* Hand the controls back to Move but leave the DSP running; Tools shows
+ * "Resume: <file>" to come back to it. */
+function hideTool() {
+    flushNudge();
+    flushSettings();
+    saveUiState();
+    setParamNow("stop", "1");
+    if (typeof host_hide_module !== "function") {
+        exitTool();
+        return;
+    }
+    turnOffLeds();
+    exited = true;
+    announce("Kept for later, resume from Tools");
+    host_hide_module();
+}
+
 /* ============ Announcements ============ */
 
 function onLoadStateChange() {
     if (loadState === "ready") {
-        announce("Loaded " + fileName + ", press Pad 1");
         zoom = 0;
         viewStart = 0;
         waveKey = "";
         readSettings();
+        if (resumed) {
+            restoreUiState();
+            announce("Resumed " + fileName + ", " + sliceCount + (sliceCount === 1 ? " slice" : " slices"));
+        } else {
+            announce("Loaded " + fileName + ", press Pad 1");
+        }
     } else if (loadState === "error") {
         errorMsg = host_module_get_param("error") || "Load failed";
         announce("Load failed, " + errorMsg);
@@ -848,14 +916,18 @@ function clearAllPadLeds() {
     for (var i = 0; i < MovePads.length; i++) setLED(MovePads[i], Black);
 }
 
-function exitTool() {
-    flushNudge();
-    flushSettings();
+function turnOffLeds() {
     clearAllPadLeds();
     setButtonLit(CC_UNDO, false);
     setButtonLit(CC_DELETE, false);
     setButtonLit(CC_RECORD, false);
     setButtonLit(CC_MUTE, false);
+}
+
+function exitTool() {
+    flushNudge();
+    flushSettings();
+    turnOffLeds();
     exited = true;
     if (typeof host_exit_module === "function") host_exit_module();
 }
@@ -936,15 +1008,15 @@ function drawEditor() {
 }
 
 function drawConfirmExit() {
-    print(2, 2, "Not exported", 1);
-    print(2, 12, "Exit anyway?", 1);
-    for (var i = 0; i < CONFIRM_ITEMS.length; i++) {
-        var y = 26 + i * 12;
+    print(2, 2, hasUnexported() ? "Not exported" : "Leave Chopper", 1);
+    var items = confirmItems();
+    for (var i = 0; i < items.length; i++) {
+        var y = 18 + i * 12;
         if (i === confirmIndex) {
             fill_rect(0, y - 2, SCREEN_W, 11, 1);
-            print(4, y, CONFIRM_ITEMS[i], 0);
+            print(4, y, items[i], 0);
         } else {
-            print(4, y, CONFIRM_ITEMS[i], 1);
+            print(4, y, items[i], 1);
         }
     }
 }
@@ -992,6 +1064,15 @@ globalThis.init = function() {
     filePath = (typeof host_tool_file_path === "string") ? host_tool_file_path : "";
     fileName = baseName(filePath);
     clearAllPadLeds();
+    /* Resuming a kept session: the DSP still has this file and its slices,
+     * so don't reload it. If another tool replaced the DSP meanwhile, the
+     * host still says "reconnect" but the file isn't there: load it fresh. */
+    var reconnect = typeof host_tool_reconnect !== "undefined" && host_tool_reconnect;
+    resumed = !!filePath && reconnect && host_module_get_param("file_path") === filePath;
+    if (resumed) {
+        debugLog("init resume file=" + filePath);
+        return;
+    }
     if (filePath) {
         if (typeof host_module_set_param_blocking === "function") {
             host_module_set_param_blocking("file_path", filePath, 10000);
@@ -1009,6 +1090,15 @@ globalThis.tick = function() {
     pollStatus();
     pollSlices();
     pollSliceExport();
+    if (!countsSynced) {
+        /* A resumed DSP has counted edits already: adopt the counts without
+         * announcing them or marking them unexported. */
+        countsSynced = true;
+        lastChopCount = chopCount;
+        lastUndoCount = undoCount;
+        lastRedoCount = redoCount;
+        lastDeleteCount = deleteCount;
+    }
 
     if (loadState !== lastLoadState) {
         lastLoadState = loadState;
@@ -1060,6 +1150,7 @@ globalThis.tick = function() {
         overlayTimer--;
     }
 
+    if (!exited) saveUiState();
     updatePadLeds();
     updateButtonLeds();
     draw();

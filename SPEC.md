@@ -86,9 +86,18 @@ Move drum rack preset.
   one. Undo restores it; undo covers chops and deletes and
   keeps the last 32 steps. Shift+Undo redoes what was undone, until a new
   chop, delete or chop point move.
-- Exit (Back): if anything changed since the last export (chops, deletes,
-  undo, redo, chop points, envelope, transpose), ask first: Discard and exit /
-  Cancel (Discard and exit starts selected). Zoom and waveform scale don't count.
+- Back opens a menu: Keep for later / Discard and exit / Cancel, with
+  Discard and exit selected. The title warns "Not exported" if anything
+  changed since the last export (chops, deletes, undo, redo, chop points,
+  envelope, gate, transpose; zoom and waveform scale don't count); with
+  nothing unexported the middle item is just "Exit".
+- Keep for later (resume): stops any voice and hides the tool with
+  host_hide_module(), leaving the DSP loaded. Schwung's Tools browser then
+  offers "Resume: <file>". The DSP still holds the slices, undo/redo history
+  and sound settings; the UI keeps zoom, waveform scale and the unexported
+  flag in the DSP (ui_state) and restores them. Use it to change tempo or
+  the metronome in Move and come back. No project file: if another tool
+  replaces the DSP meanwhile, resuming loads the sample fresh.
 - Export menu (Record button, CC 118, as in the waveform editor): the name
   row on top (jog click opens the on-screen keyboard; starts as
   "<sample> Chop"), then Slices / Drum Preset / Cancel. Jog chooses, jog
