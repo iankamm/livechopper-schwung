@@ -83,6 +83,11 @@ for (let k = 0; k < 8; k++) {
   console.log(`knob ${k + 1}: touch="${shown}" turned="${after}"`);
 }
 
+// Top bar is just the pad; zoom, transpose and Start/End stay off it
+tick(1);
+check(printed[0] === 'Pad 2/3', `top bar shows only the pad (got "${printed[0]}")`);
+check(!printed.some(t => /x\d|st\b|START|END/.test(t)), 'no zoom/transpose/START/END when idle: ' + JSON.stringify(printed));
+
 // Other controls run without throwing
 midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127); tick(30);
 

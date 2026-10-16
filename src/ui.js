@@ -754,12 +754,9 @@ function drawMinimap() {
 }
 
 function drawEditor() {
-    var header = "Pad " + (selectedSlice + 1) + "/" + sliceCount;
-    header += activeSide === 0 ? "  START" : "  END";
-    print(0, 0, header, 1);
-    var zl = "x" + Math.round(Math.pow(2, zoom));
-    if (transpose !== 0) zl = formatTranspose(transpose) + " " + zl;
-    print(SCREEN_W - text_width(zl) - 1, 0, zl, 1);
+    /* Zoom, transpose and marker values only show on the bottom line,
+     * while their knob is touched or turned. */
+    print(0, 0, "Pad " + (selectedSlice + 1) + "/" + sliceCount, 1);
 
     drawWaveform();
     drawMarkers();
