@@ -161,12 +161,24 @@ int main(void) {
     param(inst, "undo", "1");
     CHECK(strcmp(slices(inst), "3:0-1280,1280-2560,2560-44100") == 0, "undo delete %s", slices(inst));
     param(inst, "delete", "0");
-    CHECK(strcmp(slices(inst), "2:0-2560,2560-44100") == 0, "delete Pad 1 merges into Pad 2: %s", slices(inst));
+    CHECK(strcmp(slices(inst), "2:1280-2560,2560-44100") == 0, "delete Pad 1 trims it, Pad 2 becomes Pad 1: %s", slices(inst));
+    CHECK(field(inst, F_SELECTED) == 0, "Pad 1 still selected after deleting it");
+    param(inst, "undo", "1");
+    CHECK(strcmp(slices(inst), "3:0-1280,1280-2560,2560-44100") == 0, "undo Pad 1 delete %s", slices(inst));
     param(inst, "delete", "1");
-    param(inst, "delete", "0");
+    param(inst, "delete", "1");
     CHECK(strcmp(slices(inst), "1:0-44100") == 0, "delete down to one %s", slices(inst));
     param(inst, "delete", "0");
     CHECK(strcmp(slices(inst), "1:0-44100") == 0, "can't delete the only slice");
+
+    /* Delete Pad 1 while it plays: its audio is gone, so it stops */
+    note(inst, 68); render(inst, 10); note(inst, 69);
+    note(inst, 68); render(inst, 2);
+    param(inst, "delete", "0");
+    CHECK(field(inst, F_PLAYING) == -1, "deleting playing Pad 1 stops it (got %d)", field(inst, F_PLAYING));
+    param(inst, "undo", "1");
+    param(inst, "delete", "1");
+    CHECK(strcmp(slices(inst), "1:0-44100") == 0, "back to one slice %s", slices(inst));
 
     /* Delete the playing slice: playback continues in the merged slice */
     note(inst, 68); render(inst, 10); note(inst, 69);

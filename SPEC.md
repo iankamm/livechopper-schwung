@@ -77,8 +77,9 @@ Move drum rack preset.
   whatever is playing.
 
 - Delete (Delete button): removes the selected slice by merging it into the
-  previous one (Pad 1 merges into Pad 2), i.e. it removes a chop point. Later
-  pads shift down one. Undo restores it; undo covers chops and deletes and
+  previous one, i.e. it removes a chop point. Deleting Pad 1 trims its audio
+  off the start of the sample, so Pad 2 becomes Pad 1. Later pads shift down
+  one. Undo restores it; undo covers chops and deletes and
   keeps the last 32 steps.
 - Exit (Back): if anything changed since the last export (chops, deletes,
   undo, chop points, envelope, transpose), ask first: Export and exit /

@@ -35,7 +35,8 @@
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
  * Delete: set_param("delete") removes a slice by merging it into the
- * previous one (Pad 1 merges into Pad 2), i.e. it removes a chop point.
+ * previous one, i.e. it removes a chop point. Deleting Pad 1 instead trims
+ * its audio off the start of the sample.
  *
  * Undo: each chop and delete first pushes a snapshot of the slice list onto
  * a fixed stack (no allocation); set_param("undo") pops it. When the stack
@@ -489,17 +490,19 @@ static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
     *r = d[idx * 2 + 1] + (d[nxt * 2 + 1] - d[idx * 2 + 1]) * frac;
 }
 
+/* Hand the playing voice to the tail so it fades instead of clicking. */
+static void fade_out_voice(chopper_t *inst) {
+    inst->tail_active = 1;
+    inst->tail_pos = inst->play_pos;
+    inst->tail_end = inst->play_end;
+    inst->tail_gain = env_gain(inst);
+    inst->tail_left = DECLICK_FRAMES;
+}
+
 static void play_slice(chopper_t *inst, int idx) {
     sample_buf_t *s = inst->current;
     if (!s || idx < 0 || idx >= inst->slice_count) return;
-    if (inst->playing) {
-        /* Choke: hand the old voice to the tail so it fades instead of clicking. */
-        inst->tail_active = 1;
-        inst->tail_pos = inst->play_pos;
-        inst->tail_end = inst->play_end;
-        inst->tail_gain = env_gain(inst);
-        inst->tail_left = DECLICK_FRAMES;
-    }
+    if (inst->playing) fade_out_voice(inst);
     inst->play_pos = inst->slice_start[idx];
     inst->play_end = inst->slice_end[idx];
     inst->env_pos = 0;
@@ -533,6 +536,8 @@ static void relocate_playhead(chopper_t *inst) {
             return;
         }
     }
+    /* The playhead's audio was removed (Pad 1 deleted): fade it out. */
+    fade_out_voice(inst);
     inst->playing = 0;
     inst->playing_slice = -1;
 }
@@ -670,14 +675,14 @@ static void undo_last_chop(chopper_t *inst) {
     relocate_playhead(inst);
 }
 
-/* Merge slice idx into the previous one (Pad 1 into Pad 2), removing the
- * chop point between them. Later slices move down one pad. */
+/* Merge slice idx into the previous one, removing the chop point between
+ * them. Pad 1 has no previous slice, so deleting it trims its audio off
+ * the start and Pad 2 becomes Pad 1. Later slices move down one pad. */
 static void delete_slice(chopper_t *inst, int idx) {
     if (!inst->current || inst->slice_count < 2 || idx < 0 || idx >= inst->slice_count) return;
     push_undo(inst);
 
-    if (idx == 0) inst->slice_start[1] = inst->slice_start[0];
-    else inst->slice_end[idx - 1] = inst->slice_end[idx];
+    if (idx > 0) inst->slice_end[idx - 1] = inst->slice_end[idx];
     for (int i = idx; i < inst->slice_count - 1; i++) {
         inst->slice_start[i] = inst->slice_start[i + 1];
         inst->slice_end[i] = inst->slice_end[i + 1];
