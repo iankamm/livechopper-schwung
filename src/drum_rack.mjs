@@ -6,7 +6,8 @@
  *
  * Every pad points at the same WAV with Voice_PlaybackStart/Length set to
  * its slice as fractions of the file. All 16 pads share choke group 1.
- * Envelope times are in seconds (A-H-D mode), as in Move's own sets.
+ * Envelope times are in seconds. Playback is gated (A-S-R: sustain while
+ * held, Decay is the release), matching Chopper.
  */
 
 export var USER_LIBRARY = "/data/UserData/UserLibrary/";
@@ -20,7 +21,7 @@ var ATTACK_MIN_S = 0.0001;
 var HOLD_MIN_S = 0.001;
 var HOLD_FULL_S = 60.0;     /* "Full": longer than any slice */
 var DECAY_MIN_S = 0.001;
-var DECAY_MAX_S = 10.0;
+var DECAY_MAX_S = 10.0;     /* Move's drum cell max; Chopper allows 30 s */
 
 /* "ableton:/user-library/<path>" for a file inside the User Library, with
  * each path segment percent-encoded. null if the file is elsewhere. */
@@ -35,15 +36,13 @@ function clamp(v, lo, hi) {
 }
 
 /*
- * env: { attackUs, holdUs (-1 = Full), decayUs, gated }
+ * env: { attackUs, holdUs (-1 = Full), decayUs }
  */
 export function envelopeSeconds(env) {
     return {
         attack: Math.max(ATTACK_MIN_S, env.attackUs / 1e6),
         hold: env.holdUs < 0 ? HOLD_FULL_S : Math.max(HOLD_MIN_S, env.holdUs / 1e6),
-        decay: clamp(env.decayUs / 1e6, DECAY_MIN_S, DECAY_MAX_S),
-        /* Gated playback is Move's A-S-R: sustain while held, Decay releases. */
-        mode: env.gated ? "A-S-R" : "A-H-D"
+        decay: clamp(env.decayUs / 1e6, DECAY_MIN_S, DECAY_MAX_S)
     };
 }
 
@@ -76,7 +75,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose) {
         "Voice_Envelope_Attack": envS.attack,
         "Voice_Envelope_Decay": envS.decay,
         "Voice_Envelope_Hold": envS.hold,
-        "Voice_Envelope_Mode": envS.mode,
+        "Voice_Envelope_Mode": "A-S-R",
         "Voice_Filter_Frequency": 22000.0,
         "Voice_Filter_On": true,
         "Voice_Filter_PeakGain": 1.0,
@@ -164,7 +163,7 @@ function reverbReturnChain() {
  *   sampleUri:  from sampleUriFor()
  *   frames:     total frames in the WAV
  *   starts, ends: slice boundaries in frames (1-16 slices, time order)
- *   env:        { attackUs, holdUs, decayUs, gated }
+ *   env:        { attackUs, holdUs, decayUs }
  *   transpose:  semitones
  * }
  * Returns the preset object (JSON.stringify it to write).

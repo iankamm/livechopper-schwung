@@ -20,7 +20,7 @@
  * blue pad (the first unused one) splits the slice that is playing at the
  * current playhead, inserts the new slice right after it, and playback
  * carries on into the new slice without a gap. Pads stay in time order.
- * One voice at a time: every pad chokes every other. Playback is one-shot.
+ * One voice at a time: every pad chokes every other. Playback is gated.
  *
  * Fine-tuning: chop points are shared. Moving the start of slice N also
  * moves the end of slice N-1, so slices never gap or overlap. Only slice
@@ -44,9 +44,10 @@
  * Sound: one global attack/hold/decay envelope and one global transpose
  * (repitch: changes speed and pitch together) apply to every slice. A
  * chop does not retrigger the envelope, so playback stays seamless.
- * Gated mode (set_param("gate", "1")) is Move's A-S-R: full level while
- * the pad that started the voice is held, then Decay is the release, and
- * Hold does nothing. One-shot (the default) is A-H-D. When
+ * Playback is always gated, like Move's A-S-R: full level while the pad
+ * that started the voice is held, then Decay is the release. Hold is kept
+ * for the UI and export but does not shape the sound. A long Decay (the
+ * default is the 30 s maximum) makes a pad play out like a one-shot. When
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
  * Delete: set_param("delete") removes a slice by merging it into the
@@ -101,8 +102,8 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 
 /* Envelope and pitch */
 #define HOLD_FULL (-1)              /* hold until the slice ends */
-#define DEFAULT_DECAY_US 50000
-#define MAX_ENV_US 10000000         /* 10 s */
+#define MAX_ENV_US 30000000         /* 30 s */
+#define DEFAULT_DECAY_US MAX_ENV_US
 #define TRANSPOSE_MIN (-24)
 #define TRANSPOSE_MAX 24
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
@@ -139,8 +140,8 @@ typedef struct {
     int play_end;
     int env_pos;        /* output frames since the voice was triggered */
     int gate_note;      /* pad note that started the voice; -1 once released */
-    int release_pos;    /* gated: frames since release, -1 while held */
-    float release_gain; /* gated: level when the release began */
+    int release_pos;    /* frames since release, -1 while held */
+    float release_gain; /* level when the release began */
 
     /* Choke tail: the voice that was cut off, fading out */
     int tail_active;
@@ -151,9 +152,8 @@ typedef struct {
 
     /* Global sound settings */
     int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
-    int attack_frames, hold_frames, decay_frames;
+    int attack_frames, decay_frames;            /* hold doesn't shape the sound */
     int transpose;                              /* semitones */
-    int gated;                                  /* 1 = A-S-R, 0 = one-shot A-H-D */
     double pitch_ratio;                         /* 2^(transpose/12) */
 
     /* Slices, in time order. Pad i plays slice i. */
@@ -613,31 +613,21 @@ static int note_to_pad(int note) {
 
 /* Start a slice from its beginning. Cuts off whatever was playing. */
 /* Envelope gain for the main voice at its current position. */
+/* Attack, then full level while held, then a linear release over Decay. */
 static float env_gain(const chopper_t *inst) {
-    int p = inst->env_pos;
-    if (inst->gated) {
-        if (inst->release_pos >= 0) {
-            if (inst->release_pos >= inst->decay_frames) return 0.0f;
-            return inst->release_gain * (1.0f - (float)inst->release_pos / (float)inst->decay_frames);
-        }
-        if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
-        return 1.0f;
+    if (inst->release_pos >= 0) {
+        if (inst->release_pos >= inst->decay_frames) return 0.0f;
+        return inst->release_gain * (1.0f - (float)inst->release_pos / (float)inst->decay_frames);
     }
-    if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
-    p -= inst->attack_frames;
-    if (inst->hold_frames == HOLD_FULL || p < inst->hold_frames) return 1.0f;
-    p -= inst->hold_frames;
-    if (p >= inst->decay_frames) return 0.0f;
-    return 1.0f - (float)p / (float)inst->decay_frames;
+    if (inst->env_pos < inst->attack_frames) return (float)inst->env_pos / (float)inst->attack_frames;
+    return 1.0f;
 }
 
 static int env_finished(const chopper_t *inst) {
-    if (inst->gated) return inst->release_pos >= 0 && inst->release_pos >= inst->decay_frames;
-    if (inst->hold_frames == HOLD_FULL) return 0;
-    return inst->env_pos >= inst->attack_frames + inst->hold_frames + inst->decay_frames;
+    return inst->release_pos >= 0 && inst->release_pos >= inst->decay_frames;
 }
 
-/* Gated: start the release from wherever the envelope is now. */
+/* Start the release from wherever the envelope is now. */
 static void release_voice(chopper_t *inst) {
     if (!inst->playing || inst->release_pos >= 0) return;
     inst->release_gain = env_gain(inst);
@@ -919,7 +909,6 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     inst->release_pos = -1;
     inst->attack_us = 0;
     inst->hold_us = HOLD_FULL;
-    inst->hold_frames = HOLD_FULL;
     inst->decay_us = DEFAULT_DECAY_US;
     inst->decay_frames = us_to_frames(DEFAULT_DECAY_US);
     set_transpose(inst, 0);
@@ -957,7 +946,7 @@ static void on_midi(void *instance, const uint8_t *msg, int len, int source) {
          * chop keeps the voice, so the original pad still holds it. */
         if (note == inst->gate_note) {
             inst->gate_note = -1;
-            if (inst->gated) release_voice(inst);
+            release_voice(inst);
         }
         return;
     }
@@ -1007,13 +996,7 @@ static void set_param(void *instance, const char *key, const char *val) {
     if (strcmp(key, "hold_us") == 0) {
         const char *p = val;
         int us = parse_int(&p);
-        if (us < 0) {
-            inst->hold_us = HOLD_FULL;
-            inst->hold_frames = HOLD_FULL;
-        } else {
-            inst->hold_us = clamp_us(us);
-            inst->hold_frames = us_to_frames(inst->hold_us);
-        }
+        inst->hold_us = us < 0 ? HOLD_FULL : clamp_us(us);
         return;
     }
     if (strcmp(key, "decay_us") == 0) {
@@ -1032,12 +1015,6 @@ static void set_param(void *instance, const char *key, const char *val) {
         inst->playing = 0;
         inst->playing_slice = -1;
         inst->gate_note = -1;
-        return;
-    }
-    if (strcmp(key, "gate") == 0) {
-        inst->gated = val[0] == '1';
-        /* Switched to gated after the pad was let go: release now. */
-        if (inst->gated && inst->gate_note < 0) release_voice(inst);
         return;
     }
     if (strcmp(key, "transpose") == 0) {
@@ -1106,9 +1083,9 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         return n;
     }
     if (strcmp(key, "settings") == 0) {
-        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d",
-                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated);
+        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d",
+                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */

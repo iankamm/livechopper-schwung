@@ -46,7 +46,7 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
-  settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
+  settings: '0 -1 30000000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
   exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '' };
 const sets = [];
 g.host_module_get_param = k => {
@@ -98,6 +98,7 @@ for (let k = 0; k < 8; k++) {
   const after = printed.find(t => READOUT.test(t));
   midi(0x90, k, 0); tick(70);
   check(shown, `knob ${k + 1} touch shows a readout`);
+  if (k === 6) check(shown === 'Decay 30.00s' && after === 'Decay 30.00s', `Decay starts at the 30 s max and stays there: ${shown} / ${after}`);
   console.log(`knob ${k + 1}: touch="${shown}" turned="${after}"`);
 }
 
@@ -174,10 +175,10 @@ if (p1 in files) {
       check(Math.abs(p.Voice_PlaybackStart - s) < 1e-12, `pad ${i + 1} start ${s}`);
       check(Math.abs(p.Voice_PlaybackLength - l) < 1e-12, `pad ${i + 1} length ${l}`);
     }
-    check(p.Voice_Envelope_Mode === 'A-H-D', 'A-H-D mode');
+    check(p.Voice_Envelope_Mode === 'A-S-R', 'gated: A-S-R mode');
     check(Math.abs(p.Voice_Envelope_Attack - Math.max(0.0001, settingSets.attack_us / 1e6)) < 1e-9, 'attack seconds');
     check(p.Voice_Envelope_Hold === (+settingSets.hold_us < 0 ? 60 : +settingSets.hold_us / 1e6), 'hold seconds');
-    check(Math.abs(p.Voice_Envelope_Decay - settingSets.decay_us / 1e6) < 1e-9, 'decay seconds');
+    check(Math.abs(p.Voice_Envelope_Decay - Math.min(10, settingSets.decay_us / 1e6)) < 1e-9, 'decay seconds (Move caps at 10 s)');
     check(p.Voice_Transpose === +settingSets.transpose, 'transpose');
   });
   const c0 = rack.chains[0].devices[0].parameters;
@@ -240,26 +241,10 @@ mark = sets.length;
 midi(0xB0, 56, 127); tick(1);
 check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
 
-// ---- Mute: one-shot (lit) / gated (dark) ----
-check(lit(MUTE), 'Mute lit: one-shot by default');
+// ---- Always gated: Mute does nothing, Decay defaults to 30 s ----
 mark = sets.length;
 midi(0xB0, 88, 127); tick(1);
-check(sets.slice(mark).includes('gate=1'), 'Mute sends gate=1');
-check(!lit(MUTE), 'Mute dark when gated');
-check(printed.includes('Gated') && log.at(-1) === 'SAY: Gated: plays while held', 'gated shown on the bottom line and spoken');
-midi(0xB0, 118, 127); tick(1);
-check(!lit(MUTE), 'Mute dark in the export menu');
-mark = sets.length;
-midi(0xB0, 88, 127); tick(1);
-check(sets.slice(mark).length === 0, 'Mute ignored in the export menu');
-jog(2); click(); tick(2);
-const gatedPreset = JSON.parse(files[presetDir + 'test loop Chop 3.ablpreset'] || '{}');
-check(gatedPreset.chains && gatedPreset.chains[0].devices[0].chains[0].devices[0].parameters.Voice_Envelope_Mode === 'A-S-R',
-      'gated exports as A-S-R');
-mark = sets.length;
-midi(0xB0, 88, 127); tick(1);
-check(sets.slice(mark).includes('gate=0') && lit(MUTE), 'Mute again: one-shot, lit');
-check(printed.includes('One-shot') && log.at(-1) === 'SAY: One-shot', 'one-shot shown and spoken');
+check(!sets.slice(mark).some(s => s.startsWith('gate')) && !lit(MUTE), 'Mute does nothing and stays dark');
 
 // ---- Export slices ----
 const sampleDir = '/data/UserData/UserLibrary/Samples/';
@@ -330,7 +315,7 @@ midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
-check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD) && !lit(MUTE), 'hiding turns the buttons off');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'hiding turns the buttons off');
 check(log.some(l => l === 'SAY: Kept for later, resume from Tools'), 'hiding announced');
 
 async function freshUi(tag) {
@@ -345,7 +330,7 @@ check(!sets.slice(mark).some(s => s.startsWith('file_path=')), 'resume does not 
 check(log.slice(logMark).includes(`SAY: Resumed test loop.wav, ${dsp.starts.length} slices`), 'resume announced: ' + JSON.stringify(log.slice(logMark)));
 check(!log.slice(logMark).some(l => /SAY: (Chop|Undo|Redo|Deleted)/.test(l)), 'resume does not replay old edits');
 check(dsp.uiState === keptState, 'zoom, scale and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
-check(lit(MUTE) && lit(RECORD), 'buttons lit again after resuming');
+check(lit(RECORD) && lit(DELETE), 'buttons lit again after resuming');
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'unexported work is still unexported after resuming');
 midi(0xB0, 51, 127); tick(1);
