@@ -61,6 +61,11 @@ static void note(void *inst, int n) {
     api->on_midi(inst, m, 3, MOVE_MIDI_SOURCE_INTERNAL);
 }
 
+static void note_off(void *inst, int n) {
+    uint8_t m[3] = { 0x80, (uint8_t)n, 0 };
+    api->on_midi(inst, m, 3, MOVE_MIDI_SOURCE_INTERNAL);
+}
+
 static void param(void *inst, const char *k, const char *v) { api->set_param(inst, k, v); }
 
 static void get(void *inst, const char *k, char *buf, int len) {
@@ -273,6 +278,44 @@ int main(void) {
     note(inst, 68);
     render(inst, 8);                        /* 1024 frames > 441 + 441 */
     CHECK(field(inst, F_PLAYING) == -1, "voice ends after hold + decay");
+    param(inst, "hold_us", "-1");
+
+    /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
+    char set[64];
+    get(inst, "settings", set, sizeof set);
+    CHECK(strcmp(set, "0 -1 10000 0 0") == 0, "one-shot by default: %s", set);
+    note(inst, 68); render(inst, 2);
+    note_off(inst, 68); render(inst, 20);
+    CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
+    param(inst, "gate", "1");               /* pad already let go: release now */
+    render(inst, 5);
+    CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
+    get(inst, "settings", set, sizeof set);
+    CHECK(strcmp(set, "0 -1 10000 0 1") == 0, "gated reported: %s", set);
+    param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
+    note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
+    CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");
+    note_off(inst, 69);
+    render(inst, 5);
+    CHECK(field(inst, F_PLAYING) == 0, "letting go of another pad doesn't release");
+    note(inst, 69); render(inst, 2);        /* blue pad: chop while held */
+    CHECK(field(inst, F_PLAYING) == 1, "chop while held carries on into Pad 2");
+    note_off(inst, 69); render(inst, 2);
+    CHECK(field(inst, F_PLAYING) == 1, "letting go of the blue pad keeps the gate");
+    api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+    int before = abs(out[254]);
+    note_off(inst, 68);
+    api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+    CHECK(abs(out[254]) < before, "release fades (%d -> %d)", before, abs(out[254]));
+    render(inst, 4);                        /* 441-frame release */
+    CHECK(field(inst, F_PLAYING) == -1, "voice ends after the release");
+    note(inst, 68); render(inst, 2);
+    uint8_t off0[3] = { 0x90, 68, 0 };      /* note-on velocity 0 = note-off */
+    api->on_midi(inst, off0, 3, MOVE_MIDI_SOURCE_INTERNAL);
+    render(inst, 5);
+    CHECK(field(inst, F_PLAYING) == -1, "velocity-0 note-on releases too");
+    param(inst, "delete", "1");             /* undo the chop */
+    param(inst, "gate", "0");
     param(inst, "hold_us", "-1");
 
     /* ---- Choke fades the old voice instead of cutting it ---- */

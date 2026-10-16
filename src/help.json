@@ -24,7 +24,11 @@
       "title": "Controls",
       "lines": [
         "Red pad: play slice",
-        " (one-shot), selects",
+        " and select it",
+        "Mute: one-shot (lit)",
+        " or gated (dark):",
+        " gated plays while",
+        " the pad is held",
         "Blue pad: chop at",
         " playhead while a",
         " slice plays",
@@ -113,10 +117,10 @@
         "",
         "Load the preset on",
         "a drum track.",
-        "Envelope,",
-        "transpose and choke",
-        "carry over. Gate,",
-        "per-pad sound etc.",
+        "Envelope, one-shot/",
+        "gated, transpose and",
+        "choke carry over.",
+        "Per-pad sound etc.",
         " are set there."
       ]
     }

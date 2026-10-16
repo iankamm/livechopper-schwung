@@ -37,7 +37,10 @@
  *
  * Sound: one global attack/hold/decay envelope and one global transpose
  * (repitch: changes speed and pitch together) apply to every slice. A
- * chop does not retrigger the envelope, so playback stays seamless. When
+ * chop does not retrigger the envelope, so playback stays seamless.
+ * Gated mode (set_param("gate", "1")) is Move's A-S-R: full level while
+ * the pad that started the voice is held, then Decay is the release, and
+ * Hold does nothing. One-shot (the default) is A-H-D. When
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
  * Delete: set_param("delete") removes a slice by merging it into the
@@ -128,6 +131,9 @@ typedef struct {
     double play_pos;    /* in source frames */
     int play_end;
     int env_pos;        /* output frames since the voice was triggered */
+    int gate_note;      /* pad note that started the voice; -1 once released */
+    int release_pos;    /* gated: frames since release, -1 while held */
+    float release_gain; /* gated: level when the release began */
 
     /* Choke tail: the voice that was cut off, fading out */
     int tail_active;
@@ -140,6 +146,7 @@ typedef struct {
     int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
     int attack_frames, hold_frames, decay_frames;
     int transpose;                              /* semitones */
+    int gated;                                  /* 1 = A-S-R, 0 = one-shot A-H-D */
     double pitch_ratio;                         /* 2^(transpose/12) */
 
     /* Slices, in time order. Pad i plays slice i. */
@@ -599,6 +606,14 @@ static int note_to_pad(int note) {
 /* Envelope gain for the main voice at its current position. */
 static float env_gain(const chopper_t *inst) {
     int p = inst->env_pos;
+    if (inst->gated) {
+        if (inst->release_pos >= 0) {
+            if (inst->release_pos >= inst->decay_frames) return 0.0f;
+            return inst->release_gain * (1.0f - (float)inst->release_pos / (float)inst->decay_frames);
+        }
+        if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
+        return 1.0f;
+    }
     if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
     p -= inst->attack_frames;
     if (inst->hold_frames == HOLD_FULL || p < inst->hold_frames) return 1.0f;
@@ -608,8 +623,16 @@ static float env_gain(const chopper_t *inst) {
 }
 
 static int env_finished(const chopper_t *inst) {
+    if (inst->gated) return inst->release_pos >= 0 && inst->release_pos >= inst->decay_frames;
     if (inst->hold_frames == HOLD_FULL) return 0;
     return inst->env_pos >= inst->attack_frames + inst->hold_frames + inst->decay_frames;
+}
+
+/* Gated: start the release from wherever the envelope is now. */
+static void release_voice(chopper_t *inst) {
+    if (!inst->playing || inst->release_pos >= 0) return;
+    inst->release_gain = env_gain(inst);
+    inst->release_pos = 0;
 }
 
 static int us_to_frames(int us) {
@@ -648,13 +671,15 @@ static void fade_out_voice(chopper_t *inst) {
     inst->tail_left = DECLICK_FRAMES;
 }
 
-static void play_slice(chopper_t *inst, int idx) {
+static void play_slice(chopper_t *inst, int idx, int note) {
     sample_buf_t *s = inst->current;
     if (!s || idx < 0 || idx >= inst->slice_count) return;
     if (inst->playing) fade_out_voice(inst);
     inst->play_pos = inst->slice_start[idx];
     inst->play_end = inst->slice_end[idx];
     inst->env_pos = 0;
+    inst->gate_note = note;
+    inst->release_pos = -1;
     inst->playing_slice = idx;
     inst->selected_slice = idx;
     inst->playing = 1;
@@ -881,6 +906,8 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     atomic_init(&inst->export_done_seq, 0);
     atomic_init(&inst->export_written, 0);
     inst->playing_slice = -1;
+    inst->gate_note = -1;
+    inst->release_pos = -1;
     inst->attack_us = 0;
     inst->hold_us = HOLD_FULL;
     inst->hold_frames = HOLD_FULL;
@@ -915,12 +942,22 @@ static void on_midi(void *instance, const uint8_t *msg, int len, int source) {
     uint8_t note = msg[1];
     uint8_t vel = msg[2];
 
-    if (type != 0x90 || vel == 0 || !inst->current) return;
+    if (!inst->current) return;
+    if (type == 0x80 || (type == 0x90 && vel == 0)) {
+        /* Letting go of the pad that started the voice ends the gate. A
+         * chop keeps the voice, so the original pad still holds it. */
+        if (note == inst->gate_note) {
+            inst->gate_note = -1;
+            if (inst->gated) release_voice(inst);
+        }
+        return;
+    }
+    if (type != 0x90) return;
 
     int pad = note_to_pad(note);
     if (pad < 0) return;
     if (pad < inst->slice_count) {
-        play_slice(inst, pad);
+        play_slice(inst, pad, note);
     } else if (pad == inst->slice_count) {
         chop_at_playhead(inst);
     }
@@ -974,6 +1011,12 @@ static void set_param(void *instance, const char *key, const char *val) {
         const char *p = val;
         inst->decay_us = clamp_us(parse_int(&p));
         inst->decay_frames = us_to_frames(inst->decay_us);
+        return;
+    }
+    if (strcmp(key, "gate") == 0) {
+        inst->gated = val[0] == '1';
+        /* Switched to gated after the pad was let go: release now. */
+        if (inst->gated && inst->gate_note < 0) release_voice(inst);
         return;
     }
     if (strcmp(key, "transpose") == 0) {
@@ -1042,9 +1085,9 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         return n;
     }
     if (strcmp(key, "settings") == 0) {
-        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d",
-                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose);
+        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d",
+                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
@@ -1098,6 +1141,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 r += vr * g;
                 inst->play_pos += step;
                 inst->env_pos++;
+                if (inst->release_pos >= 0) inst->release_pos++;
             }
         }
 

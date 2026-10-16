@@ -10,7 +10,8 @@ Status: early development.
 
 | Control | Function |
 |---------|----------|
-| Red pad | Play that slice (one-shot) and select it |
+| Red pad | Play that slice and select it |
+| Mute | Toggle one-shot (lit, default) / gated (unlit: plays while the pad is held) |
 | Blue pad | While a slice plays: chop at the playhead |
 | Knob 1 / Knob 2 | Move the selected slice's start / end |
 | Knob 3 | Zoom |

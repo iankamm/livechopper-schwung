@@ -34,7 +34,7 @@ g.text_width = t => t.length * 5;
 const buttonLeds = {};
 g.move_midi_internal_send = m => { if (m[0] === 0x0b) buttonLeds[m[2]] = m[3]; return true; };
 const lit = cc => buttonLeds[cc] > 0;
-const UNDO = 56, DELETE = 119, RECORD = 118, CAPTURE = 52;
+const UNDO = 56, DELETE = 119, RECORD = 118, CAPTURE = 52, MUTE = 88;
 g.host_send_screenreader = t => log.push('SAY: ' + t);
 g.host_announce_screenreader = g.host_send_screenreader;
 g.shadow_get_display_mode = () => 1;
@@ -223,6 +223,27 @@ check(lit(UNDO), 'Shift released: Undo lit again for undo');
 mark = sets.length;
 midi(0xB0, 56, 127); tick(1);
 check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
+
+// ---- Mute: one-shot (lit) / gated (dark) ----
+check(lit(MUTE), 'Mute lit: one-shot by default');
+mark = sets.length;
+midi(0xB0, 88, 127); tick(1);
+check(sets.slice(mark).includes('gate=1'), 'Mute sends gate=1');
+check(!lit(MUTE), 'Mute dark when gated');
+check(printed.includes('Gated') && log.at(-1) === 'SAY: Gated: plays while held', 'gated shown on the bottom line and spoken');
+midi(0xB0, 118, 127); tick(1);
+check(!lit(MUTE), 'Mute dark in the export menu');
+mark = sets.length;
+midi(0xB0, 88, 127); tick(1);
+check(sets.slice(mark).length === 0, 'Mute ignored in the export menu');
+jog(2); click(); tick(2);
+const gatedPreset = JSON.parse(files[presetDir + 'test loop Chop 3.ablpreset'] || '{}');
+check(gatedPreset.chains && gatedPreset.chains[0].devices[0].chains[0].devices[0].parameters.Voice_Envelope_Mode === 'A-S-R',
+      'gated exports as A-S-R');
+mark = sets.length;
+midi(0xB0, 88, 127); tick(1);
+check(sets.slice(mark).includes('gate=0') && lit(MUTE), 'Mute again: one-shot, lit');
+check(printed.includes('One-shot') && log.at(-1) === 'SAY: One-shot', 'one-shot shown and spoken');
 
 // ---- Export slices ----
 const sampleDir = '/data/UserData/UserLibrary/Samples/';

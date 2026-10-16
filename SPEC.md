@@ -63,9 +63,13 @@ Move drum rack preset.
   drum rack preset (supported: every pad gets the same chokeGroup).
 - Pad colors: playable slice pads are red, the pad that is currently playing
   is white, the chop target is blue, unused slice pads are dim grey.
-- Playback is one-shot: a pad plays its whole region and releasing it does
-  not stop it. Pressing it again restarts the region. Gate behavior is left
-  to the user to set in the exported drum rack.
+- Playback is one-shot by default: a pad plays its whole region and
+  releasing it does not stop it. Pressing it again restarts the region.
+  Mute toggles gated playback for all pads (Mute lit = one-shot, unlit =
+  gated; the bottom line and screen reader confirm). Gated is Move's A-S-R:
+  full level while the pad that started the voice is held, then Decay is the
+  release; Hold does nothing. Letting go of the blue pad after a chop keeps
+  the gate open.
 - Fine-tuning: chop points are linked. Moving a slice's start also moves the
   previous slice's end (and vice versa), so slices never gap or overlap.
   Only Pad 1's start and the last pad's end trim the sample. The selected
@@ -98,6 +102,7 @@ Move drum rack preset.
   named "<name>" (then "<name> 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
-  is exported in seconds in A-H-D mode (hold Full = 60 s), transpose as
+  is exported in seconds in A-H-D mode, or A-S-R when gated (hold Full =
+  60 s), transpose as
   Voice_Transpose, all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).

@@ -35,13 +35,15 @@ function clamp(v, lo, hi) {
 }
 
 /*
- * env: { attackUs, holdUs (-1 = Full), decayUs }
+ * env: { attackUs, holdUs (-1 = Full), decayUs, gated }
  */
 export function envelopeSeconds(env) {
     return {
         attack: Math.max(ATTACK_MIN_S, env.attackUs / 1e6),
         hold: env.holdUs < 0 ? HOLD_FULL_S : Math.max(HOLD_MIN_S, env.holdUs / 1e6),
-        decay: clamp(env.decayUs / 1e6, DECAY_MIN_S, DECAY_MAX_S)
+        decay: clamp(env.decayUs / 1e6, DECAY_MIN_S, DECAY_MAX_S),
+        /* Gated playback is Move's A-S-R: sustain while held, Decay releases. */
+        mode: env.gated ? "A-S-R" : "A-H-D"
     };
 }
 
@@ -74,7 +76,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose) {
         "Voice_Envelope_Attack": envS.attack,
         "Voice_Envelope_Decay": envS.decay,
         "Voice_Envelope_Hold": envS.hold,
-        "Voice_Envelope_Mode": "A-H-D",
+        "Voice_Envelope_Mode": envS.mode,
         "Voice_Filter_Frequency": 22000.0,
         "Voice_Filter_On": true,
         "Voice_Filter_PeakGain": 1.0,
@@ -162,7 +164,7 @@ function reverbReturnChain() {
  *   sampleUri:  from sampleUriFor()
  *   frames:     total frames in the WAV
  *   starts, ends: slice boundaries in frames (1-16 slices, time order)
- *   env:        { attackUs, holdUs, decayUs }
+ *   env:        { attackUs, holdUs, decayUs, gated }
  *   transpose:  semitones
  * }
  * Returns the preset object (JSON.stringify it to write).
