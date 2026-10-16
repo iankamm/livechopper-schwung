@@ -21,9 +21,10 @@ Status: early development.
 | Touch a knob | Preview its value |
 | Shift | Fine steps for knobs and jog |
 | Left / Right | Select previous / next slice |
-| Undo | Undo the last chop |
+| Delete | Delete the selected slice (merges it into the previous one) |
+| Undo | Undo the last chop or delete |
 | Capture | Export a drum rack preset to Track Presets |
-| Back | Exit |
+| Back | Exit (asks first if there are changes not exported) |
 
 ## Prerequisites
 
@@ -33,6 +34,7 @@ Status: early development.
 ## Build from Source
 
 ```bash
+./scripts/test.sh       # host-side tests (gcc, node)
 ./scripts/build.sh      # uses aarch64-linux-gnu-gcc if installed, else Docker
 ```
 

@@ -43,11 +43,11 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
-  settings: '0 -1 50000 0', chop: 0, undo: 0, depth: 0 };
+  settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0 };
 const sets = [];
 g.host_module_get_param = k => {
   if (k === 'status') return `ready ${dsp.frames} ${dsp.rate} ${dsp.playing} ${dsp.pos}`;
-  if (k === 'slices') return [dsp.chop, dsp.undo, dsp.depth, dsp.playing ? 0 : -1, dsp.sel, dsp.starts.length,
+  if (k === 'slices') return [dsp.chop, dsp.undo, dsp.del, dsp.depth, dsp.playing ? 0 : -1, dsp.sel, dsp.starts.length,
     ...dsp.starts.flatMap((s, i) => [s, dsp.ends[i]])].join(' ');
   if (k === 'settings') return dsp.settings;
   if (k.startsWith('wave ')) { const c = +k.split(' ')[3]; return 'a0'.repeat(c); }
@@ -148,8 +148,33 @@ const { sampleUriFor } = await import(pathToFileURL(path.join(repo, 'src/drum_ra
 check(sampleUriFor('/data/UserData/other/x.wav') === null, 'sample outside User Library refused');
 check(sampleUriFor('/data/UserData/UserLibrary/Samples/a#b 100%.wav') === 'ableton:/user-library/Samples/a%23b%20100%25.wav', 'special characters encoded');
 
-midi(0xB0, 51, 127);                    // Back
-check(log.includes('EXIT'), 'Back exits');
+// ---- Delete ----
+let mark = sets.length;
+midi(0xB0, 119, 127); tick(1);
+check(sets.slice(mark).includes('delete=' + dsp.sel), 'Delete sends the selected slice');
+dsp.del = 1; dsp.starts = [0, 200000]; dsp.ends = [200000, 441000]; dsp.sel = 0; tick(2);
+check(log.some(l => l.startsWith('SAY: Deleted, Pad 1 selected, 2 slices')), 'delete announced');
+
+// ---- Exit prompt ----
+const exits = () => log.filter(l => l === 'EXIT').length;
+const prompt = () => printed.includes('Not exported');
+midi(0xB0, 51, 127); tick(1);
+check(prompt() && exits() === 0, 'Back with unexported changes asks first');
+mark = sets.length;
+midi(0xB0, 71, 5); midi(0x90, 4, 127); tick(1);
+check(prompt() && sets.length === mark, 'knobs ignored while asking');
+midi(0xB0, 51, 127); tick(1);
+check(!prompt() && exits() === 0, 'Back in the prompt cancels');
+midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
+check(!prompt() && exits() === 0, 'choosing Cancel stays');
+midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
+check(exits() === 1, 'choosing Exit, discard exits');
+const p3 = presetDir + 'test loop Chop 3.ablpreset';
+dsp.chop = 3; tick(1);                   // more unexported work
+midi(0xB0, 51, 127); midi(0xB0, 52, 127); tick(1);
+check(p3 in files && exits() === 2, 'Capture in the prompt exports, then exits');
+midi(0xB0, 51, 127); tick(1);
+check(!prompt() && exits() === 3, 'Back exits straight away when everything is exported');
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));
 console.log(failures ? `${failures} FAILED` : 'all checks passed');

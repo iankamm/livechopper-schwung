@@ -34,8 +34,12 @@
  * chop does not retrigger the envelope, so playback stays seamless. When
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
- * Undo: each chop first pushes a snapshot of the slice list onto a fixed
- * stack (no allocation); set_param("undo") pops it.
+ * Delete: set_param("delete") removes a slice by merging it into the
+ * previous one (Pad 1 merges into Pad 2), i.e. it removes a chop point.
+ *
+ * Undo: each chop and delete first pushes a snapshot of the slice list onto
+ * a fixed stack (no allocation); set_param("undo") pops it. When the stack
+ * is full the oldest snapshot is dropped.
  */
 
 #define _GNU_SOURCE
@@ -47,6 +51,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
+#include <math.h>
 
 #include "plugin_api_v1.h"
 
@@ -100,8 +105,7 @@ typedef struct {
     int slice_count;
 } slice_snapshot_t;
 
-/* At most MAX_SLICES - 1 chops can be in effect at once. */
-#define UNDO_DEPTH (MAX_SLICES - 1)
+#define UNDO_DEPTH 32
 
 typedef struct {
     /* --- audio thread only --- */
@@ -132,6 +136,7 @@ typedef struct {
     int selected_slice; /* slice being fine-tuned */
     uint32_t chop_count; /* bumped on every chop, for the UI */
     uint32_t undo_count; /* bumped on every undo, for the UI */
+    uint32_t delete_count; /* bumped on every delete, for the UI */
 
     slice_snapshot_t undo_stack[UNDO_DEPTH];
     int undo_depth;
@@ -161,10 +166,11 @@ static uint32_t rd_u32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+/* Round to nearest and clip. */
 static int16_t clamp16(float v) {
     if (v > 32767.0f) return 32767;
     if (v < -32768.0f) return -32768;
-    return (int16_t)v;
+    return (int16_t)lrintf(v);
 }
 
 /* Convert one sample at p to int16. fmt: 1 = PCM int, 3 = IEEE float. */
@@ -425,6 +431,7 @@ static void adopt_incoming(chopper_t *inst) {
     inst->chop_count = 0;
     inst->undo_count = 0;
     inst->undo_depth = 0;
+    inst->delete_count = 0;
     if (old) atomic_store(&inst->retired, old);
 }
 
@@ -469,11 +476,7 @@ static void set_transpose(chopper_t *inst, int semis) {
     if (semis < TRANSPOSE_MIN) semis = TRANSPOSE_MIN;
     if (semis > TRANSPOSE_MAX) semis = TRANSPOSE_MAX;
     inst->transpose = semis;
-    /* Bounded: |semis| <= 24 multiplications. */
-    double r = 1.0;
-    const double semitone = 1.0594630943592953;
-    for (int i = 0; i < (semis < 0 ? -semis : semis); i++) r *= semitone;
-    inst->pitch_ratio = semis < 0 ? 1.0 / r : r;
+    inst->pitch_ratio = pow(2.0, semis / 12.0);
 }
 
 /* Linear-interpolated stereo frame at a fractional source position. */
@@ -505,6 +508,35 @@ static void play_slice(chopper_t *inst, int idx) {
     inst->playing = 1;
 }
 
+/* Save the slice list for undo. Bounded: at worst one shift of the stack. */
+static void push_undo(chopper_t *inst) {
+    if (inst->undo_depth == UNDO_DEPTH) {
+        memmove(&inst->undo_stack[0], &inst->undo_stack[1],
+                sizeof(slice_snapshot_t) * (UNDO_DEPTH - 1));
+        inst->undo_depth--;
+    }
+    slice_snapshot_t *u = &inst->undo_stack[inst->undo_depth++];
+    memcpy(u->slice_start, inst->slice_start, sizeof(u->slice_start));
+    memcpy(u->slice_end, inst->slice_end, sizeof(u->slice_end));
+    u->slice_count = inst->slice_count;
+}
+
+/* After the slice list changes under a playing voice, keep playing in
+ * whichever slice now holds the playhead. */
+static void relocate_playhead(chopper_t *inst) {
+    if (!inst->playing) return;
+    int pos = (int)inst->play_pos;
+    for (int i = 0; i < inst->slice_count; i++) {
+        if (pos >= inst->slice_start[i] && pos < inst->slice_end[i]) {
+            inst->playing_slice = i;
+            inst->play_end = inst->slice_end[i];
+            return;
+        }
+    }
+    inst->playing = 0;
+    inst->playing_slice = -1;
+}
+
 /* Split the playing slice at the playhead. The new slice goes right after
  * it, later slices move up one pad, and playback continues into the new
  * slice. Bounded: at most MAX_SLICES moves. */
@@ -516,14 +548,7 @@ static void chop_at_playhead(chopper_t *inst) {
     if (t - inst->slice_start[p] < MIN_SLICE_FRAMES ||
         inst->slice_end[p] - t < MIN_SLICE_FRAMES) return;
 
-    /* Snapshot for undo. The stack can't overflow: each chop adds a slice
-     * and each undo removes one, so depth <= slice_count - 1 < UNDO_DEPTH. */
-    if (inst->undo_depth < UNDO_DEPTH) {
-        slice_snapshot_t *u = &inst->undo_stack[inst->undo_depth++];
-        memcpy(u->slice_start, inst->slice_start, sizeof(u->slice_start));
-        memcpy(u->slice_end, inst->slice_end, sizeof(u->slice_end));
-        u->slice_count = inst->slice_count;
-    }
+    push_undo(inst);
 
     for (int i = inst->slice_count; i > p + 1; i--) {
         inst->slice_start[i] = inst->slice_start[i - 1];
@@ -642,18 +667,25 @@ static void undo_last_chop(chopper_t *inst) {
     inst->slice_count = u->slice_count;
     inst->undo_count++;
     if (inst->selected_slice >= inst->slice_count) inst->selected_slice = inst->slice_count - 1;
+    relocate_playhead(inst);
+}
 
-    if (!inst->playing) return;
-    int pos = (int)inst->play_pos;
-    for (int i = 0; i < inst->slice_count; i++) {
-        if (pos >= inst->slice_start[i] && pos < inst->slice_end[i]) {
-            inst->playing_slice = i;
-            inst->play_end = inst->slice_end[i];
-            return;
-        }
+/* Merge slice idx into the previous one (Pad 1 into Pad 2), removing the
+ * chop point between them. Later slices move down one pad. */
+static void delete_slice(chopper_t *inst, int idx) {
+    if (!inst->current || inst->slice_count < 2 || idx < 0 || idx >= inst->slice_count) return;
+    push_undo(inst);
+
+    if (idx == 0) inst->slice_start[1] = inst->slice_start[0];
+    else inst->slice_end[idx - 1] = inst->slice_end[idx];
+    for (int i = idx; i < inst->slice_count - 1; i++) {
+        inst->slice_start[i] = inst->slice_start[i + 1];
+        inst->slice_end[i] = inst->slice_end[i + 1];
     }
-    inst->playing = 0;
-    inst->playing_slice = -1;
+    inst->slice_count--;
+    inst->delete_count++;
+    inst->selected_slice = idx == 0 ? 0 : idx - 1;
+    relocate_playhead(inst);
 }
 
 /* ============================================================================
@@ -720,6 +752,11 @@ static void set_param(void *instance, const char *key, const char *val) {
     chopper_t *inst = (chopper_t *)instance;
     if (!inst || !key || !val) return;
 
+    if (strcmp(key, "delete") == 0) {
+        const char *p = val;
+        delete_slice(inst, parse_int(&p));
+        return;
+    }
     if (strcmp(key, "undo") == 0) {
         undo_last_chop(inst);
         return;
@@ -797,10 +834,10 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
                         inst->playing, (int)inst->play_pos);
     }
     if (strcmp(key, "slices") == 0) {
-        /* "<chop_count> <undo_count> <undo_depth> <playing_slice>
+        /* "<chop_count> <undo_count> <delete_count> <undo_depth> <playing_slice>
          *  <selected_slice> <count> <start0> <end0> ..." */
-        int n = snprintf(buf, (size_t)buf_len, "%u %u %d %d %d %d",
-                         inst->chop_count, inst->undo_count, inst->undo_depth,
+        int n = snprintf(buf, (size_t)buf_len, "%u %u %u %d %d %d %d",
+                         inst->chop_count, inst->undo_count, inst->delete_count, inst->undo_depth,
                          inst->playing ? inst->playing_slice : -1,
                          inst->selected_slice, inst->slice_count);
         for (int i = 0; i < inst->slice_count && n > 0 && n < buf_len; i++) {

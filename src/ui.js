@@ -24,13 +24,14 @@
  *   Touch knob - Preview its value on the bottom line (and speak it)
  *   Shift      - Fine steps for knobs and jog
  *   Left/Right - Select previous/next slice
- *   Undo       - Undo the last chop
+ *   Delete     - Delete the selected slice (merges it into the previous one)
+ *   Undo       - Undo the last chop or delete
  *   Capture    - Export the slices as a Move drum rack preset
- *   Back       - Exit
+ *   Back       - Exit (asks first if there are changes not exported)
  */
 
 import {
-    MoveBack, MoveUndo, MoveCapture, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveCapture, MoveDelete, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
     MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
     MovePads,
@@ -52,6 +53,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
 var CC_CAPTURE = MoveCapture;
+var CC_DELETE = MoveDelete;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
 var CC_RIGHT = MoveRight;
@@ -145,6 +147,17 @@ var sliceEnds = [];
 var lastLoadState = "";
 var lastChopCount = 0;
 var lastUndoCount = 0;
+var deleteCount = 0;
+var lastDeleteCount = 0;
+
+/* Unsaved work: bumped by every edit, remembered at each export. */
+var editVersion = 0;
+var exportedVersion = 0;
+
+/* Exit confirmation */
+var confirmExit = false;
+var confirmIndex = 0;
+var CONFIRM_ITEMS = ["Export and exit", "Exit, discard", "Cancel"];
 var lastSelectedSlice = -1;
 var undoLedOn = null;
 var padColors = [];         /* last color sent per pad index, to avoid LED spam */
@@ -219,15 +232,16 @@ function pollSlices() {
     var p = raw.split(" ");
     chopCount = parseInt(p[0], 10) || 0;
     undoCount = parseInt(p[1], 10) || 0;
-    undoDepth = parseInt(p[2], 10) || 0;
-    playingSlice = parseInt(p[3], 10);
-    selectedSlice = parseInt(p[4], 10) || 0;
-    sliceCount = parseInt(p[5], 10) || 0;
+    deleteCount = parseInt(p[2], 10) || 0;
+    undoDepth = parseInt(p[3], 10) || 0;
+    playingSlice = parseInt(p[4], 10);
+    selectedSlice = parseInt(p[5], 10) || 0;
+    sliceCount = parseInt(p[6], 10) || 0;
     sliceStarts = [];
     sliceEnds = [];
     for (var i = 0; i < sliceCount; i++) {
-        sliceStarts.push(parseInt(p[6 + i * 2], 10) || 0);
-        sliceEnds.push(parseInt(p[7 + i * 2], 10) || 0);
+        sliceStarts.push(parseInt(p[7 + i * 2], 10) || 0);
+        sliceEnds.push(parseInt(p[8 + i * 2], 10) || 0);
     }
 }
 
@@ -309,6 +323,17 @@ function flushNudge() {
     }
     setParamNow("nudge", pendingNudge.slice + " " + pendingNudge.side + " " + pendingNudge.delta);
     pendingNudge = null;
+    editVersion++;
+}
+
+function deleteSelected() {
+    if (loadState !== "ready") return;
+    if (sliceCount < 2) {
+        announce("Only one slice, nothing to delete");
+        return;
+    }
+    flushNudge();
+    setParamNow("delete", String(selectedSlice));
 }
 
 function changeZoom(ticks) {
@@ -455,6 +480,7 @@ function changeSetting(cc, ticks) {
 function flushSettings() {
     for (var key in pendingSettings) {
         setParamNow(key, String(pendingSettings[key]));
+        editVersion++;
     }
     pendingSettings = {};
 }
@@ -487,8 +513,9 @@ function showMessage(text, ticks) {
     overlayTimer = ticks;
 }
 
+/* Returns true when the preset was written. */
 function exportKit() {
-    if (loadState !== "ready" || sliceCount === 0) return;
+    if (loadState !== "ready" || sliceCount === 0) return false;
     flushNudge();
     flushSettings();
     pollSlices();
@@ -497,12 +524,12 @@ function exportKit() {
     if (!uri) {
         showMessage("Not in User Library", EXPORT_MSG_TICKS);
         announce("Export failed, sample is not in the User Library");
-        return;
+        return false;
     }
     if (typeof host_write_file !== "function") {
         showMessage("Export failed", EXPORT_MSG_TICKS);
         announce("Export failed");
-        return;
+        return false;
     }
 
     var name = uniquePresetName();
@@ -521,10 +548,63 @@ function exportKit() {
     if (ok === false) {
         showMessage("Export failed", EXPORT_MSG_TICKS);
         announce("Export failed");
-        return;
+        return false;
     }
+    exportedVersion = editVersion;
     showMessage("Saved " + name, EXPORT_MSG_TICKS);
     announce("Exported drum rack, " + name);
+    return true;
+}
+
+/* ============ Exit ============ */
+
+function hasUnexported() {
+    return loadState === "ready" && editVersion !== exportedVersion;
+}
+
+function requestExit() {
+    flushNudge();
+    flushSettings();
+    if (!hasUnexported()) {
+        exitTool();
+        return;
+    }
+    confirmExit = true;
+    confirmIndex = 0;
+    announce("Not exported. " + CONFIRM_ITEMS[0]);
+}
+
+function confirmMove(ticks) {
+    if (ticks === 0) return;
+    confirmIndex = Math.max(0, Math.min(CONFIRM_ITEMS.length - 1, confirmIndex + (ticks > 0 ? 1 : -1)));
+    announce(CONFIRM_ITEMS[confirmIndex]);
+}
+
+function confirmChoose() {
+    confirmExit = false;
+    if (confirmIndex === 0) {
+        if (exportKit()) exitTool();
+    } else if (confirmIndex === 1) {
+        exitTool();
+    } else {
+        announce("Cancelled");
+    }
+}
+
+/* While the exit prompt is up: jog chooses, jog click confirms, Back
+ * cancels, Capture exports and exits. Everything else is ignored. */
+function handleConfirmCC(cc, value) {
+    if (cc === CC_JOG) {
+        confirmMove(decodeDelta(value));
+    } else if (cc === CC_JOG_CLICK && value > 0) {
+        confirmChoose();
+    } else if (cc === CC_BACK && value > 0) {
+        confirmExit = false;
+        announce("Cancelled");
+    } else if (cc === CC_CAPTURE && value > 0) {
+        confirmIndex = 0;
+        confirmChoose();
+    }
 }
 
 /* ============ Announcements ============ */
@@ -549,6 +629,11 @@ function onChop() {
     } else {
         announce("Chop, " + sliceCount + " slices");
     }
+}
+
+function onDelete() {
+    announce("Deleted, Pad " + (selectedSlice + 1) + " selected, " + sliceCount +
+             (sliceCount === 1 ? " slice" : " slices"));
 }
 
 function onUndo() {
@@ -678,8 +763,26 @@ function drawEditor() {
           " L " + formatSeconds(len), 1);
 }
 
+function drawConfirmExit() {
+    print(2, 2, "Not exported", 1);
+    print(2, 12, "Exit anyway?", 1);
+    for (var i = 0; i < CONFIRM_ITEMS.length; i++) {
+        var y = 26 + i * 12;
+        if (i === confirmIndex) {
+            fill_rect(0, y - 2, SCREEN_W, 11, 1);
+            print(4, y, CONFIRM_ITEMS[i], 0);
+        } else {
+            print(4, y, CONFIRM_ITEMS[i], 1);
+        }
+    }
+}
+
 function draw() {
     clear_screen();
+    if (confirmExit) {
+        drawConfirmExit();
+        return;
+    }
     if (loadState === "ready" && sliceCount > 0) {
         drawEditor();
         return;
@@ -720,10 +823,17 @@ globalThis.tick = function() {
     if (chopCount !== lastChopCount) {
         if (chopCount > lastChopCount) onChop();
         lastChopCount = chopCount;
+        editVersion++;
     }
     if (undoCount !== lastUndoCount) {
         if (undoCount > lastUndoCount) onUndo();
         lastUndoCount = undoCount;
+        editVersion++;
+    }
+    if (deleteCount !== lastDeleteCount) {
+        if (deleteCount > lastDeleteCount) onDelete();
+        lastDeleteCount = deleteCount;
+        editVersion++;
     }
     if (loadState === "ready" && sliceCount > 0) {
         if (selectedSlice !== lastSelectedSlice) {
@@ -764,17 +874,21 @@ globalThis.onMidiMessageInternal = function(data) {
     /* Knob touch: notes 0-7, on = velocity 64+, off = lower or note-off.
      * Pads are handled by the DSP on the audio thread; nothing to do here. */
     if (status === 0x90 || status === 0x80) {
-        if (d1 <= 7) onKnobTouch(d1, status === 0x90 && d2 >= 64);
+        if (d1 <= 7 && !confirmExit) onKnobTouch(d1, status === 0x90 && d2 >= 64);
         return;
     }
     if (status !== 0xB0) return;
 
     if (d1 === CC_SHIFT) {
         shiftHeld = d2 > 0;
+    } else if (confirmExit) {
+        handleConfirmCC(d1, d2);
     } else if (d1 === CC_BACK && d2 > 0) {
-        exitTool();
+        requestExit();
     } else if (d1 === CC_CAPTURE && d2 > 0) {
         exportKit();
+    } else if (d1 === CC_DELETE && d2 > 0) {
+        deleteSelected();
     } else if (d1 === CC_UNDO && d2 > 0) {
         flushNudge();
         if (undoDepth > 0) setParamNow("undo", "1");

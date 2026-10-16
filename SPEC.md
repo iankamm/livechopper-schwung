@@ -28,7 +28,7 @@ Move drum rack preset.
   from the waveform editor's marker and zoom UI.
 - Export to a default Move drum rack preset, the same way the waveform editor
   does. Find and reuse its export code.
-- Undo the last chop.
+- Undo the last chop or delete.
 - help.json and screen-reader announcements (chop made, pad selected, export
   done).
 
@@ -76,6 +76,13 @@ Move drum rack preset.
 - Pressing a chopped pad that is not playing: it plays its region and chokes
   whatever is playing.
 
+- Delete (Delete button): removes the selected slice by merging it into the
+  previous one (Pad 1 merges into Pad 2), i.e. it removes a chop point. Later
+  pads shift down one. Undo restores it; undo covers chops and deletes and
+  keeps the last 32 steps.
+- Exit (Back): if anything changed since the last export (chops, deletes,
+  undo, chop points, envelope, transpose), ask first: Export and exit /
+  Exit, discard / Cancel. Zoom and waveform scale don't count.
 - Export (Capture button): one .ablpreset in UserLibrary/Track Presets,
   named "<sample> Chop" (then "Chop 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their

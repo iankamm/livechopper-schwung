@@ -43,8 +43,10 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
 ## Workflow
 
 - Build: ./scripts/build.sh (uses the local aarch64-linux-gnu-gcc). Before
-  each build, run node tests/ui_smoke.mjs: it runs ui.js with a fake host and
-  DSP and catches JS errors the device would otherwise hit first.
+  each build, run ./scripts/test.sh: tests/dsp_test.c drives plugin.c on the
+  host (gcc + ASan/UBSan, real worker thread and WAV files) and
+  tests/ui_smoke.mjs runs ui.js under node with a fake host and DSP, checking
+  the exported preset too. Add checks there for each new feature.
 - Small steps. After each working step, stop and tell me what to test on the
   device and what to look for.
 - Do not deploy to the device or run ssh commands without asking first.

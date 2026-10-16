@@ -28,9 +28,15 @@
         "Blue pad: chop at",
         " playhead while a",
         " slice plays",
-        "Undo: undo last chop",
+        "Delete: delete the",
+        " selected slice",
+        " (merges it into",
+        " the previous pad)",
+        "Undo: undo last",
+        " chop or delete",
         "Capture: export",
-        "Back: exit"
+        "Back: exit (asks if",
+        " not exported)"
       ]
     },
     {
