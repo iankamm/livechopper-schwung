@@ -14,6 +14,9 @@ Status: early development.
 | Blue pad | While a slice plays: chop at the playhead |
 | Knob 1 / Knob 2 | Move the selected slice's start / end |
 | Knob 3 | Zoom |
+| Knob 4 | Waveform vertical scale |
+| Knob 5 / 6 / 7 | Attack / Hold / Decay (all pads) |
+| Knob 8 | Transpose (all pads, repitch) |
 | Jog / Jog click | Move the active marker / switch start and end |
 | Shift | Fine steps for knobs and jog |
 | Left / Right | Select previous / next slice |

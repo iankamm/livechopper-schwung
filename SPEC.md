@@ -49,15 +49,16 @@ Move drum rack preset.
   Pad 1 = old start to T, Pad 2 = T to Pad 1's old end (the new slice),
   Pad 3 = old slice 2, Pad 4 = old slice 3, and Pad 5 lights blue.
   Playback continues on the new slice (now Pad 2), not on the pad pressed.
-  Per-slice settings (envelope) move with their slice when pads are reordered.
 - Transpose: repitch only (changes length and pitch together), one global
-  setting for now.
-- Envelope: each slice has its own attack, hold and decay (AHD, matching the
-  Move drum sampler's A-H-D mode, so it exports directly), applied in chop
-  mode playback and carried into the export. Default for a new slice:
-  attack 0, hold for the full slice, short decay, so a fresh chop sounds like
-  the raw sample without clicks. A new slice created by a chop copies the
-  envelope of the slice it was split from.
+  setting (Knob 8, -24 to +24 semitones).
+- Envelope: one global attack, hold and decay (AHD, matching the Move drum
+  sampler's A-H-D mode) applied to every slice in chop mode and carried into
+  the export for every pad. Knobs 5/6/7. Default: attack 0, hold Full (until
+  the slice ends), short decay, so slices sound like the raw sample. A chop
+  does not retrigger the envelope. This mode is for chopping; per-pad sound
+  shaping is done in the drum rack after export.
+- Declick: when a pad cuts off another, the old voice fades out over ~1.5 ms.
+- Waveform vertical scale: Knob 4, 1x to 32x, as in the waveform editor.
 - Choke: all pads choke each other by default, in chop mode and in the exported
   drum rack preset (supported: every pad gets the same chokeGroup).
 - Pad colors: playable slice pads are red, the pad that is currently playing
@@ -80,5 +81,3 @@ Move drum rack preset.
 - Export: one WAV with start/end per drum rack pad, or one WAV file per slice?
   Depends on what the waveform editor's export and the drum rack preset format
   support. Recommend an option with the tradeoffs.
-- How the envelope is edited on the device (which knobs, on which pad). Propose
-  something consistent with the waveform editor and Move.

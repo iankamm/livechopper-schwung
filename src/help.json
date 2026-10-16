@@ -38,6 +38,7 @@
         "Knob 1: move start",
         "Knob 2: move end",
         "Knob 3: zoom",
+        "Knob 4: wave scale",
         "Jog: move active",
         " marker",
         "Jog click: switch",
@@ -51,6 +52,23 @@
         "pad's start moves",
         "the previous pad's",
         "end too."
+      ]
+    },
+    {
+      "title": "Sound",
+      "lines": [
+        "These apply to all",
+        "pads and carry into",
+        "the export.",
+        "",
+        "Knob 5: attack",
+        "Knob 6: hold",
+        "  (top = Full)",
+        "Knob 7: decay",
+        "Knob 8: transpose",
+        " (-24 to +24 semis,",
+        " changes speed too)",
+        "Shift: fine steps"
       ]
     }
   ]

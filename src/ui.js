@@ -17,6 +17,9 @@
  *   Knob 1     - Move the selected slice's start
  *   Knob 2     - Move the selected slice's end
  *   Knob 3     - Zoom
+ *   Knob 4     - Waveform vertical scale (1x-32x)
+ *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
+ *   Knob 8     - Transpose in semitones (global, repitch)
  *   Jog        - Move the active marker  |  Jog click: toggle start/end
  *   Shift      - Fine steps for knobs and jog
  *   Left/Right - Select previous/next slice
@@ -26,7 +29,8 @@
 
 import {
     MoveBack, MoveUndo, MoveShift, MoveLeft, MoveRight,
-    MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3,
+    MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
+    MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
     MovePads,
     Black, DarkGrey, White, BrightRed, PureBlue,
     WhiteLedOff, WhiteLedBright
@@ -51,6 +55,11 @@ var CC_JOG_CLICK = MoveMainButton;
 var CC_E1 = MoveKnob1;
 var CC_E2 = MoveKnob2;
 var CC_E3 = MoveKnob3;
+var CC_E4 = MoveKnob4;
+var CC_E5 = MoveKnob5;
+var CC_E6 = MoveKnob6;
+var CC_E7 = MoveKnob7;
+var CC_E8 = MoveKnob8;
 
 var PAD_NOTE_MIN = MovePads[0];
 var MAX_PADS = 16;
@@ -76,6 +85,23 @@ var ZOOM_STEP = 0.25;
 var FINE_DIVISOR = 16;          /* Shift: 1/16 of a coarse step */
 var EDGE_MARGIN = 0.05;         /* recenter when a marker is this close to the edge */
 var ANNOUNCE_SETTLE_TICKS = 20;
+var OVERLAY_TICKS = 60;
+
+/* Vertical scale, as in the waveform editor: scale *= 2^step per tick. */
+var VSCALE_MIN = 1.0;
+var VSCALE_MAX = 32.0;
+var VSCALE_STEP = 0.25;
+
+/* Envelope knobs move a 0-1 position; time = max * pos^3 for fine control
+ * near zero. Hold at the top of its range is Full (until the slice ends). */
+var ATTACK_MAX_US = 2000000;
+var HOLD_MAX_US = 5000000;
+var DECAY_MAX_US = 10000000;
+var HOLD_FULL = -1;
+var ENV_KNOB_STEP = 0.01;
+var ENV_KNOB_FINE = 0.002;
+var TRANSPOSE_MIN = -24;
+var TRANSPOSE_MAX = 24;
 var EDIT_TIMEOUT_MS = 100;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
@@ -124,6 +150,21 @@ var zoom = 0;
 var viewStart = 0;
 var pendingNudge = null;    /* { slice, side, delta } sent once per tick */
 var announceTimer = 0;
+var vScale = 1.0;
+
+/* Global sound settings (DSP holds the truth; read back on load) */
+var attackUs = 0;
+var holdUs = HOLD_FULL;
+var decayUs = 50000;
+var transpose = 0;
+var attackKnob = 0;
+var holdKnob = 1;
+var decayKnob = 0;
+var pendingSettings = {};   /* key -> value, sent once per tick */
+var overlayText = "";       /* footer readout while a sound knob moves */
+var overlayTimer = 0;
+var settingAnnounce = "";
+var settingAnnounceTimer = 0;
 
 /* Waveform cache */
 var waveKey = "";
@@ -235,6 +276,7 @@ function coarseStep() {
 
 function queueNudge(side, ticks) {
     if (loadState !== "ready" || ticks === 0) return;
+    overlayTimer = 0;
     if (side !== activeSide) {
         activeSide = side;
         keepMarkerVisible();
@@ -273,6 +315,103 @@ function selectSlice(idx) {
     setParamNow("select", String(idx));
 }
 
+/* ============ Sound settings ============ */
+
+function formatUs(us) {
+    if (us === HOLD_FULL) return "Full";
+    if (us < 10000) return (us / 1000).toFixed(1) + "ms";
+    if (us < 1000000) return Math.round(us / 1000) + "ms";
+    return (us / 1000000).toFixed(2) + "s";
+}
+
+function spokenUs(us) {
+    if (us === HOLD_FULL) return "full";
+    if (us < 1000000) return (Math.round(us / 100) / 10) + " milliseconds";
+    return (Math.round(us / 10000) / 100) + " seconds";
+}
+
+function formatTranspose(t) {
+    return (t > 0 ? "+" : "") + t + "st";
+}
+
+function knobToUs(pos, maxUs) {
+    return Math.round(maxUs * pos * pos * pos);
+}
+
+function usToKnob(us, maxUs) {
+    if (us <= 0) return 0;
+    return Math.min(1, Math.cbrt(us / maxUs));
+}
+
+function readSettings() {
+    var raw = host_module_get_param("settings");
+    if (!raw) return;
+    var p = raw.split(" ");
+    attackUs = parseInt(p[0], 10) || 0;
+    holdUs = parseInt(p[1], 10);
+    if (isNaN(holdUs)) holdUs = HOLD_FULL;
+    decayUs = parseInt(p[2], 10) || 0;
+    transpose = parseInt(p[3], 10) || 0;
+    attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
+    holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
+    decayKnob = usToKnob(decayUs, DECAY_MAX_US);
+}
+
+function showSetting(text, spoken) {
+    overlayText = text;
+    overlayTimer = OVERLAY_TICKS;
+    settingAnnounce = spoken;
+    settingAnnounceTimer = ANNOUNCE_SETTLE_TICKS;
+}
+
+function clamp01(x) {
+    return x < 0 ? 0 : (x > 1 ? 1 : x);
+}
+
+function changeSetting(cc, ticks) {
+    if (loadState !== "ready" || ticks === 0) return;
+    var step = (shiftHeld ? ENV_KNOB_FINE : ENV_KNOB_STEP) * ticks;
+    if (cc === CC_E5) {
+        attackKnob = clamp01(attackKnob + step);
+        attackUs = knobToUs(attackKnob, ATTACK_MAX_US);
+        pendingSettings.attack_us = attackUs;
+        showSetting("Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs));
+    } else if (cc === CC_E6) {
+        holdKnob = clamp01(holdKnob + step);
+        holdUs = holdKnob >= 1 ? HOLD_FULL : knobToUs(holdKnob, HOLD_MAX_US);
+        pendingSettings.hold_us = holdUs;
+        showSetting("Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs));
+    } else if (cc === CC_E7) {
+        decayKnob = clamp01(decayKnob + step);
+        decayUs = knobToUs(decayKnob, DECAY_MAX_US);
+        pendingSettings.decay_us = decayUs;
+        showSetting("Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs));
+    } else if (cc === CC_E8) {
+        transpose += ticks;
+        if (transpose < TRANSPOSE_MIN) transpose = TRANSPOSE_MIN;
+        if (transpose > TRANSPOSE_MAX) transpose = TRANSPOSE_MAX;
+        pendingSettings.transpose = transpose;
+        showSetting("Transpose " + formatTranspose(transpose),
+                    "Transpose " + transpose + " semitones");
+    }
+}
+
+function flushSettings() {
+    for (var key in pendingSettings) {
+        setParamNow(key, String(pendingSettings[key]));
+    }
+    pendingSettings = {};
+}
+
+function changeVScale(ticks) {
+    if (loadState !== "ready" || ticks === 0) return;
+    vScale *= Math.pow(2, ticks * VSCALE_STEP);
+    if (vScale < VSCALE_MIN) vScale = VSCALE_MIN;
+    if (vScale > VSCALE_MAX) vScale = VSCALE_MAX;
+    if (vScale > 0.9 && vScale < 1.1) vScale = 1.0;
+    showSetting("Scale " + vScale.toFixed(1) + "x", "Scale " + vScale.toFixed(1));
+}
+
 /* ============ Announcements ============ */
 
 function onLoadStateChange() {
@@ -281,6 +420,7 @@ function onLoadStateChange() {
         zoom = 0;
         viewStart = 0;
         waveKey = "";
+        readSettings();
     } else if (loadState === "error") {
         errorMsg = host_module_get_param("error") || "Load failed";
         announce("Load failed, " + errorMsg);
@@ -339,6 +479,7 @@ function clearAllPadLeds() {
 
 function exitTool() {
     flushNudge();
+    flushSettings();
     clearAllPadLeds();
     setButtonLED(CC_UNDO, WhiteLedOff);
     if (typeof host_exit_module === "function") host_exit_module();
@@ -362,7 +503,7 @@ function drawMarkerLine(x, dashed) {
 
 function drawWaveform() {
     for (var c = 0; c < wavePeaks.length; c++) {
-        var h = Math.round(wavePeaks[c] * WAVE_HALF / 255);
+        var h = Math.min(WAVE_HALF, Math.round(wavePeaks[c] * vScale * WAVE_HALF / 255));
         var x = WAVE_X + c;
         if (h > 0) draw_line(x, WAVE_MID - h, x, WAVE_MID + h, 1);
         else set_pixel(x, WAVE_MID, 1);
@@ -406,12 +547,17 @@ function drawEditor() {
     header += activeSide === 0 ? "  START" : "  END";
     print(0, 0, header, 1);
     var zl = "x" + Math.round(Math.pow(2, zoom));
+    if (transpose !== 0) zl = formatTranspose(transpose) + " " + zl;
     print(SCREEN_W - text_width(zl) - 1, 0, zl, 1);
 
     drawWaveform();
     drawMarkers();
     drawMinimap();
 
+    if (overlayTimer > 0) {
+        print(0, 54, overlayText, 1);
+        return;
+    }
     var len = sliceEnds[selectedSlice] - sliceStarts[selectedSlice];
     print(0, 54, (activeSide === 0 ? "S " : "E ") + formatSeconds(activeMarkerPos()) +
           " L " + formatSeconds(len), 1);
@@ -448,6 +594,7 @@ globalThis.init = function() {
 
 globalThis.tick = function() {
     flushNudge();
+    flushSettings();
     pollStatus();
     pollSlices();
 
@@ -477,6 +624,11 @@ globalThis.tick = function() {
         announceTimer--;
         if (announceTimer === 0) announceMarker();
     }
+    if (settingAnnounceTimer > 0) {
+        settingAnnounceTimer--;
+        if (settingAnnounceTimer === 0) announce(settingAnnounce);
+    }
+    if (overlayTimer > 0) overlayTimer--;
 
     updatePadLeds();
     updateUndoLed();
@@ -505,6 +657,10 @@ globalThis.onMidiMessageInternal = function(data) {
         queueNudge(1, decodeDelta(d2));
     } else if (d1 === CC_E3) {
         changeZoom(decodeDelta(d2));
+    } else if (d1 === CC_E4) {
+        changeVScale(decodeDelta(d2));
+    } else if (d1 === CC_E5 || d1 === CC_E6 || d1 === CC_E7 || d1 === CC_E8) {
+        changeSetting(d1, decodeDelta(d2));
     } else if (d1 === CC_JOG) {
         queueNudge(activeSide, decodeDelta(d2));
     } else if (d1 === CC_JOG_CLICK && d2 > 0) {

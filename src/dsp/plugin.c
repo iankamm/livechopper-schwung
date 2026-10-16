@@ -29,6 +29,11 @@
  * Waveform: the worker builds three levels of peak tables at load time, so
  * get_param("wave ...") reads a bounded number of values per column.
  *
+ * Sound: one global attack/hold/decay envelope and one global transpose
+ * (repitch: changes speed and pitch together) apply to every slice. A
+ * chop does not retrigger the envelope, so playback stays seamless. When
+ * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
+ *
  * Undo: each chop first pushes a snapshot of the slice list onto a fixed
  * stack (no allocation); set_param("undo") pops it.
  */
@@ -66,6 +71,14 @@
 static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define WAVE_MAX_COLS 128
 
+/* Envelope and pitch */
+#define HOLD_FULL (-1)              /* hold until the slice ends */
+#define DEFAULT_DECAY_US 50000
+#define MAX_ENV_US 10000000         /* 10 s */
+#define TRANSPOSE_MIN (-24)
+#define TRANSPOSE_MAX 24
+#define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
+
 enum {
     LOAD_NONE = 0,
     LOAD_BUSY = 1,
@@ -95,8 +108,21 @@ typedef struct {
     sample_buf_t *current;
     int playing;
     double play_pos;    /* in source frames */
-    double play_step;   /* source frames per output frame */
     int play_end;
+    int env_pos;        /* output frames since the voice was triggered */
+
+    /* Choke tail: the voice that was cut off, fading out */
+    int tail_active;
+    double tail_pos;
+    int tail_end;
+    float tail_gain;
+    int tail_left;
+
+    /* Global sound settings */
+    int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
+    int attack_frames, hold_frames, decay_frames;
+    int transpose;                              /* semitones */
+    double pitch_ratio;                         /* 2^(transpose/12) */
 
     /* Slices, in time order. Pad i plays slice i. */
     int slice_start[MAX_SLICES];
@@ -390,6 +416,7 @@ static void adopt_incoming(chopper_t *inst) {
     sample_buf_t *old = inst->current;
     inst->current = s;
     inst->playing = 0;
+    inst->tail_active = 0;
     inst->playing_slice = -1;
     inst->selected_slice = 0;
     inst->slice_start[0] = 0;
@@ -412,12 +439,67 @@ static int note_to_pad(int note) {
 }
 
 /* Start a slice from its beginning. Cuts off whatever was playing. */
+/* Envelope gain for the main voice at its current position. */
+static float env_gain(const chopper_t *inst) {
+    int p = inst->env_pos;
+    if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
+    p -= inst->attack_frames;
+    if (inst->hold_frames == HOLD_FULL || p < inst->hold_frames) return 1.0f;
+    p -= inst->hold_frames;
+    if (p >= inst->decay_frames) return 0.0f;
+    return 1.0f - (float)p / (float)inst->decay_frames;
+}
+
+static int env_finished(const chopper_t *inst) {
+    if (inst->hold_frames == HOLD_FULL) return 0;
+    return inst->env_pos >= inst->attack_frames + inst->hold_frames + inst->decay_frames;
+}
+
+static int us_to_frames(int us) {
+    return (int)((int64_t)us * MOVE_SAMPLE_RATE / 1000000);
+}
+
+static int clamp_us(int us) {
+    if (us < 0) return 0;
+    if (us > MAX_ENV_US) return MAX_ENV_US;
+    return us;
+}
+
+static void set_transpose(chopper_t *inst, int semis) {
+    if (semis < TRANSPOSE_MIN) semis = TRANSPOSE_MIN;
+    if (semis > TRANSPOSE_MAX) semis = TRANSPOSE_MAX;
+    inst->transpose = semis;
+    /* Bounded: |semis| <= 24 multiplications. */
+    double r = 1.0;
+    const double semitone = 1.0594630943592953;
+    for (int i = 0; i < (semis < 0 ? -semis : semis); i++) r *= semitone;
+    inst->pitch_ratio = semis < 0 ? 1.0 / r : r;
+}
+
+/* Linear-interpolated stereo frame at a fractional source position. */
+static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
+    int idx = (int)pos;
+    float frac = (float)(pos - idx);
+    int nxt = idx < s->frames - 1 ? idx + 1 : idx;
+    const int16_t *d = s->data;
+    *l = d[idx * 2] + (d[nxt * 2] - d[idx * 2]) * frac;
+    *r = d[idx * 2 + 1] + (d[nxt * 2 + 1] - d[idx * 2 + 1]) * frac;
+}
+
 static void play_slice(chopper_t *inst, int idx) {
     sample_buf_t *s = inst->current;
     if (!s || idx < 0 || idx >= inst->slice_count) return;
+    if (inst->playing) {
+        /* Choke: hand the old voice to the tail so it fades instead of clicking. */
+        inst->tail_active = 1;
+        inst->tail_pos = inst->play_pos;
+        inst->tail_end = inst->play_end;
+        inst->tail_gain = env_gain(inst);
+        inst->tail_left = DECLICK_FRAMES;
+    }
     inst->play_pos = inst->slice_start[idx];
     inst->play_end = inst->slice_end[idx];
-    inst->play_step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE;
+    inst->env_pos = 0;
     inst->playing_slice = idx;
     inst->selected_slice = idx;
     inst->playing = 1;
@@ -589,6 +671,12 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     atomic_init(&inst->load_state, LOAD_NONE);
     atomic_init(&inst->worker_quit, 0);
     inst->playing_slice = -1;
+    inst->attack_us = 0;
+    inst->hold_us = HOLD_FULL;
+    inst->hold_frames = HOLD_FULL;
+    inst->decay_us = DEFAULT_DECAY_US;
+    inst->decay_frames = us_to_frames(DEFAULT_DECAY_US);
+    set_transpose(inst, 0);
     if (pthread_create(&inst->worker, NULL, worker_main, inst) == 0) {
         inst->worker_started = 1;
     }
@@ -645,6 +733,35 @@ static void set_param(void *instance, const char *key, const char *val) {
         nudge_marker(inst, idx, side, delta);
         return;
     }
+    if (strcmp(key, "attack_us") == 0) {
+        const char *p = val;
+        inst->attack_us = clamp_us(parse_int(&p));
+        inst->attack_frames = us_to_frames(inst->attack_us);
+        return;
+    }
+    if (strcmp(key, "hold_us") == 0) {
+        const char *p = val;
+        int us = parse_int(&p);
+        if (us < 0) {
+            inst->hold_us = HOLD_FULL;
+            inst->hold_frames = HOLD_FULL;
+        } else {
+            inst->hold_us = clamp_us(us);
+            inst->hold_frames = us_to_frames(inst->hold_us);
+        }
+        return;
+    }
+    if (strcmp(key, "decay_us") == 0) {
+        const char *p = val;
+        inst->decay_us = clamp_us(parse_int(&p));
+        inst->decay_frames = us_to_frames(inst->decay_us);
+        return;
+    }
+    if (strcmp(key, "transpose") == 0) {
+        const char *p = val;
+        set_transpose(inst, parse_int(&p));
+        return;
+    }
     if (strcmp(key, "select") == 0) {
         const char *p = val;
         int idx = parse_int(&p);
@@ -692,6 +809,11 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         }
         return n;
     }
+    if (strcmp(key, "settings") == 0) {
+        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d",
+                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose);
+    }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
         const char *p = key + 5;
@@ -721,24 +843,41 @@ static void render_block(void *instance, int16_t *out, int frames) {
     adopt_incoming(inst);
 
     sample_buf_t *s = inst->current;
-    if (!s || !inst->playing) return;
+    if (!s || (!inst->playing && !inst->tail_active)) return;
 
-    const int16_t *d = s->data;
-    int last = s->frames - 1;
+    double step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE * inst->pitch_ratio;
     for (int i = 0; i < frames; i++) {
-        int idx = (int)inst->play_pos;
-        if (idx >= inst->play_end) {
-            inst->playing = 0;
-            inst->playing_slice = -1;
-            break;
+        float l = 0.0f, r = 0.0f, vl, vr;
+
+        if (inst->playing) {
+            if ((int)inst->play_pos >= inst->play_end || env_finished(inst)) {
+                inst->playing = 0;
+                inst->playing_slice = -1;
+            } else {
+                float g = env_gain(inst);
+                read_frame(s, inst->play_pos, &vl, &vr);
+                l += vl * g;
+                r += vr * g;
+                inst->play_pos += step;
+                inst->env_pos++;
+            }
         }
-        float frac = (float)(inst->play_pos - idx);
-        int nxt = idx < last ? idx + 1 : idx;
-        float l = d[idx * 2] + (d[nxt * 2] - d[idx * 2]) * frac;
-        float r = d[idx * 2 + 1] + (d[nxt * 2 + 1] - d[idx * 2 + 1]) * frac;
+
+        if (inst->tail_active) {
+            if ((int)inst->tail_pos >= inst->tail_end || inst->tail_left <= 0) {
+                inst->tail_active = 0;
+            } else {
+                float g = inst->tail_gain * (float)inst->tail_left / (float)DECLICK_FRAMES;
+                read_frame(s, inst->tail_pos, &vl, &vr);
+                l += vl * g;
+                r += vr * g;
+                inst->tail_pos += step;
+                inst->tail_left--;
+            }
+        }
+
         out[i * 2] = clamp16(l);
         out[i * 2 + 1] = clamp16(r);
-        inst->play_pos += inst->play_step;
     }
 }
 
