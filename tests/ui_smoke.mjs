@@ -31,7 +31,10 @@ for (const f of ['clear_screen', 'set_pixel', 'draw_rect', 'fill_rect', 'draw_li
 let printed = [];
 g.print = (x, y, t) => { if (typeof t !== 'string') throw new Error('print non-string'); printed.push(t); };
 g.text_width = t => t.length * 5;
-g.move_midi_internal_send = () => {};
+const buttonLeds = {};
+g.move_midi_internal_send = m => { if (m[0] === 0x0b) buttonLeds[m[2]] = m[3]; return true; };
+const lit = cc => buttonLeds[cc] > 0;
+const UNDO = 56, DELETE = 119, CAPTURE = 52;
 g.host_send_screenreader = t => log.push('SAY: ' + t);
 g.host_announce_screenreader = g.host_send_screenreader;
 g.shadow_get_display_mode = () => 1;
@@ -63,9 +66,11 @@ const midi = (s, d1, d2) => g.onMidiMessageInternal([s, d1, d2]);
 const READOUT = /Start|End|Zoom|Scale|Attack|Hold|Decay|Transpose/;
 
 g.init(); tick(5);
+check(!lit(UNDO) && !lit(DELETE) && lit(CAPTURE), 'one slice: only Capture lit');
 // Three slices
 dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.chop = 2; dsp.depth = 2; dsp.sel = 1;
 tick(2);
+check(lit(UNDO) && lit(DELETE) && lit(CAPTURE), 'three slices: Undo, Delete, Capture lit');
 
 // Knob touch shows a readout, turning updates it
 for (let k = 0; k < 8; k++) {
@@ -160,15 +165,18 @@ const exits = () => log.filter(l => l === 'EXIT').length;
 const prompt = () => printed.includes('Not exported');
 midi(0xB0, 51, 127); tick(1);
 check(prompt() && exits() === 0, 'Back with unexported changes asks first');
+check(!lit(UNDO) && !lit(DELETE) && lit(CAPTURE), 'prompt: only Capture lit');
 mark = sets.length;
 midi(0xB0, 71, 5); midi(0x90, 4, 127); tick(1);
 check(prompt() && sets.length === mark, 'knobs ignored while asking');
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 0, 'Back in the prompt cancels');
+check(lit(DELETE), 'Delete lit again after cancelling');
 midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
 check(!prompt() && exits() === 0, 'choosing Cancel stays');
 midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
 check(exits() === 1, 'choosing Exit, discard exits');
+check(!lit(UNDO) && !lit(DELETE) && !lit(CAPTURE), 'exit turns the buttons off');
 const p3 = presetDir + 'test loop Chop 3.ablpreset';
 dsp.chop = 3; tick(1);                   // more unexported work
 midi(0xB0, 51, 127); midi(0xB0, 52, 127); tick(1);

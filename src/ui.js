@@ -159,7 +159,8 @@ var confirmExit = false;
 var confirmIndex = 0;
 var CONFIRM_ITEMS = ["Export and exit", "Exit, discard", "Cancel"];
 var lastSelectedSlice = -1;
-var undoLedOn = null;
+var buttonLedOn = {};        /* last on/off sent per button CC */
+var exited = false;         /* no LED updates once we have handed back */
 var padColors = [];         /* last color sent per pad index, to avoid LED spam */
 
 /* Editing */
@@ -647,12 +648,19 @@ function announceMarker() {
 
 /* ============ LEDs ============ */
 
-/* Undo button lit while there is a chop to undo. */
-function updateUndoLed() {
-    var on = undoDepth > 0;
-    if (undoLedOn === on) return;
-    undoLedOn = on;
-    setButtonLED(CC_UNDO, on ? WhiteLedBright : WhiteLedOff);
+function setButtonLit(cc, on) {
+    if (buttonLedOn[cc] === on) return;
+    buttonLedOn[cc] = on;
+    setButtonLED(cc, on ? WhiteLedBright : WhiteLedOff);
+}
+
+/* Undo, Delete and Capture are lit while pressing them would do something. */
+function updateButtonLeds() {
+    if (exited) return;
+    var ready = loadState === "ready";
+    setButtonLit(CC_UNDO, undoDepth > 0 && !confirmExit);
+    setButtonLit(CC_DELETE, ready && sliceCount > 1 && !confirmExit);
+    setButtonLit(CC_CAPTURE, ready && sliceCount > 0);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -681,7 +689,10 @@ function exitTool() {
     flushNudge();
     flushSettings();
     clearAllPadLeds();
-    setButtonLED(CC_UNDO, WhiteLedOff);
+    setButtonLit(CC_UNDO, false);
+    setButtonLit(CC_DELETE, false);
+    setButtonLit(CC_CAPTURE, false);
+    exited = true;
     if (typeof host_exit_module === "function") host_exit_module();
 }
 
@@ -862,7 +873,7 @@ globalThis.tick = function() {
     }
 
     updatePadLeds();
-    updateUndoLed();
+    updateButtonLeds();
     draw();
 };
 
