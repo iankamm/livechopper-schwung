@@ -742,7 +742,7 @@ function requestExit() {
         return;
     }
     confirmExit = true;
-    confirmIndex = CONFIRM_EXIT;
+    confirmIndex = CONFIRM_KEEP;
     announce((hasUnexported() ? "Not exported. " : "") + confirmItems()[confirmIndex]);
 }
 

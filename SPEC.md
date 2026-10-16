@@ -87,7 +87,7 @@ Move drum rack preset.
   keeps the last 32 steps. Shift+Undo redoes what was undone, until a new
   chop, delete or chop point move.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
-  Discard and exit selected. The title warns "Not exported" if anything
+  Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,
   envelope, gate, transpose; zoom and waveform scale don't count); with
   nothing unexported the middle item is just "Exit".

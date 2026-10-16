@@ -291,7 +291,7 @@ check(prompt() && exits() === 0, 'Back with unexported changes asks first');
 check(['Keep for later', 'Discard and exit', 'Cancel'].every(t => printed.includes(t)), 'Back menu items: ' + JSON.stringify(printed));
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'prompt: Undo, Delete, Record dark');
 check(!printed.some(t => /Export/.test(t)), 'prompt offers no export');
-check(log.at(-1) === 'SAY: Not exported. Discard and exit', 'prompt starts on Discard and exit');
+check(log.at(-1) === 'SAY: Not exported. Keep for later', 'prompt starts on Keep for later');
 mark = sets.length;
 const fileCount = Object.keys(files).length;
 midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 118, 127); tick(1);
@@ -300,19 +300,19 @@ check(Object.keys(files).length === fileCount, 'Record ignored while asking');
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 0, 'Back in the prompt cancels');
 check(lit(DELETE) && lit(RECORD), 'Delete and Record lit again after cancelling');
-midi(0xB0, 51, 127); jog(1); click(); tick(1);
-check(!prompt() && exits() === 0, 'choosing Cancel stays');
 midi(0xB0, 51, 127); jog(2); click(); tick(1);
+check(!prompt() && exits() === 0, 'choosing Cancel stays');
+midi(0xB0, 51, 127); jog(3); click(); tick(1);
 check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
-midi(0xB0, 51, 127); click(); tick(1);
-check(exits() === 1, 'clicking the default (Discard and exit) exits');
+midi(0xB0, 51, 127); jog(1); click(); tick(1);
+check(exits() === 1 && !log.includes('HIDE'), 'Discard and exit exits');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
 exportPreset();                          // exports it
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && printed.includes('Leave Chopper') && printed.includes('Exit') && !printed.includes('Discard and exit'),
       'everything exported: plain Exit, no warning: ' + JSON.stringify(printed));
-click(); tick(1);
+jog(1); click(); tick(1);
 check(exits() === 2, 'Exit exits');
 dsp.chop = 6; tick(1);
 midi(0xB0, 118, 127); jog(1); click(); tick(1);
@@ -326,7 +326,7 @@ midi(0xB0, 73, 5); midi(0xB0, 74, 5); tick(1);   // zoom in, scale up: remembere
 dsp.chop = 7; tick(1);                            // unexported work
 check(/^1 1 [\d.]+ [\d.]+$/.test(dsp.uiState) && dsp.uiState !== '1 1 0 1', 'ui_state saved as it changes: ' + dsp.uiState);
 mark = sets.length;
-midi(0xB0, 51, 127); jog(-1); click(); tick(1);
+midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
