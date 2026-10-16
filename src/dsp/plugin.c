@@ -16,7 +16,11 @@
  * top of a block and passes the old buffer back through `retired` for the
  * worker to free. Neither side ever blocks on the other.
  *
- * Step 1: Pad 1 plays the whole sample once (one-shot).
+ * Chopping: the DSP owns the slice list and the playhead. A note-on for the
+ * blue pad (the first unused one) splits the slice that is playing at the
+ * current playhead, inserts the new slice right after it, and playback
+ * carries on into the new slice without a gap. Pads stay in time order.
+ * One voice at a time: every pad chokes every other. Playback is one-shot.
  */
 
 #define _GNU_SOURCE
@@ -33,6 +37,12 @@
 
 #define PAD_NOTE_MIN 68
 #define PAD_NOTE_MAX 99
+#define MAX_SLICES 16
+/* Slice pads are the left 4x4 block, Pad 1 bottom-left. */
+#define PAD_COLS 4
+#define PAD_ROW_STRIDE 8
+/* Chops closer than this to a slice edge are ignored (~1.5 ms). */
+#define MIN_SLICE_FRAMES 64
 #define PATH_MAX_LEN 512
 #define ERROR_MAX_LEN 64
 
@@ -60,6 +70,13 @@ typedef struct {
     double play_pos;    /* in source frames */
     double play_step;   /* source frames per output frame */
     int play_end;
+
+    /* Slices, in time order. Pad i plays slice i. */
+    int slice_start[MAX_SLICES];
+    int slice_end[MAX_SLICES];
+    int slice_count;
+    int playing_slice;  /* -1 when silent */
+    uint32_t chop_count; /* bumped on every chop, for the UI */
 
     /* --- handoff between audio thread and worker --- */
     char req_path[PATH_MAX_LEN];
@@ -297,16 +314,58 @@ static void adopt_incoming(chopper_t *inst) {
     sample_buf_t *old = inst->current;
     inst->current = s;
     inst->playing = 0;
+    inst->playing_slice = -1;
+    inst->slice_start[0] = 0;
+    inst->slice_end[0] = s->frames;
+    inst->slice_count = 1;
+    inst->chop_count = 0;
     if (old) atomic_store(&inst->retired, old);
 }
 
-static void start_region(chopper_t *inst, int start, int end) {
+/* Returns 0-15 for a slice pad note, -1 otherwise. */
+static int note_to_pad(int note) {
+    int off = note - PAD_NOTE_MIN;
+    if (off < 0 || note > PAD_NOTE_MAX) return -1;
+    int col = off % PAD_ROW_STRIDE;
+    if (col >= PAD_COLS) return -1;
+    int idx = (off / PAD_ROW_STRIDE) * PAD_COLS + col;
+    return idx < MAX_SLICES ? idx : -1;
+}
+
+/* Start a slice from its beginning. Cuts off whatever was playing. */
+static void play_slice(chopper_t *inst, int idx) {
     sample_buf_t *s = inst->current;
-    if (!s || end <= start) return;
-    inst->play_pos = start;
-    inst->play_end = end;
+    if (!s || idx < 0 || idx >= inst->slice_count) return;
+    inst->play_pos = inst->slice_start[idx];
+    inst->play_end = inst->slice_end[idx];
     inst->play_step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE;
+    inst->playing_slice = idx;
     inst->playing = 1;
+}
+
+/* Split the playing slice at the playhead. The new slice goes right after
+ * it, later slices move up one pad, and playback continues into the new
+ * slice. Bounded: at most MAX_SLICES moves. */
+static void chop_at_playhead(chopper_t *inst) {
+    int p = inst->playing_slice;
+    if (!inst->playing || p < 0 || inst->slice_count >= MAX_SLICES) return;
+
+    int t = (int)inst->play_pos;
+    if (t - inst->slice_start[p] < MIN_SLICE_FRAMES ||
+        inst->slice_end[p] - t < MIN_SLICE_FRAMES) return;
+
+    for (int i = inst->slice_count; i > p + 1; i--) {
+        inst->slice_start[i] = inst->slice_start[i - 1];
+        inst->slice_end[i] = inst->slice_end[i - 1];
+    }
+    inst->slice_start[p + 1] = t;
+    inst->slice_end[p + 1] = inst->slice_end[p];
+    inst->slice_end[p] = t;
+    inst->slice_count++;
+    inst->chop_count++;
+
+    /* Same position, same end: only the owner of the playhead changes. */
+    inst->playing_slice = p + 1;
 }
 
 /* ============================================================================
@@ -323,6 +382,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     atomic_init(&inst->retired, NULL);
     atomic_init(&inst->load_state, LOAD_NONE);
     atomic_init(&inst->worker_quit, 0);
+    inst->playing_slice = -1;
     if (pthread_create(&inst->worker, NULL, worker_main, inst) == 0) {
         inst->worker_started = 1;
     }
@@ -351,9 +411,14 @@ static void on_midi(void *instance, const uint8_t *msg, int len, int source) {
     uint8_t note = msg[1];
     uint8_t vel = msg[2];
 
-    if (type == 0x90 && vel > 0 && note == PAD_NOTE_MIN) {
-        sample_buf_t *s = inst->current;
-        if (s) start_region(inst, 0, s->frames);
+    if (type != 0x90 || vel == 0 || !inst->current) return;
+
+    int pad = note_to_pad(note);
+    if (pad < 0) return;
+    if (pad < inst->slice_count) {
+        play_slice(inst, pad);
+    } else if (pad == inst->slice_count) {
+        chop_at_playhead(inst);
     }
 }
 
@@ -389,6 +454,16 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
                         s ? s->frames : 0, s ? s->sample_rate : 0,
                         inst->playing, (int)inst->play_pos);
     }
+    if (strcmp(key, "slices") == 0) {
+        /* "<chop_count> <playing_slice> <count> <start0> <end0> ..." */
+        int n = snprintf(buf, (size_t)buf_len, "%u %d %d", inst->chop_count,
+                         inst->playing ? inst->playing_slice : -1, inst->slice_count);
+        for (int i = 0; i < inst->slice_count && n > 0 && n < buf_len; i++) {
+            n += snprintf(buf + n, (size_t)(buf_len - n), " %d %d",
+                          inst->slice_start[i], inst->slice_end[i]);
+        }
+        return n;
+    }
     if (strcmp(key, "error") == 0) {
         if (atomic_load(&inst->load_state) != LOAD_FAILED) return snprintf(buf, (size_t)buf_len, "%s", "");
         return snprintf(buf, (size_t)buf_len, "%s", inst->load_error);
@@ -418,6 +493,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
         int idx = (int)inst->play_pos;
         if (idx >= inst->play_end) {
             inst->playing = 0;
+            inst->playing_slice = -1;
             break;
         }
         float frac = (float)(inst->play_pos - idx);

@@ -12,15 +12,22 @@
         "Play Pad 1, then hit",
         "the blue pad to cut",
         "at the playhead.",
+        "Playback carries on",
+        "into the new slice.",
         "",
-        "Export the slices as",
-        "a Move drum rack."
+        "Up to 16 slices on",
+        "the left 4x4 pads,",
+        "Pad 1 bottom-left."
       ]
     },
     {
       "title": "Controls",
       "lines": [
-        "Pad 1: play sample",
+        "Red pad: play slice",
+        " (one-shot)",
+        "Blue pad: chop at",
+        " playhead while a",
+        " slice plays",
         "Back: exit"
       ]
     }

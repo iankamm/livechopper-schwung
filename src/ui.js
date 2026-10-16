@@ -4,19 +4,18 @@
  * Chop a sample across pads in real time. See SPEC.md.
  * 128x64 1-bit monochrome display, QuickJS runtime.
  *
- * The DSP owns pad input and the playhead (so chops are sample-accurate);
- * this UI only mirrors DSP state by polling get_param("status").
- *
- * Step 1: the WAV loads into the DSP; Pad 1 plays the whole sample.
+ * The DSP owns pad input, the slice list and the playhead (so chops are
+ * sample-accurate); this UI only mirrors DSP state by polling get_param.
  *
  * Controls:
- *   Pad 1 - Play the sample
- *   Back  - Exit
+ *   Red pads  - Play that slice (one-shot, chokes the others)
+ *   Blue pad  - While a slice plays: chop at the playhead
+ *   Back      - Exit
  */
 
 import {
     MoveBack, MovePads,
-    Black, DarkGrey, BrightRed
+    Black, DarkGrey, BrightRed, PureBlue
 } from '/data/UserData/schwung/shared/constants.mjs';
 
 import { setLED } from '/data/UserData/schwung/shared/input_filter.mjs';
@@ -31,7 +30,9 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 var CC_BACK = MoveBack;
 var PAD_NOTE_MIN = MovePads[0];
 var MAX_PADS = 16;
-var COLOR_SLICE = BrightRed;     /* playable slice pad */
+var COLOR_SLICE = BrightRed;    /* playable slice pad */
+var COLOR_TARGET = PureBlue;    /* chop target */
+var COLOR_UNUSED = DarkGrey;
 var SCREEN_W = 128;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
@@ -56,7 +57,14 @@ var playing = false;
 var playPos = 0;
 var errorMsg = "";
 
+/* Mirrored from DSP slices */
+var chopCount = 0;
+var playingSlice = -1;
+var sliceCount = 0;
+var sliceStarts = [];
+
 var lastLoadState = "";
+var lastChopCount = 0;
 var padColors = [];         /* last color sent per pad index, to avoid LED spam */
 
 /* ============ Helpers ============ */
@@ -82,6 +90,19 @@ function pollStatus() {
     playPos = parseInt(p[4], 10) || 0;
 }
 
+function pollSlices() {
+    var raw = host_module_get_param("slices");
+    if (!raw) return;
+    var p = raw.split(" ");
+    chopCount = parseInt(p[0], 10) || 0;
+    playingSlice = parseInt(p[1], 10);
+    sliceCount = parseInt(p[2], 10) || 0;
+    sliceStarts = [];
+    for (var i = 0; i < sliceCount; i++) {
+        sliceStarts.push(parseInt(p[3 + i * 2], 10) || 0);
+    }
+}
+
 function onLoadStateChange() {
     if (loadState === "ready") {
         announce("Loaded " + fileName + ", press Pad 1");
@@ -92,6 +113,14 @@ function onLoadStateChange() {
     debugLog("load state " + loadState);
 }
 
+function onChop() {
+    if (sliceCount >= MAX_PADS) {
+        announce("Chop, " + sliceCount + " slices, all pads used");
+    } else {
+        announce("Chop, " + sliceCount + " slices");
+    }
+}
+
 /* Set a slice pad's LED only when its color changes. */
 function setPadColor(i, color) {
     if (padColors[i] === color) return;
@@ -100,9 +129,11 @@ function setPadColor(i, color) {
 }
 
 function updatePadLeds() {
+    var ready = loadState === "ready";
     for (var i = 0; i < MAX_PADS; i++) {
-        var color = DarkGrey;
-        if (i === 0 && loadState === "ready") color = COLOR_SLICE;
+        var color = COLOR_UNUSED;
+        if (ready && i < sliceCount) color = COLOR_SLICE;
+        else if (ready && i === sliceCount) color = COLOR_TARGET;
         setPadColor(i, color);
     }
 }
@@ -118,6 +149,29 @@ function exitTool() {
 
 /* ============ Drawing ============ */
 
+var BAR_X = 2;
+var BAR_Y = 38;
+var BAR_W = SCREEN_W - 4;
+var BAR_H = 10;
+
+function frameToX(f) {
+    return BAR_X + Math.floor((BAR_W - 1) * f / frames);
+}
+
+function drawSliceBar() {
+    draw_rect(BAR_X, BAR_Y, BAR_W, BAR_H, 1);
+    if (frames <= 0) return;
+    /* Slice boundaries (skip slice 1's start, the left edge) */
+    for (var i = 1; i < sliceStarts.length; i++) {
+        var x = frameToX(sliceStarts[i]);
+        draw_line(x, BAR_Y - 3, x, BAR_Y + BAR_H - 1, 1);
+    }
+    if (playing) {
+        var px = frameToX(playPos);
+        fill_rect(px, BAR_Y + 2, 2, BAR_H - 4, 1);
+    }
+}
+
 function draw() {
     clear_screen();
     print(2, 2, "Chopper", 1);
@@ -128,14 +182,13 @@ function draw() {
     } else if (loadState === "error") {
         print(2, 30, errorMsg.substring(0, 20), 1);
     } else if (loadState === "ready") {
-        print(2, 26, formatSeconds(frames) + "  " + sampleRate + "Hz", 1);
-        /* Playhead bar */
-        draw_rect(2, 40, SCREEN_W - 4, 8, 1);
-        if (playing && frames > 0) {
-            var w = Math.floor((SCREEN_W - 8) * playPos / frames);
-            fill_rect(4, 42, Math.max(1, w), 4, 1);
-        }
-        print(2, 52, playing ? "Playing" : "Press Pad 1", 1);
+        print(2, 26, formatSeconds(frames) + "  " + sliceCount + "/" + MAX_PADS + " pads", 1);
+        drawSliceBar();
+        var footer;
+        if (playing && playingSlice >= 0) footer = "Playing Pad " + (playingSlice + 1);
+        else if (sliceCount === 1) footer = "Press Pad 1";
+        else footer = "Press a red pad";
+        print(2, 52, footer, 1);
     }
 }
 
@@ -158,9 +211,14 @@ globalThis.init = function() {
 
 globalThis.tick = function() {
     pollStatus();
+    pollSlices();
     if (loadState !== lastLoadState) {
         lastLoadState = loadState;
         onLoadStateChange();
+    }
+    if (chopCount !== lastChopCount) {
+        if (chopCount > lastChopCount) onChop();
+        lastChopCount = chopCount;
     }
     updatePadLeds();
     draw();
