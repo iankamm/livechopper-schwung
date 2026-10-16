@@ -162,7 +162,6 @@ var confirmExit = false;
 var confirmIndex = 0;
 var CONFIRM_ITEMS = ["Discard and exit", "Cancel"];
 var CONFIRM_DISCARD = 0;
-var CONFIRM_CANCEL = 1;
 
 /* Export menu: row 0 is the name (click to rename), then the actions. */
 var exportMenu = false;
@@ -715,7 +714,7 @@ function requestExit() {
         return;
     }
     confirmExit = true;
-    confirmIndex = CONFIRM_CANCEL;   /* the safe choice starts selected */
+    confirmIndex = CONFIRM_DISCARD;
     announce("Not exported. " + CONFIRM_ITEMS[confirmIndex]);
 }
 

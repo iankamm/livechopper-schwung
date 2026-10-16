@@ -253,7 +253,7 @@ midi(0xB0, 51, 127); tick(1);
 check(prompt() && exits() === 0, 'Back with unexported changes asks first');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'prompt: Undo, Delete, Record dark');
 check(!printed.some(t => /Export/.test(t)), 'prompt offers no export');
-check(log.some(l => l === 'SAY: Not exported. Cancel'), 'prompt starts on Cancel');
+check(log.some(l => l === 'SAY: Not exported. Discard and exit'), 'prompt starts on Discard and exit');
 mark = sets.length;
 const fileCount = Object.keys(files).length;
 midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 118, 127); tick(1);
@@ -262,12 +262,12 @@ check(Object.keys(files).length === fileCount, 'Record ignored while asking');
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 0, 'Back in the prompt cancels');
 check(lit(DELETE) && lit(RECORD), 'Delete and Record lit again after cancelling');
-midi(0xB0, 51, 127); midi(0xB0, 3, 127); tick(1);
-check(!prompt() && exits() === 0, 'clicking the default (Cancel) stays');
 midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
+check(!prompt() && exits() === 0, 'choosing Cancel stays');
+midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
 check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
-midi(0xB0, 51, 127); midi(0xB0, 14, 127); midi(0xB0, 3, 127); tick(1);
-check(exits() === 1, 'choosing Discard and exit exits');
+midi(0xB0, 51, 127); midi(0xB0, 3, 127); tick(1);
+check(exits() === 1, 'clicking the default (Discard and exit) exits');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
 exportPreset();                          // exports it

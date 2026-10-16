@@ -84,7 +84,7 @@ Move drum rack preset.
   chop, delete or chop point move.
 - Exit (Back): if anything changed since the last export (chops, deletes,
   undo, redo, chop points, envelope, transpose), ask first: Discard and exit /
-  Cancel (Cancel starts selected). Zoom and waveform scale don't count.
+  Cancel (Discard and exit starts selected). Zoom and waveform scale don't count.
 - Export menu (Record button, CC 118, as in the waveform editor): the name
   row on top (jog click opens the on-screen keyboard; starts as
   "<sample> Chop"), then Slices / Drum Preset / Cancel. Jog chooses, jog
