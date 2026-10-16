@@ -14,9 +14,14 @@ Status: early development.
 ## Build from Source
 
 ```bash
-./scripts/build.sh      # cross-compiles via Docker unless CROSS_PREFIX is set
-./scripts/install.sh    # copies dist/chopper to the Move over ssh
+./scripts/build.sh      # uses aarch64-linux-gnu-gcc if installed, else Docker
 ```
+
+This produces `dist/chopper-module.tar.gz`. Install it either way:
+
+- **Web manager (no ssh):** open http://move.local:7700/modules, use the
+  custom install option to upload the tarball, then restart Schwung.
+- **ssh:** `./scripts/install.sh` copies `dist/chopper` to the Move.
 
 ## Credits
 
