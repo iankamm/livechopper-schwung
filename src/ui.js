@@ -16,7 +16,7 @@
 
 import {
     MoveBack, MoveUndo, MovePads,
-    Black, DarkGrey, BrightRed, PureBlue,
+    Black, DarkGrey, White, BrightRed, PureBlue,
     WhiteLedOff, WhiteLedBright
 } from '/data/UserData/schwung/shared/constants.mjs';
 
@@ -34,6 +34,7 @@ var CC_UNDO = MoveUndo;
 var PAD_NOTE_MIN = MovePads[0];
 var MAX_PADS = 16;
 var COLOR_SLICE = BrightRed;    /* playable slice pad */
+var COLOR_PLAYING = White;      /* slice pad that is sounding */
 var COLOR_TARGET = PureBlue;    /* chop target */
 var COLOR_UNUSED = DarkGrey;
 var SCREEN_W = 128;
@@ -153,7 +154,8 @@ function updatePadLeds() {
     var ready = loadState === "ready";
     for (var i = 0; i < MAX_PADS; i++) {
         var color = COLOR_UNUSED;
-        if (ready && i < sliceCount) color = COLOR_SLICE;
+        if (ready && playing && i === playingSlice) color = COLOR_PLAYING;
+        else if (ready && i < sliceCount) color = COLOR_SLICE;
         else if (ready && i === sliceCount) color = COLOR_TARGET;
         setPadColor(i, color);
     }

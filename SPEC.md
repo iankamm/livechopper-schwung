@@ -60,8 +60,8 @@ Move drum rack preset.
   envelope of the slice it was split from.
 - Choke: all pads choke each other by default, in chop mode and in the exported
   drum rack preset (supported: every pad gets the same chokeGroup).
-- Pad colors: playable slice pads are red, the chop target is blue, unused
-  slice pads are dim grey.
+- Pad colors: playable slice pads are red, the pad that is currently playing
+  is white, the chop target is blue, unused slice pads are dim grey.
 - Playback is one-shot: a pad plays its whole region and releasing it does
   not stop it. Pressing it again restarts the region. Gate behavior is left
   to the user to set in the exported drum rack.
