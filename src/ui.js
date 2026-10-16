@@ -16,7 +16,7 @@
 
 import {
     MoveBack, MovePads,
-    Black, DarkGrey, White
+    Black, DarkGrey, BrightRed
 } from '/data/UserData/schwung/shared/constants.mjs';
 
 import { setLED } from '/data/UserData/schwung/shared/input_filter.mjs';
@@ -31,6 +31,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 var CC_BACK = MoveBack;
 var PAD_NOTE_MIN = MovePads[0];
 var MAX_PADS = 16;
+var COLOR_SLICE = BrightRed;     /* playable slice pad */
 var SCREEN_W = 128;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
@@ -101,7 +102,7 @@ function setPadColor(i, color) {
 function updatePadLeds() {
     for (var i = 0; i < MAX_PADS; i++) {
         var color = DarkGrey;
-        if (i === 0 && loadState === "ready") color = White;
+        if (i === 0 && loadState === "ready") color = COLOR_SLICE;
         setPadColor(i, color);
     }
 }
