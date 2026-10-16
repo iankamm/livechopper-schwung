@@ -22,6 +22,7 @@ Status: early development.
 | Shift | Fine steps for knobs and jog |
 | Left / Right | Select previous / next slice |
 | Undo | Undo the last chop |
+| Capture | Export a drum rack preset to Track Presets |
 | Back | Exit |
 
 ## Prerequisites

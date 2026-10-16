@@ -25,11 +25,12 @@
  *   Shift      - Fine steps for knobs and jog
  *   Left/Right - Select previous/next slice
  *   Undo       - Undo the last chop
+ *   Capture    - Export the slices as a Move drum rack preset
  *   Back       - Exit
  */
 
 import {
-    MoveBack, MoveUndo, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveCapture, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
     MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
     MovePads,
@@ -41,6 +42,8 @@ import { setLED, setButtonLED, decodeDelta } from '/data/UserData/schwung/shared
 
 import { announce } from '/data/UserData/schwung/shared/screen_reader.mjs';
 
+import { buildDrumRackPreset, sampleUriFor, PRESET_DIR } from './drum_rack.mjs';
+
 import { log as uniLog } from '/data/UserData/schwung/shared/logger.mjs';
 function debugLog(msg) { uniLog("Chopper", msg); }
 
@@ -48,6 +51,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
+var CC_CAPTURE = MoveCapture;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
 var CC_RIGHT = MoveRight;
@@ -87,6 +91,7 @@ var FINE_DIVISOR = 16;          /* Shift: 1/16 of a coarse step */
 var EDGE_MARGIN = 0.05;         /* recenter when a marker is this close to the edge */
 var ANNOUNCE_SETTLE_TICKS = 20;
 var OVERLAY_TICKS = 60;
+var EXPORT_MSG_TICKS = 150;
 
 /* Vertical scale, as in the waveform editor: scale *= 2^step per tick. */
 var VSCALE_MIN = 1.0;
@@ -463,6 +468,65 @@ function changeVScale(ticks) {
     showKnob(3);
 }
 
+/* ============ Export ============ */
+
+/* "<name> Chop", or "<name> Chop 2", 3, ... so nothing is overwritten. */
+function uniquePresetName() {
+    var base = fileName.replace(/\.wav$/i, "") + " Chop";
+    var exists = typeof host_file_exists === "function" ? host_file_exists : function() { return false; };
+    var name = base;
+    for (var n = 2; n < 100 && exists(PRESET_DIR + "/" + name + ".ablpreset"); n++) {
+        name = base + " " + n;
+    }
+    return name;
+}
+
+function showMessage(text, ticks) {
+    touchedKnob = -1;
+    overlayText = text;
+    overlayTimer = ticks;
+}
+
+function exportKit() {
+    if (loadState !== "ready" || sliceCount === 0) return;
+    flushNudge();
+    flushSettings();
+    pollSlices();
+
+    var uri = sampleUriFor(filePath);
+    if (!uri) {
+        showMessage("Not in User Library", EXPORT_MSG_TICKS);
+        announce("Export failed, sample is not in the User Library");
+        return;
+    }
+    if (typeof host_write_file !== "function") {
+        showMessage("Export failed", EXPORT_MSG_TICKS);
+        announce("Export failed");
+        return;
+    }
+
+    var name = uniquePresetName();
+    var preset = buildDrumRackPreset({
+        name: name,
+        sampleUri: uri,
+        frames: frames,
+        starts: sliceStarts,
+        ends: sliceEnds,
+        env: { attackUs: attackUs, holdUs: holdUs, decayUs: decayUs },
+        transpose: transpose
+    });
+    if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
+    var ok = host_write_file(PRESET_DIR + "/" + name + ".ablpreset", JSON.stringify(preset, null, 2));
+    debugLog("export " + name + " ok=" + ok);
+    if (ok === false) {
+        showMessage("Export failed", EXPORT_MSG_TICKS);
+        announce("Export failed");
+        return;
+    }
+    showMessage("Saved " + name, EXPORT_MSG_TICKS);
+    announce("Exported drum rack, " + name);
+}
+
 /* ============ Announcements ============ */
 
 function onLoadStateChange() {
@@ -709,6 +773,8 @@ globalThis.onMidiMessageInternal = function(data) {
         shiftHeld = d2 > 0;
     } else if (d1 === CC_BACK && d2 > 0) {
         exitTool();
+    } else if (d1 === CC_CAPTURE && d2 > 0) {
+        exportKit();
     } else if (d1 === CC_UNDO && d2 > 0) {
         flushNudge();
         if (undoDepth > 0) setParamNow("undo", "1");

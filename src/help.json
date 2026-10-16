@@ -29,6 +29,7 @@
         " playhead while a",
         " slice plays",
         "Undo: undo last chop",
+        "Capture: export",
         "Back: exit"
       ]
     },
@@ -72,6 +73,27 @@
         "",
         "Touch any knob to",
         "see its value."
+      ]
+    },
+    {
+      "title": "Export",
+      "lines": [
+        "Capture: save the",
+        "slices as a drum",
+        "rack preset in",
+        "Track Presets.",
+        "",
+        "Named after the",
+        "sample + Chop. Never",
+        "overwrites: a second",
+        "export gets a 2.",
+        "",
+        "Load it on a drum",
+        "track. Envelope,",
+        "transpose and choke",
+        "carry over. Gate,",
+        "per-pad sound etc.",
+        " are set there."
       ]
     }
   ]

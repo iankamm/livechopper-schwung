@@ -36,8 +36,10 @@ Findings from studying the framework and schwung-waveform-editor (v0.7.3),
   pure JS, so it can be reused almost verbatim.
 - It uses ONE WAV for all pads: every drumCell points at the same
   `sampleUri` with `Voice_PlaybackStart` / `Voice_PlaybackLength` as
-  fractions of the file. That's the simplest export option. Writing one WAV
-  per slice would only be needed if those fields turn out too imprecise.
+  fractions of the file. Chopper does the same (src/drum_rack.mjs).
+- Units, from a real Move set (schwung tests/fixtures/song_abl_sample.json):
+  envelope times are seconds (attack 0.0001 min, decay up to 10.0); Move's
+  own kits use hold 0.001 with the decay doing the work. Volume around -12.
 - Choke: each pad has `drumZoneSettings.chokeGroup`, already set to 1 for all
   16 pads. Choke-all is supported.
 - Transpose: `Voice_Transpose` per drumCell, so global transpose can be

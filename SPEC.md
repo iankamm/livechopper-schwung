@@ -76,8 +76,10 @@ Move drum rack preset.
 - Pressing a chopped pad that is not playing: it plays its region and chokes
   whatever is playing.
 
-## Still open (decide after studying the waveform editor)
-
-- Export: one WAV with start/end per drum rack pad, or one WAV file per slice?
-  Depends on what the waveform editor's export and the drum rack preset format
-  support. Recommend an option with the tradeoffs.
+- Export (Capture button): one .ablpreset in UserLibrary/Track Presets,
+  named "<sample> Chop" (then "Chop 2", 3, ... never overwritten). All 16
+  pads point at the original WAV with Voice_PlaybackStart/Length set to their
+  slice, so no audio is rewritten. Pads without a slice are muted. Envelope
+  is exported in seconds in A-H-D mode (hold Full = 60 s), transpose as
+  Voice_Transpose, all pads in choke group 1. The sample must be inside the
+  User Library (the tool's file browser only offers files there).
