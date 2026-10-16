@@ -21,6 +21,7 @@
  *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
  *   Jog        - Move the active marker  |  Jog click: toggle start/end
+ *   Touch knob - Preview its value on the bottom line (and speak it)
  *   Shift      - Fine steps for knobs and jog
  *   Left/Right - Select previous/next slice
  *   Undo       - Undo the last chop
@@ -163,6 +164,7 @@ var decayKnob = 0;
 var pendingSettings = {};   /* key -> value, sent once per tick */
 var overlayText = "";       /* footer readout while a sound knob moves */
 var overlayTimer = 0;
+var touchedKnob = -1;       /* 0-7 while a knob is touched */
 var settingAnnounce = "";
 var settingAnnounceTimer = 0;
 
@@ -180,6 +182,11 @@ function baseName(path) {
 function formatSeconds(f) {
     if (!sampleRate) return "0.000s";
     return (f / sampleRate).toFixed(3) + "s";
+}
+
+function spokenSeconds(f) {
+    if (!sampleRate) return "0 seconds";
+    return (f / sampleRate).toFixed(3) + " seconds";
 }
 
 function setParamNow(key, value) {
@@ -276,7 +283,7 @@ function coarseStep() {
 
 function queueNudge(side, ticks) {
     if (loadState !== "ready" || ticks === 0) return;
-    overlayTimer = 0;
+    if (touchedKnob < 0) overlayTimer = 0;
     if (side !== activeSide) {
         activeSide = side;
         keepMarkerVisible();
@@ -305,6 +312,7 @@ function changeZoom(ticks) {
     if (zoom < 0) zoom = 0;
     if (zoom > ZOOM_MAX) zoom = ZOOM_MAX;
     centerOn(activeMarkerPos());
+    showKnob(2);
 }
 
 function selectSlice(idx) {
@@ -357,11 +365,55 @@ function readSettings() {
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
 }
 
-function showSetting(text, spoken) {
-    overlayText = text;
+/* [screen text, spoken text] for knob i (0-7), from current values. */
+function knobReadout(i) {
+    switch (i) {
+    case 0:
+    case 1:
+        var pos = sliceCount > 0 ? (i === 0 ? sliceStarts[selectedSlice] : sliceEnds[selectedSlice]) : 0;
+        var name = i === 0 ? "Start" : "End";
+        return [name + " " + formatSeconds(pos),
+                "Pad " + (selectedSlice + 1) + " " + name.toLowerCase() + " " + spokenSeconds(pos)];
+    case 2:
+        var z = Math.round(Math.pow(2, zoom));
+        return ["Zoom x" + z, "Zoom " + z];
+    case 3:
+        return ["Scale " + vScale.toFixed(1) + "x", "Scale " + vScale.toFixed(1)];
+    case 4:
+        return ["Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
+    case 5:
+        return ["Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs)];
+    case 6:
+        return ["Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
+    default:
+        return ["Transpose " + formatTranspose(transpose), "Transpose " + transpose + " semitones"];
+    }
+}
+
+/* Show knob i's value on the bottom line and speak it once it settles. */
+function showKnob(i) {
+    var r = knobReadout(i);
+    overlayText = r[0];
     overlayTimer = OVERLAY_TICKS;
-    settingAnnounce = spoken;
+    settingAnnounce = r[1];
     settingAnnounceTimer = ANNOUNCE_SETTLE_TICKS;
+}
+
+function onKnobTouch(i, touched) {
+    if (!touched) {
+        if (touchedKnob === i) touchedKnob = -1;
+        return;
+    }
+    if (loadState !== "ready") return;
+    touchedKnob = i;
+    if (i <= 1 && activeSide !== i) {
+        activeSide = i;
+        keepMarkerVisible();
+    }
+    var r = knobReadout(i);
+    overlayText = r[0];
+    overlayTimer = OVERLAY_TICKS;
+    announce(r[1]);
 }
 
 function clamp01(x) {
@@ -375,24 +427,23 @@ function changeSetting(cc, ticks) {
         attackKnob = clamp01(attackKnob + step);
         attackUs = knobToUs(attackKnob, ATTACK_MAX_US);
         pendingSettings.attack_us = attackUs;
-        showSetting("Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs));
+        showKnob(4);
     } else if (cc === CC_E6) {
         holdKnob = clamp01(holdKnob + step);
         holdUs = holdKnob >= 1 ? HOLD_FULL : knobToUs(holdKnob, HOLD_MAX_US);
         pendingSettings.hold_us = holdUs;
-        showSetting("Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs));
+        showKnob(5);
     } else if (cc === CC_E7) {
         decayKnob = clamp01(decayKnob + step);
         decayUs = knobToUs(decayKnob, DECAY_MAX_US);
         pendingSettings.decay_us = decayUs;
-        showSetting("Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs));
+        showKnob(6);
     } else if (cc === CC_E8) {
         transpose += ticks;
         if (transpose < TRANSPOSE_MIN) transpose = TRANSPOSE_MIN;
         if (transpose > TRANSPOSE_MAX) transpose = TRANSPOSE_MAX;
         pendingSettings.transpose = transpose;
-        showSetting("Transpose " + formatTranspose(transpose),
-                    "Transpose " + transpose + " semitones");
+        showKnob(7);
     }
 }
 
@@ -409,7 +460,7 @@ function changeVScale(ticks) {
     if (vScale < VSCALE_MIN) vScale = VSCALE_MIN;
     if (vScale > VSCALE_MAX) vScale = VSCALE_MAX;
     if (vScale > 0.9 && vScale < 1.1) vScale = 1.0;
-    showSetting("Scale " + vScale.toFixed(1) + "x", "Scale " + vScale.toFixed(1));
+    showKnob(3);
 }
 
 /* ============ Announcements ============ */
@@ -442,7 +493,7 @@ function onUndo() {
 
 function announceMarker() {
     var name = activeSide === 0 ? " start " : " end ";
-    announce("Pad " + (selectedSlice + 1) + name + formatSeconds(activeMarkerPos()));
+    announce("Pad " + (selectedSlice + 1) + name + spokenSeconds(activeMarkerPos()));
 }
 
 /* ============ LEDs ============ */
@@ -628,7 +679,13 @@ globalThis.tick = function() {
         settingAnnounceTimer--;
         if (settingAnnounceTimer === 0) announce(settingAnnounce);
     }
-    if (overlayTimer > 0) overlayTimer--;
+    /* A touched knob keeps its readout up and live; it lingers after release. */
+    if (touchedKnob >= 0 && loadState === "ready") {
+        overlayText = knobReadout(touchedKnob)[0];
+        overlayTimer = OVERLAY_TICKS;
+    } else if (overlayTimer > 0) {
+        overlayTimer--;
+    }
 
     updatePadLeds();
     updateUndoLed();
@@ -640,7 +697,12 @@ globalThis.onMidiMessageInternal = function(data) {
     var d1 = data[1];
     var d2 = data[2];
 
-    /* Pads are handled by the DSP on the audio thread; nothing to do here. */
+    /* Knob touch: notes 0-7, on = velocity 64+, off = lower or note-off.
+     * Pads are handled by the DSP on the audio thread; nothing to do here. */
+    if (status === 0x90 || status === 0x80) {
+        if (d1 <= 7) onKnobTouch(d1, status === 0x90 && d2 >= 64);
+        return;
+    }
     if (status !== 0xB0) return;
 
     if (d1 === CC_SHIFT) {

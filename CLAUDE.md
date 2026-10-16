@@ -42,6 +42,9 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
 
 ## Workflow
 
+- Build: ./scripts/build.sh (uses the local aarch64-linux-gnu-gcc). Before
+  each build, run node tests/ui_smoke.mjs: it runs ui.js with a fake host and
+  DSP and catches JS errors the device would otherwise hit first.
 - Small steps. After each working step, stop and tell me what to test on the
   device and what to look for.
 - Do not deploy to the device or run ssh commands without asking first.

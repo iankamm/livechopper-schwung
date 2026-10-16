@@ -18,6 +18,7 @@ Status: early development.
 | Knob 5 / 6 / 7 | Attack / Hold / Decay (all pads) |
 | Knob 8 | Transpose (all pads, repitch) |
 | Jog / Jog click | Move the active marker / switch start and end |
+| Touch a knob | Preview its value |
 | Shift | Fine steps for knobs and jog |
 | Left / Right | Select previous / next slice |
 | Undo | Undo the last chop |

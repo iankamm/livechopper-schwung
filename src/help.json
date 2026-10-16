@@ -68,7 +68,10 @@
         "Knob 8: transpose",
         " (-24 to +24 semis,",
         " changes speed too)",
-        "Shift: fine steps"
+        "Shift: fine steps",
+        "",
+        "Touch any knob to",
+        "see its value."
       ]
     }
   ]
