@@ -28,6 +28,8 @@
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
+ *   Mute       - Mute / unmute all audio on the device (Move and Chopper);
+ *                lit while muted. Leaving Chopper always unmutes.
  *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
@@ -36,7 +38,7 @@
  */
 
 import {
-    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveMute, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
     MoveKnob5, MoveKnob7, MoveKnob8,
     MovePads,
@@ -58,6 +60,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
 var CC_RECORD = MoveRecord;      /* RGB LED */
+var CC_MUTE = MoveMute;
 var CC_DELETE = MoveDelete;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
@@ -171,6 +174,10 @@ var CONFIRM_CANCEL = 2;
 var resumed = false;        /* reconnected to a running session */
 var countsSynced = false;   /* DSP edit counters adopted without announcing */
 var lastUiState = "";
+
+/* Mute: silences the device's whole output (host_mute_move_audio). The
+ * flag lives in the host and outlasts us, so every way out unmutes. */
+var muted = false;
 
 /* Export menu: row 0 is the name (click to rename), then the actions. */
 var exportMenu = false;
@@ -789,6 +796,7 @@ function hideTool() {
     flushSettings();
     saveUiState();
     setParamNow("stop", "1");
+    setMuted(false);
     if (typeof host_hide_module !== "function") {
         exitTool();
         return;
@@ -856,7 +864,8 @@ function setButtonLit(cc, on) {
 }
 
 /* Undo, Delete and Record are lit while pressing them would do something.
- * With Shift held, Undo shows whether there is anything to redo. */
+ * With Shift held, Undo shows whether there is anything to redo. Mute is
+ * lit while all audio is muted. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
@@ -864,6 +873,7 @@ function updateButtonLeds() {
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
+    setButtonLit(CC_MUTE, muted);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -888,16 +898,34 @@ function clearAllPadLeds() {
     for (var i = 0; i < MovePads.length; i++) setLED(MovePads[i], Black);
 }
 
+function setMuted(on) {
+    muted = on;
+    if (typeof host_mute_move_audio === "function") host_mute_move_audio(on ? 1 : 0);
+}
+
+function toggleMute() {
+    if (typeof host_mute_move_audio !== "function") {
+        showMessage("Mute unavailable", OVERLAY_TICKS);
+        announce("Mute unavailable");
+        return;
+    }
+    setMuted(!muted);
+    showMessage(muted ? "Muted" : "Unmuted", OVERLAY_TICKS);
+    announce(muted ? "All audio muted" : "Unmuted");
+}
+
 function turnOffLeds() {
     clearAllPadLeds();
     setButtonLit(CC_UNDO, false);
     setButtonLit(CC_DELETE, false);
     setButtonLit(CC_RECORD, false);
+    setButtonLit(CC_MUTE, false);
 }
 
 function exitTool() {
     flushNudge();
     flushSettings();
+    setMuted(false);
     turnOffLeds();
     exited = true;
     if (typeof host_exit_module === "function") host_exit_module();
@@ -1035,6 +1063,7 @@ globalThis.init = function() {
     filePath = (typeof host_tool_file_path === "string") ? host_tool_file_path : "";
     fileName = baseName(filePath);
     clearAllPadLeds();
+    setMuted(false);        /* start audible, whatever was left behind */
     /* Resuming a kept session: the DSP still has this file and its slices,
      * so don't reload it. If another tool replaced the DSP meanwhile, the
      * host still says "reconnect" but the file isn't there: load it fresh. */
@@ -1142,6 +1171,8 @@ globalThis.onMidiMessageInternal = function(data) {
 
     if (d1 === CC_SHIFT) {
         shiftHeld = d2 > 0;
+    } else if (d1 === CC_MUTE && d2 > 0) {
+        toggleMute();       /* works in menus too: a quick way to silence */
     } else if (confirmExit) {
         handleConfirmCC(d1, d2);
     } else if (exportMenu) {

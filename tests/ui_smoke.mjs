@@ -69,6 +69,8 @@ const fakeSet = (k, v) => {
   return true;
 };
 g.host_hide_module = () => log.push('HIDE');
+let deviceMuted = null;
+g.host_mute_move_audio = f => { deviceMuted = !!f; };
 g.host_module_set_param = fakeSet;
 g.host_module_set_param_blocking = fakeSet;
 let keyboardText = null;   // what the fake on-screen keyboard "types"; null = cancel
@@ -245,10 +247,18 @@ mark = sets.length;
 midi(0xB0, 56, 127); tick(1);
 check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
 
-// ---- Always gated: Mute does nothing ----
-mark = sets.length;
+// ---- Mute: all device audio ----
+check(deviceMuted === false && !lit(MUTE), 'init unmutes; Mute dark');
 midi(0xB0, 88, 127); tick(1);
-check(!sets.slice(mark).some(s => s.startsWith('gate')) && !lit(MUTE), 'Mute does nothing and stays dark');
+check(deviceMuted === true && lit(MUTE), 'Mute mutes all audio and lights');
+check(printed.includes('Muted') && log.at(-1) === 'SAY: All audio muted', 'muted shown and spoken');
+midi(0xB0, 118, 127); midi(0xB0, 88, 127); tick(1);
+check(deviceMuted === false && !lit(MUTE) && menu(), 'Mute works inside the export menu too');
+midi(0xB0, 51, 127); tick(1);
+midi(0xB0, 88, 127); tick(1);
+check(printed.includes('Unmuted') === false && deviceMuted === true, 'muted again');
+midi(0xB0, 88, 127); tick(1);
+check(deviceMuted === false && printed.includes('Unmuted') && log.at(-1) === 'SAY: Unmuted', 'unmuted shown and spoken');
 
 // ---- Export slices ----
 const sampleDir = '/data/UserData/UserLibrary/Samples/';
@@ -293,8 +303,10 @@ midi(0xB0, 51, 127); jog(2); click(); tick(1);
 check(!prompt() && exits() === 0, 'choosing Cancel stays');
 midi(0xB0, 51, 127); jog(3); click(); tick(1);
 check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
+midi(0xB0, 88, 127); tick(1);                    // mute, then leave
 midi(0xB0, 51, 127); jog(1); click(); tick(1);
 check(exits() === 1 && !log.includes('HIDE'), 'Discard and exit exits');
+check(deviceMuted === false, 'exiting unmutes');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
 exportPreset();                          // exports it
@@ -314,10 +326,13 @@ midi(0xB0, 51, 127); tick(1);
 midi(0xB0, 73, 5); midi(0xB0, 74, 5); tick(1);   // zoom in, scale up: remembered
 dsp.chop = 7; tick(1);                            // unexported work
 check(/^1 1 [\d.]+ [\d.]+$/.test(dsp.uiState) && dsp.uiState !== '1 1 0 1', 'ui_state saved as it changes: ' + dsp.uiState);
+midi(0xB0, 88, 127); tick(1);                    // mute, then keep for later
+check(deviceMuted === true, 'muted before hiding');
 mark = sets.length;
 midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
+check(deviceMuted === false, 'hiding unmutes');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'hiding turns the buttons off');
 check(log.some(l => l === 'SAY: Kept for later, resume from Tools'), 'hiding announced');

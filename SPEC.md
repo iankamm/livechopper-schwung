@@ -85,6 +85,10 @@ Move drum rack preset.
   one. Undo restores it; undo covers chops and deletes and
   keeps the last 32 steps. Shift+Undo redoes what was undone, until a new
   chop, delete or chop point move.
+- Mute (CC 88): mutes / unmutes all audio on the device, Move's and
+  Chopper's, with host_mute_move_audio (zeroes the final output). Lit while
+  muted; the bottom line and screen reader confirm. Works in menus too.
+  The flag outlasts the tool, so init, exit and Keep for later all unmute.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
   Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,
