@@ -22,7 +22,7 @@ Status: early development.
 | Shift | Fine steps for knobs and jog |
 | Left / Right | Select previous / next slice |
 | Delete | Delete the selected slice (merges it into the previous one; Pad 1 is trimmed off) |
-| Undo | Undo the last chop or delete |
+| Undo / Shift+Undo | Undo the last chop or delete / redo it |
 | Capture | Export a drum rack preset to Track Presets |
 | Back | Exit (asks first if there are changes not exported) |
 

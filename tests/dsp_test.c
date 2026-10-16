@@ -73,9 +73,10 @@ static const char *slices(void *inst) {
     static char res[512];
     char raw[1024];
     get(inst, "slices", raw, sizeof raw);
-    unsigned chop, undo, del; int depth, playing, sel, count;
+    unsigned chop, undo, del, redo; int depth, redo_depth, playing, sel, count;
     int n = 0, off = 0;
-    sscanf(raw, "%u %u %u %d %d %d %d%n", &chop, &undo, &del, &depth, &playing, &sel, &count, &off);
+    sscanf(raw, "%u %u %u %d %u %d %d %d %d%n", &chop, &undo, &del, &depth, &redo, &redo_depth,
+           &playing, &sel, &count, &off);
     n = snprintf(res, sizeof res, "%d:", count);
     const char *p = raw + off;
     for (int i = 0; i < count; i++) {
@@ -95,8 +96,10 @@ static int field(void *inst, int i) {
     for (int k = 0; k <= i; k++) v = parse_int(&p);
     return v;
 }
-#define F_PLAYING 4
-#define F_SELECTED 5
+#define F_UNDO_DEPTH 3
+#define F_REDO_DEPTH 5
+#define F_PLAYING 6
+#define F_SELECTED 7
 
 /* Render until nothing is playing (and the choke tail is gone). */
 static void until_silent(void *inst) {
@@ -186,13 +189,42 @@ int main(void) {
     param(inst, "delete", "1");
     CHECK(field(inst, F_PLAYING) == 0, "playing slice deleted: plays on in merged Pad 1");
 
+    /* ---- Redo ---- */
+    note(inst, 68); render(inst, 10); note(inst, 69);      /* 0-1280 | 1280-end */
+    param(inst, "delete", "0");                            /* 1280-end */
+    CHECK(strcmp(slices(inst), "1:1280-44100") == 0, "setup for redo %s", slices(inst));
+    CHECK(field(inst, F_REDO_DEPTH) == 0, "nothing to redo yet");
+    param(inst, "redo", "1");
+    CHECK(strcmp(slices(inst), "1:1280-44100") == 0, "redo with nothing to redo %s", slices(inst));
+    param(inst, "undo", "1");
+    param(inst, "undo", "1");
+    CHECK(strcmp(slices(inst), "1:0-44100") == 0, "two undos %s", slices(inst));
+    CHECK(field(inst, F_REDO_DEPTH) == 2, "two redos available");
+    param(inst, "redo", "1");
+    CHECK(strcmp(slices(inst), "2:0-1280,1280-44100") == 0, "redo the chop %s", slices(inst));
+    param(inst, "redo", "1");
+    CHECK(strcmp(slices(inst), "1:1280-44100") == 0, "redo the delete %s", slices(inst));
+    CHECK(field(inst, F_REDO_DEPTH) == 0, "redo stack used up");
+    param(inst, "undo", "1");
+    CHECK(strcmp(slices(inst), "2:0-1280,1280-44100") == 0, "undo after redo %s", slices(inst));
+    param(inst, "nudge", "1 1 -10");
+    CHECK(field(inst, F_REDO_DEPTH) == 0, "a nudge clears redo");
+    param(inst, "undo", "1");                              /* back to 1:0-44100 */
+    param(inst, "delete", "0");                            /* nothing to delete: no new edit */
+    CHECK(field(inst, F_REDO_DEPTH) == 1, "a refused delete keeps redo");
+    note(inst, 68); render(inst, 10); note(inst, 69);
+    CHECK(field(inst, F_REDO_DEPTH) == 0, "a chop clears redo");
+    param(inst, "delete", "1");
+    CHECK(strcmp(slices(inst), "1:0-44100") == 0, "back to one slice %s", slices(inst));
+    until_silent(inst);
+
     /* ---- Undo history is bounded and keeps working past 32 steps ---- */
     for (int i = 0; i < 40; i++) {
         note(inst, 68); render(inst, 3); note(inst, 69);
         param(inst, "delete", "1");
     }
     int undos = 0;
-    for (int i = 0; i < 100 && field(inst, 3) > 0; i++) { param(inst, "undo", "1"); undos++; }
+    for (int i = 0; i < 100 && field(inst, F_UNDO_DEPTH) > 0; i++) { param(inst, "undo", "1"); undos++; }
     CHECK(undos == 32, "undo history holds 32 steps (got %d)", undos);
 
     /* ---- Linked nudge ---- */

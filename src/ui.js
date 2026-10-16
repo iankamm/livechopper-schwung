@@ -25,7 +25,7 @@
  *   Shift      - Fine steps for knobs and jog
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
- *   Undo       - Undo the last chop or delete
+ *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
  *   Capture    - Export the slices as a Move drum rack preset
  *   Back       - Exit (asks first if there are changes not exported)
  */
@@ -138,6 +138,8 @@ var errorMsg = "";
 var chopCount = 0;
 var undoCount = 0;
 var undoDepth = 0;
+var redoCount = 0;
+var redoDepth = 0;
 var playingSlice = -1;
 var selectedSlice = 0;
 var sliceCount = 0;
@@ -147,6 +149,7 @@ var sliceEnds = [];
 var lastLoadState = "";
 var lastChopCount = 0;
 var lastUndoCount = 0;
+var lastRedoCount = 0;
 var deleteCount = 0;
 var lastDeleteCount = 0;
 
@@ -235,14 +238,16 @@ function pollSlices() {
     undoCount = parseInt(p[1], 10) || 0;
     deleteCount = parseInt(p[2], 10) || 0;
     undoDepth = parseInt(p[3], 10) || 0;
-    playingSlice = parseInt(p[4], 10);
-    selectedSlice = parseInt(p[5], 10) || 0;
-    sliceCount = parseInt(p[6], 10) || 0;
+    redoCount = parseInt(p[4], 10) || 0;
+    redoDepth = parseInt(p[5], 10) || 0;
+    playingSlice = parseInt(p[6], 10);
+    selectedSlice = parseInt(p[7], 10) || 0;
+    sliceCount = parseInt(p[8], 10) || 0;
     sliceStarts = [];
     sliceEnds = [];
     for (var i = 0; i < sliceCount; i++) {
-        sliceStarts.push(parseInt(p[7 + i * 2], 10) || 0);
-        sliceEnds.push(parseInt(p[8 + i * 2], 10) || 0);
+        sliceStarts.push(parseInt(p[9 + i * 2], 10) || 0);
+        sliceEnds.push(parseInt(p[10 + i * 2], 10) || 0);
     }
 }
 
@@ -641,6 +646,10 @@ function onUndo() {
     announce("Undo, " + sliceCount + (sliceCount === 1 ? " slice" : " slices"));
 }
 
+function onRedo() {
+    announce("Redo, " + sliceCount + (sliceCount === 1 ? " slice" : " slices"));
+}
+
 function announceMarker() {
     var name = activeSide === 0 ? " start " : " end ";
     announce("Pad " + (selectedSlice + 1) + name + spokenSeconds(activeMarkerPos()));
@@ -654,11 +663,12 @@ function setButtonLit(cc, on) {
     setButtonLED(cc, on ? WhiteLedBright : WhiteLedOff);
 }
 
-/* Undo, Delete and Capture are lit while pressing them would do something. */
+/* Undo, Delete and Capture are lit while pressing them would do something.
+ * With Shift held, Undo shows whether there is anything to redo. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
-    setButtonLit(CC_UNDO, undoDepth > 0 && !confirmExit);
+    setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && !confirmExit);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && !confirmExit);
     setButtonLit(CC_CAPTURE, ready && sliceCount > 0);
 }
@@ -838,6 +848,11 @@ globalThis.tick = function() {
         lastUndoCount = undoCount;
         editVersion++;
     }
+    if (redoCount !== lastRedoCount) {
+        if (redoCount > lastRedoCount) onRedo();
+        lastRedoCount = redoCount;
+        editVersion++;
+    }
     if (deleteCount !== lastDeleteCount) {
         if (deleteCount > lastDeleteCount) onDelete();
         lastDeleteCount = deleteCount;
@@ -897,6 +912,12 @@ globalThis.onMidiMessageInternal = function(data) {
         exportKit();
     } else if (d1 === CC_DELETE && d2 > 0) {
         deleteSelected();
+    } else if (d1 === CC_UNDO && d2 > 0 && shiftHeld) {
+        /* A pending nudge is a new edit, so it clears redo. */
+        var nudged = pendingNudge && pendingNudge.delta !== 0;
+        flushNudge();
+        if (redoDepth > 0 && !nudged) setParamNow("redo", "1");
+        else announce("Nothing to redo");
     } else if (d1 === CC_UNDO && d2 > 0) {
         flushNudge();
         if (undoDepth > 0) setParamNow("undo", "1");

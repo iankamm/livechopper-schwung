@@ -41,6 +41,10 @@
  * Undo: each chop and delete first pushes a snapshot of the slice list onto
  * a fixed stack (no allocation); set_param("undo") pops it. When the stack
  * is full the oldest snapshot is dropped.
+ *
+ * Redo: undo pushes the slice list it replaces onto a redo stack, and
+ * set_param("redo") pops it back (pushing onto the undo stack). Any new
+ * chop, delete or marker nudge clears the redo stack.
  */
 
 #define _GNU_SOURCE
@@ -138,9 +142,12 @@ typedef struct {
     uint32_t chop_count; /* bumped on every chop, for the UI */
     uint32_t undo_count; /* bumped on every undo, for the UI */
     uint32_t delete_count; /* bumped on every delete, for the UI */
+    uint32_t redo_count; /* bumped on every redo, for the UI */
 
     slice_snapshot_t undo_stack[UNDO_DEPTH];
     int undo_depth;
+    slice_snapshot_t redo_stack[UNDO_DEPTH];
+    int redo_depth;
 
     /* --- handoff between audio thread and worker --- */
     char req_path[PATH_MAX_LEN];
@@ -433,6 +440,8 @@ static void adopt_incoming(chopper_t *inst) {
     inst->undo_count = 0;
     inst->undo_depth = 0;
     inst->delete_count = 0;
+    inst->redo_count = 0;
+    inst->redo_depth = 0;
     if (old) atomic_store(&inst->retired, old);
 }
 
@@ -511,17 +520,31 @@ static void play_slice(chopper_t *inst, int idx) {
     inst->playing = 1;
 }
 
-/* Save the slice list for undo. Bounded: at worst one shift of the stack. */
-static void push_undo(chopper_t *inst) {
-    if (inst->undo_depth == UNDO_DEPTH) {
-        memmove(&inst->undo_stack[0], &inst->undo_stack[1],
-                sizeof(slice_snapshot_t) * (UNDO_DEPTH - 1));
-        inst->undo_depth--;
+/* Save the slice list onto a stack, dropping the oldest entry when full.
+ * Bounded: at worst one shift of the stack. */
+static void push_snapshot(chopper_t *inst, slice_snapshot_t *stack, int *depth) {
+    if (*depth == UNDO_DEPTH) {
+        memmove(&stack[0], &stack[1], sizeof(slice_snapshot_t) * (UNDO_DEPTH - 1));
+        (*depth)--;
     }
-    slice_snapshot_t *u = &inst->undo_stack[inst->undo_depth++];
+    slice_snapshot_t *u = &stack[(*depth)++];
     memcpy(u->slice_start, inst->slice_start, sizeof(u->slice_start));
     memcpy(u->slice_end, inst->slice_end, sizeof(u->slice_end));
     u->slice_count = inst->slice_count;
+}
+
+/* Replace the slice list with a saved one. */
+static void restore_snapshot(chopper_t *inst, const slice_snapshot_t *u) {
+    memcpy(inst->slice_start, u->slice_start, sizeof(inst->slice_start));
+    memcpy(inst->slice_end, u->slice_end, sizeof(inst->slice_end));
+    inst->slice_count = u->slice_count;
+    if (inst->selected_slice >= inst->slice_count) inst->selected_slice = inst->slice_count - 1;
+}
+
+/* Save the slice list before a new edit. A new edit ends the redo chain. */
+static void push_undo(chopper_t *inst) {
+    push_snapshot(inst, inst->undo_stack, &inst->undo_depth);
+    inst->redo_depth = 0;
 }
 
 /* After the slice list changes under a playing voice, keep playing in
@@ -577,6 +600,7 @@ static void nudge_marker(chopper_t *inst, int idx, int side, int delta) {
     sample_buf_t *s = inst->current;
     if (!s || idx < 0 || idx >= inst->slice_count || delta == 0) return;
     int last = inst->slice_count - 1;
+    inst->redo_depth = 0; /* a new edit ends the redo chain */
 
     if (side == 0 && idx == 0) {
         int pos = inst->slice_start[0] + delta;
@@ -666,12 +690,18 @@ static int render_wave(chopper_t *inst, int a, int b, int cols, char *buf, int b
  * playing, it carries on in whichever restored slice holds the playhead. */
 static void undo_last_chop(chopper_t *inst) {
     if (inst->undo_depth <= 0) return;
-    slice_snapshot_t *u = &inst->undo_stack[--inst->undo_depth];
-    memcpy(inst->slice_start, u->slice_start, sizeof(inst->slice_start));
-    memcpy(inst->slice_end, u->slice_end, sizeof(inst->slice_end));
-    inst->slice_count = u->slice_count;
+    push_snapshot(inst, inst->redo_stack, &inst->redo_depth);
+    restore_snapshot(inst, &inst->undo_stack[--inst->undo_depth]);
     inst->undo_count++;
-    if (inst->selected_slice >= inst->slice_count) inst->selected_slice = inst->slice_count - 1;
+    relocate_playhead(inst);
+}
+
+/* Put back the slice list the last undo replaced. */
+static void redo_last_undo(chopper_t *inst) {
+    if (inst->redo_depth <= 0) return;
+    push_snapshot(inst, inst->undo_stack, &inst->undo_depth);
+    restore_snapshot(inst, &inst->redo_stack[--inst->redo_depth]);
+    inst->redo_count++;
     relocate_playhead(inst);
 }
 
@@ -766,6 +796,10 @@ static void set_param(void *instance, const char *key, const char *val) {
         undo_last_chop(inst);
         return;
     }
+    if (strcmp(key, "redo") == 0) {
+        redo_last_undo(inst);
+        return;
+    }
     if (strcmp(key, "nudge") == 0) {
         /* "<slice> <side> <delta>" */
         const char *p = val;
@@ -839,10 +873,11 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
                         inst->playing, (int)inst->play_pos);
     }
     if (strcmp(key, "slices") == 0) {
-        /* "<chop_count> <undo_count> <delete_count> <undo_depth> <playing_slice>
-         *  <selected_slice> <count> <start0> <end0> ..." */
-        int n = snprintf(buf, (size_t)buf_len, "%u %u %u %d %d %d %d",
+        /* "<chop_count> <undo_count> <delete_count> <undo_depth> <redo_count>
+         *  <redo_depth> <playing_slice> <selected_slice> <count> <start0> <end0> ..." */
+        int n = snprintf(buf, (size_t)buf_len, "%u %u %u %d %u %d %d %d %d",
                          inst->chop_count, inst->undo_count, inst->delete_count, inst->undo_depth,
+                         inst->redo_count, inst->redo_depth,
                          inst->playing ? inst->playing_slice : -1,
                          inst->selected_slice, inst->slice_count);
         for (int i = 0; i < inst->slice_count && n > 0 && n < buf_len; i++) {

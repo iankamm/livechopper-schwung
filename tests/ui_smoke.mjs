@@ -46,11 +46,11 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
-  settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0 };
+  settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0 };
 const sets = [];
 g.host_module_get_param = k => {
   if (k === 'status') return `ready ${dsp.frames} ${dsp.rate} ${dsp.playing} ${dsp.pos}`;
-  if (k === 'slices') return [dsp.chop, dsp.undo, dsp.del, dsp.depth, dsp.playing ? 0 : -1, dsp.sel, dsp.starts.length,
+  if (k === 'slices') return [dsp.chop, dsp.undo, dsp.del, dsp.depth, dsp.redo, dsp.redoDepth, dsp.playing ? 0 : -1, dsp.sel, dsp.starts.length,
     ...dsp.starts.flatMap((s, i) => [s, dsp.ends[i]])].join(' ');
   if (k === 'settings') return dsp.settings;
   if (k.startsWith('wave ')) { const c = +k.split(' ')[3]; return 'a0'.repeat(c); }
@@ -164,6 +164,25 @@ midi(0xB0, 119, 127); tick(1);
 check(sets.slice(mark).includes('delete=' + dsp.sel), 'Delete sends the selected slice');
 dsp.del = 1; dsp.starts = [0, 200000]; dsp.ends = [200000, 441000]; dsp.sel = 0; tick(2);
 check(log.some(l => l.startsWith('SAY: Deleted, Pad 1 selected, 2 slices')), 'delete announced');
+
+// ---- Redo ----
+dsp.undo = 1; dsp.depth = 1; dsp.redoDepth = 1; tick(1);
+check(lit(UNDO), 'Undo lit with undo history');
+midi(0xB0, 49, 127); tick(1);
+check(lit(UNDO), 'Shift: Undo lit when there is something to redo');
+mark = sets.length;
+midi(0xB0, 56, 127); tick(1);
+check(sets.slice(mark).includes('redo=1') && !sets.slice(mark).includes('undo=1'), 'Shift+Undo sends redo');
+dsp.redo = 1; dsp.redoDepth = 0; dsp.depth = 2; tick(1);
+check(log.some(l => l.startsWith('SAY: Redo, 2 slices')), 'redo announced');
+check(!lit(UNDO), 'Shift: Undo dark with nothing to redo');
+midi(0xB0, 56, 127); tick(1);
+check(log.some(l => l === 'SAY: Nothing to redo'), 'Shift+Undo with nothing to redo says so');
+midi(0xB0, 49, 0); tick(1);
+check(lit(UNDO), 'Shift released: Undo lit again for undo');
+mark = sets.length;
+midi(0xB0, 56, 127); tick(1);
+check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
 
 // ---- Exit prompt ----
 const exits = () => log.filter(l => l === 'EXIT').length;

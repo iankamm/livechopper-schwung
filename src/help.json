@@ -36,6 +36,7 @@
         " off the start)",
         "Undo: undo last",
         " chop or delete",
+        "Shift+Undo: redo",
         "Capture: export",
         "Back: exit (asks if",
         " not exported)"
