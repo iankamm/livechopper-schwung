@@ -7,8 +7,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 MODULE_ID="chopper"
-# WSL2 cannot resolve move.local (mDNS); set MOVE_HOST to the Move's IP there.
-MOVE_HOST="${MOVE_HOST:-move.local}"
 
 cd "$REPO_ROOT"
 
@@ -21,12 +19,12 @@ echo "=== Installing Chopper Module ==="
 
 # Deploy to Move - tools subdirectory
 echo "Copying module to Move..."
-ssh ableton@$MOVE_HOST "mkdir -p /data/UserData/schwung/modules/tools/$MODULE_ID"
-scp -r dist/$MODULE_ID/* ableton@$MOVE_HOST:/data/UserData/schwung/modules/tools/$MODULE_ID/
+ssh ableton@move.local "mkdir -p /data/UserData/schwung/modules/tools/$MODULE_ID"
+scp -r dist/$MODULE_ID/* ableton@move.local:/data/UserData/schwung/modules/tools/$MODULE_ID/
 
 # Set permissions
 echo "Setting permissions..."
-ssh ableton@$MOVE_HOST "chmod -R a+rw /data/UserData/schwung/modules/tools/$MODULE_ID"
+ssh ableton@move.local "chmod -R a+rw /data/UserData/schwung/modules/tools/$MODULE_ID"
 
 echo ""
 echo "=== Install Complete ==="
