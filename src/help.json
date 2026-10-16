@@ -24,12 +24,33 @@
       "title": "Controls",
       "lines": [
         "Red pad: play slice",
-        " (one-shot)",
+        " (one-shot), selects",
         "Blue pad: chop at",
         " playhead while a",
         " slice plays",
         "Undo: undo last chop",
         "Back: exit"
+      ]
+    },
+    {
+      "title": "Fine-tuning",
+      "lines": [
+        "Knob 1: move start",
+        "Knob 2: move end",
+        "Knob 3: zoom",
+        "Jog: move active",
+        " marker",
+        "Jog click: switch",
+        " start/end",
+        "Shift: fine steps",
+        "Left/Right: select",
+        " prev/next pad",
+        "",
+        "Chop points are",
+        "shared: moving a",
+        "pad's start moves",
+        "the previous pad's",
+        "end too."
       ]
     }
   ]

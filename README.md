@@ -6,6 +6,20 @@ preset. See [SPEC.md](SPEC.md).
 
 Status: early development.
 
+## Controls
+
+| Control | Function |
+|---------|----------|
+| Red pad | Play that slice (one-shot) and select it |
+| Blue pad | While a slice plays: chop at the playhead |
+| Knob 1 / Knob 2 | Move the selected slice's start / end |
+| Knob 3 | Zoom |
+| Jog / Jog click | Move the active marker / switch start and end |
+| Shift | Fine steps for knobs and jog |
+| Left / Right | Select previous / next slice |
+| Undo | Undo the last chop |
+| Back | Exit |
+
 ## Prerequisites
 
 - [Schwung](https://github.com/charlesvestal/schwung) installed on your Ableton Move

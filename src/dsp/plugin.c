@@ -22,6 +22,13 @@
  * carries on into the new slice without a gap. Pads stay in time order.
  * One voice at a time: every pad chokes every other. Playback is one-shot.
  *
+ * Fine-tuning: chop points are shared. Moving the start of slice N also
+ * moves the end of slice N-1, so slices never gap or overlap. Only slice
+ * 1's start and the last slice's end trim the sample.
+ *
+ * Waveform: the worker builds three levels of peak tables at load time, so
+ * get_param("wave ...") reads a bounded number of values per column.
+ *
  * Undo: each chop first pushes a snapshot of the slice list onto a fixed
  * stack (no allocation); set_param("undo") pops it.
  */
@@ -54,6 +61,11 @@
 #define WORKER_POLL_NS (20 * 1000 * 1000)
 #define READ_CHUNK_BYTES (64 * 1024)
 
+/* Peak levels: max |sample| per block of 64, 1024 and 16384 frames. */
+#define PEAK_LEVELS 3
+static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
+#define WAVE_MAX_COLS 128
+
 enum {
     LOAD_NONE = 0,
     LOAD_BUSY = 1,
@@ -64,6 +76,8 @@ typedef struct {
     int16_t *data;      /* interleaved stereo */
     int frames;
     int sample_rate;    /* rate of the source file */
+    uint8_t *peaks[PEAK_LEVELS];  /* 0-255, max of |L| and |R| per block */
+    int peak_len[PEAK_LEVELS];
 } sample_buf_t;
 
 /* Everything a chop changes, so undo can restore it whole. */
@@ -89,6 +103,7 @@ typedef struct {
     int slice_end[MAX_SLICES];
     int slice_count;
     int playing_slice;  /* -1 when silent */
+    int selected_slice; /* slice being fine-tuned */
     uint32_t chop_count; /* bumped on every chop, for the UI */
     uint32_t undo_count; /* bumped on every undo, for the UI */
 
@@ -260,8 +275,47 @@ static sample_buf_t *load_wav(const char *path, char *err, size_t err_len) {
 
 static void free_sample(sample_buf_t *s) {
     if (!s) return;
+    for (int l = 0; l < PEAK_LEVELS; l++) free(s->peaks[l]);
     free(s->data);
     free(s);
+}
+
+static uint8_t frame_peak(const int16_t *d, int i) {
+    int l = d[i * 2] < 0 ? -d[i * 2] : d[i * 2];
+    int r = d[i * 2 + 1] < 0 ? -d[i * 2 + 1] : d[i * 2 + 1];
+    int m = l > r ? l : r;
+    return (uint8_t)(m >> 7);
+}
+
+/* Worker only. Returns 0 on allocation failure. */
+static int build_peaks(sample_buf_t *s) {
+    for (int l = 0; l < PEAK_LEVELS; l++) {
+        int bs = PEAK_BLOCK[l];
+        int n = (s->frames + bs - 1) / bs;
+        uint8_t *pk = (uint8_t *)malloc((size_t)n);
+        if (!pk) return 0;
+        for (int b = 0; b < n; b++) {
+            uint8_t m = 0;
+            if (l == 0) {
+                int end = (b + 1) * bs < s->frames ? (b + 1) * bs : s->frames;
+                for (int i = b * bs; i < end; i++) {
+                    uint8_t v = frame_peak(s->data, i);
+                    if (v > m) m = v;
+                }
+            } else {
+                /* Each level is built from the one below (16 blocks each). */
+                int ratio = bs / PEAK_BLOCK[l - 1];
+                int end = (b + 1) * ratio < s->peak_len[l - 1] ? (b + 1) * ratio : s->peak_len[l - 1];
+                for (int i = b * ratio; i < end; i++) {
+                    if (s->peaks[l - 1][i] > m) m = s->peaks[l - 1][i];
+                }
+            }
+            pk[b] = m;
+        }
+        s->peaks[l] = pk;
+        s->peak_len[l] = n;
+    }
+    return 1;
 }
 
 static void worker_demote(void) {
@@ -296,6 +350,11 @@ static void *worker_main(void *arg) {
                 atomic_store(&inst->load_state, LOAD_BUSY);
                 char err[ERROR_MAX_LEN] = "";
                 sample_buf_t *s = path[0] ? load_wav(path, err, sizeof(err)) : NULL;
+                if (s && !build_peaks(s)) {
+                    free_sample(s);
+                    s = NULL;
+                    snprintf(err, sizeof(err), "Out of memory");
+                }
                 if (s) {
                     atomic_store(&inst->incoming, s);
                     atomic_store(&inst->load_state, LOAD_NONE);
@@ -332,6 +391,7 @@ static void adopt_incoming(chopper_t *inst) {
     inst->current = s;
     inst->playing = 0;
     inst->playing_slice = -1;
+    inst->selected_slice = 0;
     inst->slice_start[0] = 0;
     inst->slice_end[0] = s->frames;
     inst->slice_count = 1;
@@ -359,6 +419,7 @@ static void play_slice(chopper_t *inst, int idx) {
     inst->play_end = inst->slice_end[idx];
     inst->play_step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE;
     inst->playing_slice = idx;
+    inst->selected_slice = idx;
     inst->playing = 1;
 }
 
@@ -394,6 +455,99 @@ static void chop_at_playhead(chopper_t *inst) {
 
     /* Same position, same end: only the owner of the playhead changes. */
     inst->playing_slice = p + 1;
+    inst->selected_slice = p + 1;
+}
+
+/* Move a slice's start (side 0) or end (side 1) by delta source frames.
+ * Interior chop points are shared with the neighbor, so they are clamped
+ * to keep both slices at least MIN_SLICE_FRAMES long. */
+static void nudge_marker(chopper_t *inst, int idx, int side, int delta) {
+    sample_buf_t *s = inst->current;
+    if (!s || idx < 0 || idx >= inst->slice_count || delta == 0) return;
+    int last = inst->slice_count - 1;
+
+    if (side == 0 && idx == 0) {
+        int pos = inst->slice_start[0] + delta;
+        int hi = inst->slice_end[0] - MIN_SLICE_FRAMES;
+        if (pos > hi) pos = hi;
+        if (pos < 0) pos = 0;
+        inst->slice_start[0] = pos;
+    } else if (side == 1 && idx == last) {
+        int pos = inst->slice_end[last] + delta;
+        int lo = inst->slice_start[last] + MIN_SLICE_FRAMES;
+        if (pos < lo) pos = lo;
+        if (pos > s->frames) pos = s->frames;
+        inst->slice_end[last] = pos;
+    } else {
+        /* Chop point k sits between slice k-1 and slice k. */
+        int k = side == 0 ? idx : idx + 1;
+        int pos = inst->slice_start[k] + delta;
+        int lo = inst->slice_start[k - 1] + MIN_SLICE_FRAMES;
+        int hi = inst->slice_end[k] - MIN_SLICE_FRAMES;
+        if (pos < lo) pos = lo;
+        if (pos > hi) pos = hi;
+        inst->slice_start[k] = pos;
+        inst->slice_end[k - 1] = pos;
+    }
+
+    if (inst->playing && inst->playing_slice >= 0) {
+        inst->play_end = inst->slice_end[inst->playing_slice];
+    }
+}
+
+/* Parse a decimal int at *p and advance past it. RT-safe: no locale. */
+static int parse_int(const char **p) {
+    const char *c = *p;
+    int sign = 1, v = 0;
+    while (*c == ' ') c++;
+    if (*c == '-') { sign = -1; c++; }
+    while (*c >= '0' && *c <= '9') { v = v * 10 + (*c - '0'); c++; }
+    *p = c;
+    return sign * v;
+}
+
+/* Fill buf with cols two-hex-digit peaks covering source frames [a, b).
+ * Bounded: each column reads at most ~32 peak entries or 128 frames. */
+static int render_wave(chopper_t *inst, int a, int b, int cols, char *buf, int buf_len) {
+    sample_buf_t *s = inst->current;
+    static const char hex[] = "0123456789abcdef";
+    if (!s || cols <= 0 || cols > WAVE_MAX_COLS || buf_len < cols * 2 + 1) return -1;
+    if (a < 0) a = 0;
+    if (b > s->frames) b = s->frames;
+    if (b <= a) b = a + 1;
+
+    double span = (double)(b - a) / cols;
+    for (int c = 0; c < cols; c++) {
+        int f0 = a + (int)(span * c);
+        int f1 = a + (int)(span * (c + 1));
+        if (f1 <= f0) f1 = f0 + 1;
+        if (f0 >= s->frames) f0 = s->frames - 1;
+        if (f1 > s->frames) f1 = s->frames;
+        int n = f1 - f0;
+        uint8_t m = 0;
+
+        int level = -1;
+        for (int l = PEAK_LEVELS - 1; l >= 0; l--) {
+            if (PEAK_BLOCK[l] * 2 <= n) { level = l; break; }
+        }
+        if (level < 0) {
+            for (int i = f0; i < f1; i++) {
+                uint8_t v = frame_peak(s->data, i);
+                if (v > m) m = v;
+            }
+        } else {
+            int bs = PEAK_BLOCK[level];
+            int b0 = f0 / bs, b1 = (f1 + bs - 1) / bs;
+            if (b1 > s->peak_len[level]) b1 = s->peak_len[level];
+            for (int i = b0; i < b1; i++) {
+                if (s->peaks[level][i] > m) m = s->peaks[level][i];
+            }
+        }
+        buf[c * 2] = hex[m >> 4];
+        buf[c * 2 + 1] = hex[m & 15];
+    }
+    buf[cols * 2] = '\0';
+    return cols * 2;
 }
 
 /* Restore the slice list from before the last chop. If something is
@@ -405,6 +559,7 @@ static void undo_last_chop(chopper_t *inst) {
     memcpy(inst->slice_end, u->slice_end, sizeof(inst->slice_end));
     inst->slice_count = u->slice_count;
     inst->undo_count++;
+    if (inst->selected_slice >= inst->slice_count) inst->selected_slice = inst->slice_count - 1;
 
     if (!inst->playing) return;
     int pos = (int)inst->play_pos;
@@ -481,6 +636,21 @@ static void set_param(void *instance, const char *key, const char *val) {
         undo_last_chop(inst);
         return;
     }
+    if (strcmp(key, "nudge") == 0) {
+        /* "<slice> <side> <delta>" */
+        const char *p = val;
+        int idx = parse_int(&p);
+        int side = parse_int(&p);
+        int delta = parse_int(&p);
+        nudge_marker(inst, idx, side, delta);
+        return;
+    }
+    if (strcmp(key, "select") == 0) {
+        const char *p = val;
+        int idx = parse_int(&p);
+        if (idx >= 0 && idx < inst->slice_count) inst->selected_slice = idx;
+        return;
+    }
     if (strcmp(key, "file_path") == 0) {
         strncpy(inst->req_path, val, PATH_MAX_LEN - 1);
         inst->req_path[PATH_MAX_LEN - 1] = '\0';
@@ -510,16 +680,25 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
                         inst->playing, (int)inst->play_pos);
     }
     if (strcmp(key, "slices") == 0) {
-        /* "<chop_count> <undo_count> <undo_depth> <playing_slice> <count>
-         *  <start0> <end0> ..." */
-        int n = snprintf(buf, (size_t)buf_len, "%u %u %d %d %d",
+        /* "<chop_count> <undo_count> <undo_depth> <playing_slice>
+         *  <selected_slice> <count> <start0> <end0> ..." */
+        int n = snprintf(buf, (size_t)buf_len, "%u %u %d %d %d %d",
                          inst->chop_count, inst->undo_count, inst->undo_depth,
-                         inst->playing ? inst->playing_slice : -1, inst->slice_count);
+                         inst->playing ? inst->playing_slice : -1,
+                         inst->selected_slice, inst->slice_count);
         for (int i = 0; i < inst->slice_count && n > 0 && n < buf_len; i++) {
             n += snprintf(buf + n, (size_t)(buf_len - n), " %d %d",
                           inst->slice_start[i], inst->slice_end[i]);
         }
         return n;
+    }
+    if (strncmp(key, "wave ", 5) == 0) {
+        /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
+        const char *p = key + 5;
+        int a = parse_int(&p);
+        int b = parse_int(&p);
+        int cols = parse_int(&p);
+        return render_wave(inst, a, b, cols, buf, buf_len);
     }
     if (strcmp(key, "error") == 0) {
         if (atomic_load(&inst->load_state) != LOAD_FAILED) return snprintf(buf, (size_t)buf_len, "%s", "");

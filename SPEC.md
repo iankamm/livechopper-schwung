@@ -65,6 +65,12 @@ Move drum rack preset.
 - Playback is one-shot: a pad plays its whole region and releasing it does
   not stop it. Pressing it again restarts the region. Gate behavior is left
   to the user to set in the exported drum rack.
+- Fine-tuning: chop points are linked. Moving a slice's start also moves the
+  previous slice's end (and vice versa), so slices never gap or overlap.
+  Only Pad 1's start and the last pad's end trim the sample. The selected
+  slice is the one last played (or created by a chop); Left/Right change it.
+  Knob 1 moves its start, Knob 2 its end, Knob 3 zooms, the jog moves the
+  active marker and jog click switches start/end. Shift gives fine steps.
 - Blue pad pressed while nothing is playing: nothing happens.
 - Pressing a chopped pad that is not playing: it plays its region and chokes
   whatever is playing.
