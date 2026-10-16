@@ -19,3 +19,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Portions of this software (build/install scripts, release workflow, and code
+adapted from schwung-waveform-editor) are:
+
+Copyright (c) 2025 Charles Vestal
+
+and are distributed under the same MIT License terms as above.
+
+src/dsp/plugin_api_v1.h is copied unmodified from the Schwung framework:
+
+Copyright (c) 2025-2026 Charles Vestal
+
+and is distributed under the same MIT License terms as above.

@@ -1,0 +1,28 @@
+{
+  "title": "Chopper",
+  "children": [
+    {
+      "title": "Overview",
+      "lines": [
+        "Chop a WAV across",
+        "pads in real time,",
+        "like MPC and SP",
+        "chop modes.",
+        "",
+        "Play Pad 1, then hit",
+        "the blue pad to cut",
+        "at the playhead.",
+        "",
+        "Export the slices as",
+        "a Move drum rack."
+      ]
+    },
+    {
+      "title": "Controls",
+      "lines": [
+        "Pads: play or chop",
+        "Back: exit"
+      ]
+    }
+  ]
+}

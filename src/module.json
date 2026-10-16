@@ -1,0 +1,15 @@
+{
+    "id": "chopper",
+    "name": "Chopper",
+    "version": "0.1.0",
+    "description": "Chop a sample across pads in real time and export a drum rack",
+    "author": "iankamm",
+    "dsp": "dsp.so",
+    "api_version": 2,
+    "component_type": "tool",
+    "tool_config": {
+        "interactive": true,
+        "command": null,
+        "input_extensions": [".wav"]
+    }
+}
