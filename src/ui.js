@@ -10,15 +10,17 @@
  * Controls:
  *   Red pads  - Play that slice (one-shot, chokes the others)
  *   Blue pad  - While a slice plays: chop at the playhead
+ *   Undo      - Undo the last chop
  *   Back      - Exit
  */
 
 import {
-    MoveBack, MovePads,
-    Black, DarkGrey, BrightRed, PureBlue
+    MoveBack, MoveUndo, MovePads,
+    Black, DarkGrey, BrightRed, PureBlue,
+    WhiteLedOff, WhiteLedBright
 } from '/data/UserData/schwung/shared/constants.mjs';
 
-import { setLED } from '/data/UserData/schwung/shared/input_filter.mjs';
+import { setLED, setButtonLED } from '/data/UserData/schwung/shared/input_filter.mjs';
 
 import { announce } from '/data/UserData/schwung/shared/screen_reader.mjs';
 
@@ -28,6 +30,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 /* ============ Constants ============ */
 
 var CC_BACK = MoveBack;
+var CC_UNDO = MoveUndo;
 var PAD_NOTE_MIN = MovePads[0];
 var MAX_PADS = 16;
 var COLOR_SLICE = BrightRed;    /* playable slice pad */
@@ -59,12 +62,16 @@ var errorMsg = "";
 
 /* Mirrored from DSP slices */
 var chopCount = 0;
+var undoCount = 0;
+var undoDepth = 0;
 var playingSlice = -1;
 var sliceCount = 0;
 var sliceStarts = [];
 
 var lastLoadState = "";
 var lastChopCount = 0;
+var lastUndoCount = 0;
+var undoLedOn = null;
 var padColors = [];         /* last color sent per pad index, to avoid LED spam */
 
 /* ============ Helpers ============ */
@@ -95,11 +102,13 @@ function pollSlices() {
     if (!raw) return;
     var p = raw.split(" ");
     chopCount = parseInt(p[0], 10) || 0;
-    playingSlice = parseInt(p[1], 10);
-    sliceCount = parseInt(p[2], 10) || 0;
+    undoCount = parseInt(p[1], 10) || 0;
+    undoDepth = parseInt(p[2], 10) || 0;
+    playingSlice = parseInt(p[3], 10);
+    sliceCount = parseInt(p[4], 10) || 0;
     sliceStarts = [];
     for (var i = 0; i < sliceCount; i++) {
-        sliceStarts.push(parseInt(p[3 + i * 2], 10) || 0);
+        sliceStarts.push(parseInt(p[5 + i * 2], 10) || 0);
     }
 }
 
@@ -119,6 +128,18 @@ function onChop() {
     } else {
         announce("Chop, " + sliceCount + " slices");
     }
+}
+
+function onUndo() {
+    announce("Undo, " + sliceCount + (sliceCount === 1 ? " slice" : " slices"));
+}
+
+/* Undo button lit while there is a chop to undo. */
+function updateUndoLed() {
+    var on = undoDepth > 0;
+    if (undoLedOn === on) return;
+    undoLedOn = on;
+    setButtonLED(CC_UNDO, on ? WhiteLedBright : WhiteLedOff);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -144,6 +165,7 @@ function clearAllPadLeds() {
 
 function exitTool() {
     clearAllPadLeds();
+    setButtonLED(CC_UNDO, WhiteLedOff);
     if (typeof host_exit_module === "function") host_exit_module();
 }
 
@@ -220,7 +242,12 @@ globalThis.tick = function() {
         if (chopCount > lastChopCount) onChop();
         lastChopCount = chopCount;
     }
+    if (undoCount !== lastUndoCount) {
+        if (undoCount > lastUndoCount) onUndo();
+        lastUndoCount = undoCount;
+    }
     updatePadLeds();
+    updateUndoLed();
     draw();
 };
 
@@ -232,5 +259,9 @@ globalThis.onMidiMessageInternal = function(data) {
     /* Pads are handled by the DSP on the audio thread; nothing to do here. */
     if (status === 0xB0) {
         if (d1 === CC_BACK && d2 > 0) exitTool();
+        else if (d1 === CC_UNDO && d2 > 0) {
+            if (undoDepth > 0) host_module_set_param("undo", "1");
+            else announce("Nothing to undo");
+        }
     }
 };

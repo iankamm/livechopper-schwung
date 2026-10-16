@@ -28,6 +28,7 @@
         "Blue pad: chop at",
         " playhead while a",
         " slice plays",
+        "Undo: undo last chop",
         "Back: exit"
       ]
     }

@@ -21,6 +21,9 @@
  * current playhead, inserts the new slice right after it, and playback
  * carries on into the new slice without a gap. Pads stay in time order.
  * One voice at a time: every pad chokes every other. Playback is one-shot.
+ *
+ * Undo: each chop first pushes a snapshot of the slice list onto a fixed
+ * stack (no allocation); set_param("undo") pops it.
  */
 
 #define _GNU_SOURCE
@@ -63,6 +66,16 @@ typedef struct {
     int sample_rate;    /* rate of the source file */
 } sample_buf_t;
 
+/* Everything a chop changes, so undo can restore it whole. */
+typedef struct {
+    int slice_start[MAX_SLICES];
+    int slice_end[MAX_SLICES];
+    int slice_count;
+} slice_snapshot_t;
+
+/* At most MAX_SLICES - 1 chops can be in effect at once. */
+#define UNDO_DEPTH (MAX_SLICES - 1)
+
 typedef struct {
     /* --- audio thread only --- */
     sample_buf_t *current;
@@ -77,6 +90,10 @@ typedef struct {
     int slice_count;
     int playing_slice;  /* -1 when silent */
     uint32_t chop_count; /* bumped on every chop, for the UI */
+    uint32_t undo_count; /* bumped on every undo, for the UI */
+
+    slice_snapshot_t undo_stack[UNDO_DEPTH];
+    int undo_depth;
 
     /* --- handoff between audio thread and worker --- */
     char req_path[PATH_MAX_LEN];
@@ -319,6 +336,8 @@ static void adopt_incoming(chopper_t *inst) {
     inst->slice_end[0] = s->frames;
     inst->slice_count = 1;
     inst->chop_count = 0;
+    inst->undo_count = 0;
+    inst->undo_depth = 0;
     if (old) atomic_store(&inst->retired, old);
 }
 
@@ -354,6 +373,15 @@ static void chop_at_playhead(chopper_t *inst) {
     if (t - inst->slice_start[p] < MIN_SLICE_FRAMES ||
         inst->slice_end[p] - t < MIN_SLICE_FRAMES) return;
 
+    /* Snapshot for undo. The stack can't overflow: each chop adds a slice
+     * and each undo removes one, so depth <= slice_count - 1 < UNDO_DEPTH. */
+    if (inst->undo_depth < UNDO_DEPTH) {
+        slice_snapshot_t *u = &inst->undo_stack[inst->undo_depth++];
+        memcpy(u->slice_start, inst->slice_start, sizeof(u->slice_start));
+        memcpy(u->slice_end, inst->slice_end, sizeof(u->slice_end));
+        u->slice_count = inst->slice_count;
+    }
+
     for (int i = inst->slice_count; i > p + 1; i--) {
         inst->slice_start[i] = inst->slice_start[i - 1];
         inst->slice_end[i] = inst->slice_end[i - 1];
@@ -366,6 +394,29 @@ static void chop_at_playhead(chopper_t *inst) {
 
     /* Same position, same end: only the owner of the playhead changes. */
     inst->playing_slice = p + 1;
+}
+
+/* Restore the slice list from before the last chop. If something is
+ * playing, it carries on in whichever restored slice holds the playhead. */
+static void undo_last_chop(chopper_t *inst) {
+    if (inst->undo_depth <= 0) return;
+    slice_snapshot_t *u = &inst->undo_stack[--inst->undo_depth];
+    memcpy(inst->slice_start, u->slice_start, sizeof(inst->slice_start));
+    memcpy(inst->slice_end, u->slice_end, sizeof(inst->slice_end));
+    inst->slice_count = u->slice_count;
+    inst->undo_count++;
+
+    if (!inst->playing) return;
+    int pos = (int)inst->play_pos;
+    for (int i = 0; i < inst->slice_count; i++) {
+        if (pos >= inst->slice_start[i] && pos < inst->slice_end[i]) {
+            inst->playing_slice = i;
+            inst->play_end = inst->slice_end[i];
+            return;
+        }
+    }
+    inst->playing = 0;
+    inst->playing_slice = -1;
 }
 
 /* ============================================================================
@@ -426,6 +477,10 @@ static void set_param(void *instance, const char *key, const char *val) {
     chopper_t *inst = (chopper_t *)instance;
     if (!inst || !key || !val) return;
 
+    if (strcmp(key, "undo") == 0) {
+        undo_last_chop(inst);
+        return;
+    }
     if (strcmp(key, "file_path") == 0) {
         strncpy(inst->req_path, val, PATH_MAX_LEN - 1);
         inst->req_path[PATH_MAX_LEN - 1] = '\0';
@@ -455,8 +510,10 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
                         inst->playing, (int)inst->play_pos);
     }
     if (strcmp(key, "slices") == 0) {
-        /* "<chop_count> <playing_slice> <count> <start0> <end0> ..." */
-        int n = snprintf(buf, (size_t)buf_len, "%u %d %d", inst->chop_count,
+        /* "<chop_count> <undo_count> <undo_depth> <playing_slice> <count>
+         *  <start0> <end0> ..." */
+        int n = snprintf(buf, (size_t)buf_len, "%u %u %d %d %d",
+                         inst->chop_count, inst->undo_count, inst->undo_depth,
                          inst->playing ? inst->playing_slice : -1, inst->slice_count);
         for (int i = 0; i < inst->slice_count && n > 0 && n < buf_len; i++) {
             n += snprintf(buf + n, (size_t)(buf_len - n), " %d %d",
