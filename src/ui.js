@@ -160,7 +160,9 @@ var exportedVersion = 0;
 /* Exit confirmation */
 var confirmExit = false;
 var confirmIndex = 0;
-var CONFIRM_ITEMS = ["Export and exit", "Exit, discard", "Cancel"];
+var CONFIRM_ITEMS = ["Discard and exit", "Cancel"];
+var CONFIRM_DISCARD = 0;
+var CONFIRM_CANCEL = 1;
 var lastSelectedSlice = -1;
 var buttonLedOn = {};        /* last on/off sent per button CC */
 var exited = false;         /* no LED updates once we have handed back */
@@ -576,8 +578,8 @@ function requestExit() {
         return;
     }
     confirmExit = true;
-    confirmIndex = 0;
-    announce("Not exported. " + CONFIRM_ITEMS[0]);
+    confirmIndex = CONFIRM_CANCEL;   /* the safe choice starts selected */
+    announce("Not exported. " + CONFIRM_ITEMS[confirmIndex]);
 }
 
 function confirmMove(ticks) {
@@ -588,9 +590,7 @@ function confirmMove(ticks) {
 
 function confirmChoose() {
     confirmExit = false;
-    if (confirmIndex === 0) {
-        if (exportKit()) exitTool();
-    } else if (confirmIndex === 1) {
+    if (confirmIndex === CONFIRM_DISCARD) {
         exitTool();
     } else {
         announce("Cancelled");
@@ -598,7 +598,7 @@ function confirmChoose() {
 }
 
 /* While the exit prompt is up: jog chooses, jog click confirms, Back
- * cancels, Capture exports and exits. Everything else is ignored. */
+ * cancels. Everything else is ignored. */
 function handleConfirmCC(cc, value) {
     if (cc === CC_JOG) {
         confirmMove(decodeDelta(value));
@@ -607,9 +607,6 @@ function handleConfirmCC(cc, value) {
     } else if (cc === CC_BACK && value > 0) {
         confirmExit = false;
         announce("Cancelled");
-    } else if (cc === CC_CAPTURE && value > 0) {
-        confirmIndex = 0;
-        confirmChoose();
     }
 }
 
@@ -670,7 +667,7 @@ function updateButtonLeds() {
     var ready = loadState === "ready";
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && !confirmExit);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && !confirmExit);
-    setButtonLit(CC_CAPTURE, ready && sliceCount > 0);
+    setButtonLit(CC_CAPTURE, ready && sliceCount > 0 && !confirmExit);
 }
 
 /* Set a slice pad's LED only when its color changes. */

@@ -189,24 +189,28 @@ const exits = () => log.filter(l => l === 'EXIT').length;
 const prompt = () => printed.includes('Not exported');
 midi(0xB0, 51, 127); tick(1);
 check(prompt() && exits() === 0, 'Back with unexported changes asks first');
-check(!lit(UNDO) && !lit(DELETE) && lit(CAPTURE), 'prompt: only Capture lit');
+check(!lit(UNDO) && !lit(DELETE) && !lit(CAPTURE), 'prompt: Undo, Delete, Capture dark');
+check(!printed.some(t => /Export/.test(t)), 'prompt offers no export');
+check(log.some(l => l === 'SAY: Not exported. Cancel'), 'prompt starts on Cancel');
 mark = sets.length;
-midi(0xB0, 71, 5); midi(0x90, 4, 127); tick(1);
+const fileCount = Object.keys(files).length;
+midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 52, 127); tick(1);
 check(prompt() && sets.length === mark, 'knobs ignored while asking');
+check(Object.keys(files).length === fileCount, 'Capture ignored while asking');
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 0, 'Back in the prompt cancels');
-check(lit(DELETE), 'Delete lit again after cancelling');
-midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
-check(!prompt() && exits() === 0, 'choosing Cancel stays');
+check(lit(DELETE) && lit(CAPTURE), 'Delete and Capture lit again after cancelling');
+midi(0xB0, 51, 127); midi(0xB0, 3, 127); tick(1);
+check(!prompt() && exits() === 0, 'clicking the default (Cancel) stays');
 midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
-check(exits() === 1, 'choosing Exit, discard exits');
+check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
+midi(0xB0, 51, 127); midi(0xB0, 14, 127); midi(0xB0, 3, 127); tick(1);
+check(exits() === 1, 'choosing Discard and exit exits');
 check(!lit(UNDO) && !lit(DELETE) && !lit(CAPTURE), 'exit turns the buttons off');
-const p3 = presetDir + 'test loop Chop 3.ablpreset';
 dsp.chop = 3; tick(1);                   // more unexported work
-midi(0xB0, 51, 127); midi(0xB0, 52, 127); tick(1);
-check(p3 in files && exits() === 2, 'Capture in the prompt exports, then exits');
+midi(0xB0, 52, 127); tick(1);            // Capture exports it
 midi(0xB0, 51, 127); tick(1);
-check(!prompt() && exits() === 3, 'Back exits straight away when everything is exported');
+check(!prompt() && exits() === 2, 'Back exits straight away when everything is exported');
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));
 console.log(failures ? `${failures} FAILED` : 'all checks passed');

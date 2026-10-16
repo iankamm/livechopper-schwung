@@ -83,8 +83,8 @@ Move drum rack preset.
   keeps the last 32 steps. Shift+Undo redoes what was undone, until a new
   chop, delete or chop point move.
 - Exit (Back): if anything changed since the last export (chops, deletes,
-  undo, redo, chop points, envelope, transpose), ask first: Export and exit /
-  Exit, discard / Cancel. Zoom and waveform scale don't count.
+  undo, redo, chop points, envelope, transpose), ask first: Discard and exit /
+  Cancel (Cancel starts selected). Zoom and waveform scale don't count.
 - Export (Capture button): one .ablpreset in UserLibrary/Track Presets,
   named "<sample> Chop" (then "Chop 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
