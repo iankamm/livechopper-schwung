@@ -4,17 +4,19 @@
  * Chop a sample across pads in real time. See SPEC.md.
  * 128x64 1-bit monochrome display, QuickJS runtime.
  *
- * Step 0: shows the chosen file and a pad probe read back from the DSP,
- * to confirm pad notes reach the DSP's on_midi on the audio thread.
+ * The DSP owns pad input and the playhead (so chops are sample-accurate);
+ * this UI only mirrors DSP state by polling get_param("status").
+ *
+ * Step 1: the WAV loads into the DSP; Pad 1 plays the whole sample.
  *
  * Controls:
- *   Pads  - (probe) counted by the DSP
+ *   Pad 1 - Play the sample
  *   Back  - Exit
  */
 
 import {
     MoveBack, MovePads,
-    Black, DarkGrey, PureBlue
+    Black, DarkGrey, White
 } from '/data/UserData/schwung/shared/constants.mjs';
 
 import { setLED } from '/data/UserData/schwung/shared/input_filter.mjs';
@@ -28,8 +30,8 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 
 var CC_BACK = MoveBack;
 var PAD_NOTE_MIN = MovePads[0];
-var PAD_NOTE_MAX = MovePads[MovePads.length - 1];
 var MAX_PADS = 16;
+var SCREEN_W = 128;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
  * Pad 1 is bottom-left, numbered left to right then upward. */
@@ -40,23 +42,21 @@ function padIndexToNote(i) {
     return PAD_NOTE_MIN + Math.floor(i / PAD_COLS) * ROW_STRIDE + (i % PAD_COLS);
 }
 
-/* Returns 0-15 for a slice pad, or -1 for the right half. */
-function noteToPadIndex(note) {
-    var off = note - PAD_NOTE_MIN;
-    if (off < 0 || off >= MovePads.length) return -1;
-    var col = off % ROW_STRIDE;
-    if (col >= PAD_COLS) return -1;
-    return Math.floor(off / ROW_STRIDE) * PAD_COLS + col;
-}
-
 /* ============ State ============ */
 
 var filePath = "";
 var fileName = "";
-var probe = "";
-var hostSeesPad = -1;   /* last pad note seen by the UI, for comparison */
-var hostSeesPadIdx = -1;
-var ledInitIndex = 0;   /* progressive LED init, a few per tick */
+
+/* Mirrored from DSP status */
+var loadState = "none";     /* none | loading | ready | error */
+var frames = 0;
+var sampleRate = 0;
+var playing = false;
+var playPos = 0;
+var errorMsg = "";
+
+var lastLoadState = "";
+var padColors = [];         /* last color sent per pad index, to avoid LED spam */
 
 /* ============ Helpers ============ */
 
@@ -65,19 +65,53 @@ function baseName(path) {
     return i >= 0 ? path.substring(i + 1) : path;
 }
 
-function initLedsStep() {
-    var end = Math.min(ledInitIndex + 8, MovePads.length);
-    for (; ledInitIndex < end; ledInitIndex++) {
-        setLED(MovePads[ledInitIndex], restColor(MovePads[ledInitIndex]));
+function formatSeconds(f) {
+    if (!sampleRate) return "0.0s";
+    return (f / sampleRate).toFixed(1) + "s";
+}
+
+function pollStatus() {
+    var raw = host_module_get_param("status");
+    if (!raw) return;
+    var p = raw.split(" ");
+    loadState = p[0];
+    frames = parseInt(p[1], 10) || 0;
+    sampleRate = parseInt(p[2], 10) || 0;
+    playing = p[3] === "1";
+    playPos = parseInt(p[4], 10) || 0;
+}
+
+function onLoadStateChange() {
+    if (loadState === "ready") {
+        announce("Loaded " + fileName + ", press Pad 1");
+    } else if (loadState === "error") {
+        errorMsg = host_module_get_param("error") || "Load failed";
+        announce("Load failed, " + errorMsg);
+    }
+    debugLog("load state " + loadState);
+}
+
+/* Set a slice pad's LED only when its color changes. */
+function setPadColor(i, color) {
+    if (padColors[i] === color) return;
+    padColors[i] = color;
+    setLED(padIndexToNote(i), color);
+}
+
+function updatePadLeds() {
+    for (var i = 0; i < MAX_PADS; i++) {
+        var color = DarkGrey;
+        if (i === 0 && loadState === "ready") color = White;
+        setPadColor(i, color);
     }
 }
 
-function restColor(note) {
-    return noteToPadIndex(note) >= 0 ? DarkGrey : Black;
+function clearAllPadLeds() {
+    for (var i = 0; i < MovePads.length; i++) setLED(MovePads[i], Black);
 }
 
 function exitTool() {
-    for (var i = 0; i < MovePads.length; i++) setLED(MovePads[i], Black);
+    clearAllPadLeds();
     if (typeof host_exit_module === "function") host_exit_module();
 }
 
@@ -87,9 +121,21 @@ function draw() {
     clear_screen();
     print(2, 2, "Chopper", 1);
     print(2, 14, fileName ? fileName.substring(0, 20) : "(no file)", 1);
-    print(2, 28, "DSP: " + probe, 1);
-    print(2, 40, "UI pad: " + hostSeesPad +
-          (hostSeesPadIdx >= 0 ? " = Pad " + (hostSeesPadIdx + 1) : ""), 1);
+
+    if (loadState === "loading") {
+        print(2, 30, "Loading...", 1);
+    } else if (loadState === "error") {
+        print(2, 30, errorMsg.substring(0, 20), 1);
+    } else if (loadState === "ready") {
+        print(2, 26, formatSeconds(frames) + "  " + sampleRate + "Hz", 1);
+        /* Playhead bar */
+        draw_rect(2, 40, SCREEN_W - 4, 8, 1);
+        if (playing && frames > 0) {
+            var w = Math.floor((SCREEN_W - 8) * playPos / frames);
+            fill_rect(4, 42, Math.max(1, w), 4, 1);
+        }
+        print(2, 52, playing ? "Playing" : "Press Pad 1", 1);
+    }
 }
 
 /* ============ Entry points ============ */
@@ -97,6 +143,7 @@ function draw() {
 globalThis.init = function() {
     filePath = (typeof host_tool_file_path === "string") ? host_tool_file_path : "";
     fileName = baseName(filePath);
+    clearAllPadLeds();
     if (filePath) {
         if (typeof host_module_set_param_blocking === "function") {
             host_module_set_param_blocking("file_path", filePath, 10000);
@@ -105,12 +152,16 @@ globalThis.init = function() {
         }
     }
     debugLog("init file=" + filePath);
-    announce("Chopper, " + (fileName || "no file"));
+    announce("Chopper, loading " + (fileName || "no file"));
 };
 
 globalThis.tick = function() {
-    if (ledInitIndex < MovePads.length) initLedsStep();
-    probe = host_module_get_param("pad_probe") || "?";
+    pollStatus();
+    if (loadState !== lastLoadState) {
+        lastLoadState = loadState;
+        onLoadStateChange();
+    }
+    updatePadLeds();
     draw();
 };
 
@@ -119,17 +170,8 @@ globalThis.onMidiMessageInternal = function(data) {
     var d1 = data[1];
     var d2 = data[2];
 
+    /* Pads are handled by the DSP on the audio thread; nothing to do here. */
     if (status === 0xB0) {
         if (d1 === CC_BACK && d2 > 0) exitTool();
-    } else if (status === 0x90 && d2 > 0) {
-        if (d1 >= PAD_NOTE_MIN && d1 <= PAD_NOTE_MAX) {
-            hostSeesPad = d1;
-            hostSeesPadIdx = noteToPadIndex(d1);
-            if (hostSeesPadIdx >= 0) setLED(d1, PureBlue);
-        }
-    } else if (status === 0x80 || (status === 0x90 && d2 === 0)) {
-        if (d1 >= PAD_NOTE_MIN && d1 <= PAD_NOTE_MAX) {
-            setLED(d1, restColor(d1));
-        }
     }
 };
