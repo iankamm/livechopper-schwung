@@ -42,20 +42,8 @@ Findings from studying the framework and schwung-waveform-editor (v0.7.3),
   16 pads. Choke-all is supported.
 - Transpose: `Voice_Transpose` per drumCell, so global transpose can be
   exported.
-- ADSR: the drumCell envelope is `Voice_Envelope_Attack/Hold/Decay` with
-  `Voice_Envelope_Mode: "A-H-D"`. Decided: per-slice envelope is AHD (see
-  below), which maps directly onto these fields.
+- Envelope: the drumCell envelope is `Voice_Envelope_Attack/Hold/Decay` with
+  `Voice_Envelope_Mode: "A-H-D"`. The spec's per-slice AHD maps directly onto
+  these fields.
 - The preset always has 16 chains (receivingNote 36-51); unused pads get
   `speakerOn: false`.
-
-## Decisions made after SPEC.md (2026-10-15)
-
-SPEC.md is read-only (root-owned), so these override it until it's updated:
-
-- Pads: slice pads are the left 4x4 block, like a Move drum rack. Pad i
-  (0-15) maps to note 68 + 8*floor(i/4) + i%4; Pad 1 = 68 (bottom-left),
-  Pad 5 = 76. The waveform editor uses notes 68-83 (two rows of 8) instead;
-  don't copy its pad indexing.
-- Envelope: per-slice attack/hold/decay (AHD) instead of ADSR, matching the
-  drum sampler's A-H-D mode, so it exports directly. Default for a new
-  slice: attack 0, hold for the full slice, short decay.

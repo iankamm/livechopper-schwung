@@ -34,28 +34,32 @@ Move drum rack preset.
 
 ## Decisions
 
-- Pads: 16 maximum, the same 16 pads the waveform editor and a Move drum rack
-  use. When all 16 are used, no pad lights blue and further chops are ignored.
-- Pad order: Pad 1 is the bottom-left pad, with the same pad numbering as the
-  waveform editor and the rest of Move. Pads always stay in time order: pad N
-  is the Nth slice of the sample. The blue pad is the next unused pad after
-  the last slice. When a chop splits a slice in the middle of the list, the
+- Pads: 16 maximum: the left 4x4 block of pads, the same 16 a Move drum rack
+  uses. The right half is free for other controls. When all 16 are used, no
+  pad lights blue and further chops are ignored.
+- Pad order: Pad 1 is the bottom-left pad, numbered left to right, then
+  upward, like a Move drum rack: Pad i (0-15) is note
+  68 + 8*floor(i/4) + i%4, so Pad 1 = 68 and Pad 5 = 76. (The waveform editor
+  uses two rows of 8 instead; don't copy its pad indexing.) Pads always stay
+  in time order: pad N is the Nth slice of the sample. The blue pad is the
+  next unused pad after the last slice. When a chop splits a slice in the middle of the list, the
   new slice is inserted directly after the slice that was playing, and every
   later slice moves up one pad. Example: with pads 1-3 chopped and Pad 4 blue,
   playing Pad 1 and pressing Pad 4 gives:
   Pad 1 = old start to T, Pad 2 = T to Pad 1's old end (the new slice),
   Pad 3 = old slice 2, Pad 4 = old slice 3, and Pad 5 lights blue.
   Playback continues on the new slice (now Pad 2), not on the pad pressed.
-  Per-slice settings (ADSR) move with their slice when pads are reordered.
+  Per-slice settings (envelope) move with their slice when pads are reordered.
 - Transpose: repitch only (changes length and pitch together), one global
   setting for now.
-- ADSR: each slice has its own attack, decay, sustain and release, applied in
-  chop mode playback and carried into the export. Default for a new slice:
-  attack 0, full sustain, short release, so a fresh chop sounds like the raw
-  sample without clicks. A new slice created by a chop copies the ADSR of the
-  slice it was split from.
+- Envelope: each slice has its own attack, hold and decay (AHD, matching the
+  Move drum sampler's A-H-D mode, so it exports directly), applied in chop
+  mode playback and carried into the export. Default for a new slice:
+  attack 0, hold for the full slice, short decay, so a fresh chop sounds like
+  the raw sample without clicks. A new slice created by a chop copies the
+  envelope of the slice it was split from.
 - Choke: all pads choke each other by default, in chop mode and in the exported
-  drum rack preset (if the preset format supports choke).
+  drum rack preset (supported: every pad gets the same chokeGroup).
 - Blue pad pressed while nothing is playing: nothing happens.
 - Pressing a chopped pad that is not playing: it plays its region and chokes
   whatever is playing.
@@ -65,7 +69,5 @@ Move drum rack preset.
 - Export: one WAV with start/end per drum rack pad, or one WAV file per slice?
   Depends on what the waveform editor's export and the drum rack preset format
   support. Recommend an option with the tradeoffs.
-- Confirm the drum rack preset format can express choke and per-pad ADSR; if
-  not, say so.
-- How ADSR is edited on the device (which knobs, on which pad). Propose
+- How the envelope is edited on the device (which knobs, on which pad). Propose
   something consistent with the waveform editor and Move.
