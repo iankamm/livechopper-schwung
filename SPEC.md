@@ -26,8 +26,8 @@ Move drum rack preset.
 - Transpose: repitch the sample (see open questions for per-pad vs global).
 - Fine-tune chop points afterwards with knobs/jog and a waveform view, borrowing
   from the waveform editor's marker and zoom UI.
-- Export to a default Move drum rack preset, the same way the waveform editor
-  does. Find and reuse its export code.
+- Export menu on the Record button, like the waveform editor's: rename,
+  export Slices (one WAV per pad), export a Drum Preset, or Cancel.
 - Undo the last chop or delete; Shift+Undo redoes it.
 - help.json and screen-reader announcements (chop made, pad selected, export
   done).
@@ -85,8 +85,17 @@ Move drum rack preset.
 - Exit (Back): if anything changed since the last export (chops, deletes,
   undo, redo, chop points, envelope, transpose), ask first: Discard and exit /
   Cancel (Cancel starts selected). Zoom and waveform scale don't count.
-- Export (Capture button): one .ablpreset in UserLibrary/Track Presets,
-  named "<sample> Chop" (then "Chop 2", 3, ... never overwritten). All 16
+- Export menu (Record button, CC 118, as in the waveform editor): the name
+  row on top (jog click opens the on-screen keyboard; starts as
+  "<sample> Chop"), then Slices / Drum Preset / Cancel. Jog chooses, jog
+  click runs it and closes the menu, Back or Record closes it. Capture does
+  nothing. Either export clears the "not exported" state for the exit prompt.
+- Export Slices: one WAV per pad in a new folder next to the sample,
+  "<name>/<name> 01.wav", 02, ... (folder "<name> 2", 3, ... if taken). The
+  DSP worker copies each slice's frames straight from the source file, so
+  format, bit depth and channel count are kept.
+- Export Drum Preset: one .ablpreset in UserLibrary/Track Presets,
+  named "<name>" (then "<name> 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
   is exported in seconds in A-H-D mode (hold Full = 60 s), transpose as

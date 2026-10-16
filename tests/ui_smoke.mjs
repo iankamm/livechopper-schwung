@@ -34,7 +34,7 @@ g.text_width = t => t.length * 5;
 const buttonLeds = {};
 g.move_midi_internal_send = m => { if (m[0] === 0x0b) buttonLeds[m[2]] = m[3]; return true; };
 const lit = cc => buttonLeds[cc] > 0;
-const UNDO = 56, DELETE = 119, CAPTURE = 52;
+const UNDO = 56, DELETE = 119, RECORD = 118, CAPTURE = 52;
 g.host_send_screenreader = t => log.push('SAY: ' + t);
 g.host_announce_screenreader = g.host_send_screenreader;
 g.shadow_get_display_mode = () => 1;
@@ -46,7 +46,8 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
-  settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0 };
+  settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
+  exportReq: 0, exportDone: 0, exportWritten: 0 };
 const sets = [];
 g.host_module_get_param = k => {
   if (k === 'status') return `ready ${dsp.frames} ${dsp.rate} ${dsp.playing} ${dsp.pos}`;
@@ -55,10 +56,17 @@ g.host_module_get_param = k => {
   if (k === 'settings') return dsp.settings;
   if (k.startsWith('wave ')) { const c = +k.split(' ')[3]; return 'a0'.repeat(c); }
   if (k === 'error') return '';
+  if (k === 'export_result') return `${dsp.exportReq} ${dsp.exportDone} ${dsp.exportWritten}`;
   return null;
 };
-g.host_module_set_param = (k, v) => sets.push(k + '=' + v);
-g.host_module_set_param_blocking = (k, v) => { sets.push(k + '=' + v); return true; };
+const fakeSet = (k, v) => { sets.push(k + '=' + v); if (k === 'export_slices') dsp.exportReq++; return true; };
+g.host_module_set_param = fakeSet;
+g.host_module_set_param_blocking = fakeSet;
+let keyboardText = null;   // what the fake on-screen keyboard "types"; null = cancel
+g.host_open_text_entry = o => {
+  log.push('KEYBOARD: ' + o.initialText);
+  if (keyboardText === null) o.onCancel(); else o.onConfirm(keyboardText);
+};
 
 await import(pathToFileURL(path.join(dir, 'ui_under_test.mjs')).href);
 const tick = n => { for (let i = 0; i < n; i++) { printed = []; g.tick(); } };
@@ -66,11 +74,11 @@ const midi = (s, d1, d2) => g.onMidiMessageInternal([s, d1, d2]);
 const READOUT = /Start|End|Zoom|Scale|Attack|Hold|Decay|Transpose/;
 
 g.init(); tick(5);
-check(!lit(UNDO) && !lit(DELETE) && lit(CAPTURE), 'one slice: only Capture lit');
+check(!lit(UNDO) && !lit(DELETE) && lit(RECORD), 'one slice: only Record lit');
 // Three slices
 dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.chop = 2; dsp.depth = 2; dsp.sel = 1;
 tick(2);
-check(lit(UNDO) && lit(DELETE) && lit(CAPTURE), 'three slices: Undo, Delete, Capture lit');
+check(lit(UNDO) && lit(DELETE) && lit(RECORD), 'three slices: Undo, Delete, Record lit');
 
 // Knob touch shows a readout, turning updates it
 for (let k = 0; k < 8; k++) {
@@ -93,9 +101,41 @@ midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127);
 
 // ---- Export ----
 const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose)=/.test(s)).map(s => s.split('=')));
-midi(0xB0, 52, 127); tick(2);          // Capture
-midi(0xB0, 52, 127); tick(2);          // again: must not overwrite
+let mark;
 const presetDir = '/data/UserData/UserLibrary/Track Presets/';
+const exits = () => log.filter(l => l === 'EXIT').length;
+// Export menu (Record): row 0 name, then Slices, Drum Preset, Cancel
+const menu = () => printed.includes('Export');
+const jog = n => { for (let i = 0; i < Math.abs(n); i++) midi(0xB0, 14, n > 0 ? 1 : 127); };
+const click = () => midi(0xB0, 3, 127);
+function exportPreset() { midi(0xB0, 118, 127); jog(2); click(); tick(2); }
+midi(0xB0, 52, 127); tick(1);
+check(!menu() && Object.keys(files).length === 0, 'Capture no longer exports');
+midi(0xB0, 118, 127); tick(1);
+check(menu() && printed.includes('test loop Chop') && printed.includes('Slices') &&
+      printed.includes('Drum Preset') && printed.includes('Cancel'), 'Record opens the export menu: ' + JSON.stringify(printed));
+check(log.some(l => l === 'SAY: Export, test loop Chop'), 'menu announced with the name');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'menu: buttons dark');
+mark = sets.length;
+midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 119, 127); midi(0xB0, 56, 127); tick(1);
+check(menu() && sets.length === mark, 'knobs, Delete and Undo ignored in the menu');
+midi(0xB0, 51, 127); tick(1);
+check(!menu() && exits() === 0, 'Back closes the menu without exiting');
+midi(0xB0, 118, 127); tick(1); midi(0xB0, 118, 127); tick(1);
+check(!menu(), 'Record closes the menu');
+midi(0xB0, 118, 127); jog(10); click(); tick(1);
+check(!menu() && Object.keys(files).length === 0 && log.at(-1) === 'SAY: Cancelled', 'Cancel exports nothing');
+// Rename: the keyboard opens with the name; slashes and a leading dot are cleaned
+midi(0xB0, 118, 127); jog(-5); keyboardText = '.My/Kit '; click(); tick(1);
+check(log.includes('KEYBOARD: test loop Chop'), 'keyboard opens with the current name');
+check(menu() && printed.includes('My-Kit'), 'renamed to My-Kit: ' + JSON.stringify(printed));
+keyboardText = null; click(); tick(1);
+check(menu() && printed.includes('My-Kit'), 'cancelling the keyboard keeps the name');
+jog(2); click(); tick(2);
+check(presetDir + 'My-Kit.ablpreset' in files, 'Drum Preset uses the new name');
+check(!menu(), 'menu closes after exporting');
+exportPreset();                        // default name
+exportPreset();                        // again: must not overwrite
 const p1 = presetDir + 'test loop Chop.ablpreset';
 const p2 = presetDir + 'test loop Chop 2.ablpreset';
 check(p1 in files, 'first export written to ' + p1);
@@ -159,7 +199,7 @@ check(sampleUriFor('/data/UserData/other/x.wav') === null, 'sample outside User 
 check(sampleUriFor('/data/UserData/UserLibrary/Samples/a#b 100%.wav') === 'ableton:/user-library/Samples/a%23b%20100%25.wav', 'special characters encoded');
 
 // ---- Delete ----
-let mark = sets.length;
+mark = sets.length;
 midi(0xB0, 119, 127); tick(1);
 check(sets.slice(mark).includes('delete=' + dsp.sel), 'Delete sends the selected slice');
 dsp.del = 1; dsp.starts = [0, 200000]; dsp.ends = [200000, 441000]; dsp.sel = 0; tick(2);
@@ -184,33 +224,60 @@ mark = sets.length;
 midi(0xB0, 56, 127); tick(1);
 check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
 
+// ---- Export slices ----
+const sampleDir = '/data/UserData/UserLibrary/Samples/';
+files[sampleDir + 'test loop Chop'] = 'dir';     // folder taken: pick the next name
+dsp.chop = 4; tick(1);                            // unexported work
+mark = sets.length;
+midi(0xB0, 118, 127); jog(1); click(); tick(1);
+check(sets.slice(mark).includes('export_slices=' + sampleDir + 'test loop Chop 2/test loop Chop 2'),
+      'Slices asks the DSP for a new folder: ' + JSON.stringify(sets.slice(mark)));
+check(printed.includes('Exporting...') && !lit(RECORD), 'exporting shown, Record dark');
+midi(0xB0, 118, 127); tick(1);
+check(!menu() && log.at(-1) === 'SAY: Still exporting', 'Record waits for the export');
+const n = dsp.starts.length;
+dsp.exportDone = dsp.exportReq; dsp.exportWritten = n - 1; tick(1);
+check(log.some(l => l.startsWith(`SAY: Export incomplete, saved ${n - 1} of ${n}`)), 'partial export reported');
+midi(0xB0, 51, 127); tick(1);
+check(printed.includes('Not exported'), 'a partial export still counts as unexported');
+midi(0xB0, 51, 127); tick(1);
+midi(0xB0, 118, 127); jog(1); click(); tick(1);
+dsp.exportDone = dsp.exportReq; dsp.exportWritten = n; tick(1);
+check(log.some(l => l === `SAY: Exported ${n} slices to test loop Chop 2`), 'slices export announced');
+check(lit(RECORD), 'Record lit again');
+dsp.chop = 5; tick(1);                            // more unexported work for the prompt tests
+
 // ---- Exit prompt ----
-const exits = () => log.filter(l => l === 'EXIT').length;
 const prompt = () => printed.includes('Not exported');
 midi(0xB0, 51, 127); tick(1);
 check(prompt() && exits() === 0, 'Back with unexported changes asks first');
-check(!lit(UNDO) && !lit(DELETE) && !lit(CAPTURE), 'prompt: Undo, Delete, Capture dark');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'prompt: Undo, Delete, Record dark');
 check(!printed.some(t => /Export/.test(t)), 'prompt offers no export');
 check(log.some(l => l === 'SAY: Not exported. Cancel'), 'prompt starts on Cancel');
 mark = sets.length;
 const fileCount = Object.keys(files).length;
-midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 52, 127); tick(1);
+midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 118, 127); tick(1);
 check(prompt() && sets.length === mark, 'knobs ignored while asking');
-check(Object.keys(files).length === fileCount, 'Capture ignored while asking');
+check(Object.keys(files).length === fileCount, 'Record ignored while asking');
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 0, 'Back in the prompt cancels');
-check(lit(DELETE) && lit(CAPTURE), 'Delete and Capture lit again after cancelling');
+check(lit(DELETE) && lit(RECORD), 'Delete and Record lit again after cancelling');
 midi(0xB0, 51, 127); midi(0xB0, 3, 127); tick(1);
 check(!prompt() && exits() === 0, 'clicking the default (Cancel) stays');
 midi(0xB0, 51, 127); midi(0xB0, 14, 1); midi(0xB0, 3, 127); tick(1);
 check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
 midi(0xB0, 51, 127); midi(0xB0, 14, 127); midi(0xB0, 3, 127); tick(1);
 check(exits() === 1, 'choosing Discard and exit exits');
-check(!lit(UNDO) && !lit(DELETE) && !lit(CAPTURE), 'exit turns the buttons off');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
-midi(0xB0, 52, 127); tick(1);            // Capture exports it
+exportPreset();                          // exports it
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && exits() === 2, 'Back exits straight away when everything is exported');
+dsp.chop = 6; tick(1);
+midi(0xB0, 118, 127); jog(1); click(); tick(1);
+dsp.exportDone = dsp.exportReq; dsp.exportWritten = dsp.starts.length; tick(1);
+midi(0xB0, 51, 127); tick(1);
+check(!prompt() && exits() === 3, 'a full slices export counts as exported');
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));
 console.log(failures ? `${failures} FAILED` : 'all checks passed');

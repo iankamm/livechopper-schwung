@@ -26,6 +26,12 @@
  * moves the end of slice N-1, so slices never gap or overlap. Only slice
  * 1's start and the last slice's end trim the sample.
  *
+ * Slice export: set_param("export_slices", "<path prefix>") snapshots the
+ * slice list and bumps a sequence number. The worker copies each slice's
+ * frames straight from the source file (same format, bit depth and channel
+ * count) into "<prefix> 01.wav", "<prefix> 02.wav", ... and publishes how
+ * many it wrote; get_param("export_result") reports it.
+ *
  * Waveform: the worker builds three levels of peak tables at load time, so
  * get_param("wave ...") reads a bounded number of values per column.
  *
@@ -57,6 +63,8 @@
 #include <sched.h>
 #include <time.h>
 #include <math.h>
+#include <pwd.h>
+#include <unistd.h>
 
 #include "plugin_api_v1.h"
 
@@ -99,6 +107,7 @@ typedef struct {
     int16_t *data;      /* interleaved stereo */
     int frames;
     int sample_rate;    /* rate of the source file */
+    char path[PATH_MAX_LEN]; /* source file, for slice export */
     uint8_t *peaks[PEAK_LEVELS];  /* 0-255, max of |L| and |R| per block */
     int peak_len[PEAK_LEVELS];
 } sample_buf_t;
@@ -156,6 +165,16 @@ typedef struct {
     _Atomic(sample_buf_t *) retired;
     atomic_int load_state;
     char load_error[ERROR_MAX_LEN];
+
+    /* --- slice export: audio thread requests, worker writes --- */
+    char export_src[PATH_MAX_LEN];
+    char export_prefix[PATH_MAX_LEN];
+    int export_start[MAX_SLICES];
+    int export_end[MAX_SLICES];
+    int export_count;
+    atomic_uint export_req_seq;
+    atomic_uint export_done_seq;
+    atomic_int export_written;  /* slices written by the last finished export */
 
     /* --- worker --- */
     pthread_t worker;
@@ -358,6 +377,105 @@ static int build_peaks(sample_buf_t *s) {
     return 1;
 }
 
+/* The shim runs as root but Move's own UI runs as ableton, so hand new
+ * files over to it or Move can't manage them. Worker only. */
+static void chown_to_ableton(const char *path) {
+    struct passwd *pw = getpwnam("ableton");
+    if (pw && chown(path, pw->pw_uid, pw->pw_gid) != 0) { /* best effort */ }
+}
+
+static void wr_u16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void wr_u32(uint8_t *p, uint32_t v) { wr_u16(p, v & 0xFFFF); wr_u16(p + 2, v >> 16); }
+
+#define FMT_MAX_BYTES 64
+
+/* Write each slice of src as its own WAV, copying the source frames as they
+ * are. Returns the number of files written. Worker only. */
+static int write_slices(const char *src, const char *prefix,
+                        const int *starts, const int *ends, int count) {
+    FILE *f = fopen(src, "rb");
+    if (!f) return 0;
+
+    uint8_t fmt[FMT_MAX_BYTES];
+    uint32_t fmt_len = 0, data_bytes = 0;
+    long data_off = -1;
+    uint8_t hdr[12];
+    if (fread(hdr, 1, 12, f) == 12 && memcmp(hdr, "RIFF", 4) == 0 && memcmp(hdr + 8, "WAVE", 4) == 0) {
+        for (;;) {
+            uint8_t ch[8];
+            if (fread(ch, 1, 8, f) != 8) break;
+            uint32_t len = rd_u32(ch + 4);
+            if (memcmp(ch, "fmt ", 4) == 0) {
+                if (len < 16 || len > FMT_MAX_BYTES || fread(fmt, 1, len, f) != len) break;
+                fmt_len = len;
+                if ((len & 1) && fseek(f, 1, SEEK_CUR) != 0) break;
+            } else if (memcmp(ch, "data", 4) == 0) {
+                data_bytes = len;
+                data_off = ftell(f);
+                break;
+            } else if (fseek(f, (long)(len + (len & 1)), SEEK_CUR) != 0) {
+                break;
+            }
+        }
+    }
+    int block_align = fmt_len ? rd_u16(fmt + 12) : 0;
+    uint8_t *buf = (uint8_t *)malloc(READ_CHUNK_BYTES);
+    if (!fmt_len || data_off < 0 || block_align <= 0 || !buf) {
+        free(buf);
+        fclose(f);
+        return 0;
+    }
+    long total_frames = (long)(data_bytes / (uint32_t)block_align);
+
+    int written = 0;
+    for (int i = 0; i < count; i++) {
+        long a = starts[i], b = ends[i];
+        if (b > total_frames) b = total_frames;
+        if (a < 0 || b <= a) continue;
+        uint32_t bytes = (uint32_t)((b - a) * block_align);
+        uint32_t pad = bytes & 1;
+
+        char path[PATH_MAX_LEN + 16];
+        snprintf(path, sizeof(path), "%s %02d.wav", prefix, i + 1);
+        FILE *o = fopen(path, "wb");
+        if (!o) continue;
+
+        uint8_t h[12 + 8 + FMT_MAX_BYTES + 8];
+        int n = 0;
+        memcpy(h, "RIFF", 4);
+        wr_u32(h + 4, 4 + (8 + fmt_len + (fmt_len & 1)) + (8 + bytes + pad));
+        memcpy(h + 8, "WAVE", 4);
+        memcpy(h + 12, "fmt ", 4);
+        wr_u32(h + 16, fmt_len);
+        memcpy(h + 20, fmt, fmt_len);
+        n = 20 + (int)fmt_len;
+        if (fmt_len & 1) h[n++] = 0;
+        memcpy(h + n, "data", 4);
+        wr_u32(h + n + 4, bytes);
+        n += 8;
+
+        int ok = fwrite(h, 1, (size_t)n, o) == (size_t)n &&
+                 fseek(f, data_off + a * block_align, SEEK_SET) == 0;
+        uint32_t left = bytes;
+        while (ok && left > 0) {
+            size_t want = left < READ_CHUNK_BYTES ? left : READ_CHUNK_BYTES;
+            ok = fread(buf, 1, want, f) == want && fwrite(buf, 1, want, o) == want;
+            left -= (uint32_t)want;
+        }
+        if (ok && pad) ok = fputc(0, o) != EOF;
+        if (fclose(o) != 0) ok = 0;
+        if (ok) {
+            chown_to_ableton(path);
+            written++;
+        } else {
+            remove(path);
+        }
+    }
+    free(buf);
+    fclose(f);
+    return written;
+}
+
 static void worker_demote(void) {
     struct sched_param sp = { .sched_priority = 0 };
     sched_setscheduler(0, SCHED_OTHER, &sp);
@@ -390,6 +508,7 @@ static void *worker_main(void *arg) {
                 atomic_store(&inst->load_state, LOAD_BUSY);
                 char err[ERROR_MAX_LEN] = "";
                 sample_buf_t *s = path[0] ? load_wav(path, err, sizeof(err)) : NULL;
+                if (s) memcpy(s->path, path, PATH_MAX_LEN);
                 if (s && !build_peaks(s)) {
                     free_sample(s);
                     s = NULL;
@@ -407,6 +526,27 @@ static void *worker_main(void *arg) {
                         g_host->log(msg);
                     }
                 }
+                continue;
+            }
+        }
+
+        unsigned eseq = atomic_load_explicit(&inst->export_req_seq, memory_order_acquire);
+        if (eseq != atomic_load(&inst->export_done_seq)) {
+            char src[PATH_MAX_LEN], prefix[PATH_MAX_LEN];
+            int starts[MAX_SLICES], ends[MAX_SLICES];
+            memcpy(src, inst->export_src, PATH_MAX_LEN);
+            memcpy(prefix, inst->export_prefix, PATH_MAX_LEN);
+            memcpy(starts, inst->export_start, sizeof(starts));
+            memcpy(ends, inst->export_end, sizeof(ends));
+            int count = inst->export_count;
+            /* A newer request landed mid-copy: take it next time round. */
+            if (atomic_load_explicit(&inst->export_req_seq, memory_order_acquire) == eseq) {
+                src[PATH_MAX_LEN - 1] = '\0';
+                prefix[PATH_MAX_LEN - 1] = '\0';
+                if (count < 0 || count > MAX_SLICES) count = 0;
+                int written = write_slices(src, prefix, starts, ends, count);
+                atomic_store(&inst->export_written, written);
+                atomic_store_explicit(&inst->export_done_seq, eseq, memory_order_release);
                 continue;
             }
         }
@@ -737,6 +877,9 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     atomic_init(&inst->retired, NULL);
     atomic_init(&inst->load_state, LOAD_NONE);
     atomic_init(&inst->worker_quit, 0);
+    atomic_init(&inst->export_req_seq, 0);
+    atomic_init(&inst->export_done_seq, 0);
+    atomic_init(&inst->export_written, 0);
     inst->playing_slice = -1;
     inst->attack_us = 0;
     inst->hold_us = HOLD_FULL;
@@ -844,6 +987,18 @@ static void set_param(void *instance, const char *key, const char *val) {
         if (idx >= 0 && idx < inst->slice_count) inst->selected_slice = idx;
         return;
     }
+    if (strcmp(key, "export_slices") == 0) {
+        /* "<path prefix>": the worker writes "<prefix> 01.wav", ... */
+        if (!inst->current) return;
+        memcpy(inst->export_src, inst->current->path, PATH_MAX_LEN);
+        strncpy(inst->export_prefix, val, PATH_MAX_LEN - 1);
+        inst->export_prefix[PATH_MAX_LEN - 1] = '\0';
+        memcpy(inst->export_start, inst->slice_start, sizeof(inst->export_start));
+        memcpy(inst->export_end, inst->slice_end, sizeof(inst->export_end));
+        inst->export_count = inst->slice_count;
+        atomic_fetch_add_explicit(&inst->export_req_seq, 1, memory_order_release);
+        return;
+    }
     if (strcmp(key, "file_path") == 0) {
         strncpy(inst->req_path, val, PATH_MAX_LEN - 1);
         inst->req_path[PATH_MAX_LEN - 1] = '\0';
@@ -898,6 +1053,12 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         int b = parse_int(&p);
         int cols = parse_int(&p);
         return render_wave(inst, a, b, cols, buf, buf_len);
+    }
+    if (strcmp(key, "export_result") == 0) {
+        /* "<requested seq> <finished seq> <slices written by the last finished>" */
+        return snprintf(buf, (size_t)buf_len, "%u %u %d",
+                        atomic_load(&inst->export_req_seq), atomic_load(&inst->export_done_seq),
+                        atomic_load(&inst->export_written));
     }
     if (strcmp(key, "error") == 0) {
         if (atomic_load(&inst->load_state) != LOAD_FAILED) return snprintf(buf, (size_t)buf_len, "%s", "");

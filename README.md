@@ -2,7 +2,7 @@
 
 Chop a sample across the pads of your Ableton Move in real time, like the chop
 modes on MPC and SP drum machines, then export the result as a Move drum rack
-preset. See [SPEC.md](SPEC.md).
+preset or as one WAV per slice. See [SPEC.md](SPEC.md).
 
 Status: early development.
 
@@ -23,7 +23,7 @@ Status: early development.
 | Left / Right | Select previous / next slice |
 | Delete | Delete the selected slice (merges it into the previous one; Pad 1 is trimmed off) |
 | Undo / Shift+Undo | Undo the last chop or delete / redo it |
-| Capture | Export a drum rack preset to Track Presets |
+| Record | Export menu: rename, Slices (one WAV per pad), Drum Preset, Cancel |
 | Back | Exit (asks first if there are changes not exported) |
 
 ## Prerequisites

@@ -26,12 +26,12 @@
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
- *   Capture    - Export the slices as a Move drum rack preset
+ *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
  *   Back       - Exit (asks first if there are changes not exported)
  */
 
 import {
-    MoveBack, MoveUndo, MoveCapture, MoveDelete, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
     MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
     MovePads,
@@ -52,7 +52,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
-var CC_CAPTURE = MoveCapture;
+var CC_RECORD = MoveRecord;      /* RGB LED */
 var CC_DELETE = MoveDelete;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
@@ -163,6 +163,14 @@ var confirmIndex = 0;
 var CONFIRM_ITEMS = ["Discard and exit", "Cancel"];
 var CONFIRM_DISCARD = 0;
 var CONFIRM_CANCEL = 1;
+
+/* Export menu: row 0 is the name (click to rename), then the actions. */
+var exportMenu = false;
+var exportIndex = 0;
+var exportName = "";
+var EXPORT_ACTIONS = ["Slices", "Drum Preset", "Cancel"];
+var sliceExport = null;     /* { seq, folder, version } while the DSP writes WAVs */
+var SLICE_EXPORT_TIMEOUT_TICKS = 3000;
 var lastSelectedSlice = -1;
 var buttonLedOn = {};        /* last on/off sent per button CC */
 var exited = false;         /* no LED updates once we have handed back */
@@ -505,14 +513,20 @@ function changeVScale(ticks) {
 /* ============ Export ============ */
 
 /* "<name> Chop", or "<name> Chop 2", 3, ... so nothing is overwritten. */
-function uniquePresetName() {
-    var base = fileName.replace(/\.wav$/i, "") + " Chop";
-    var exists = typeof host_file_exists === "function" ? host_file_exists : function() { return false; };
+/* Keyboard input becomes part of a file name: no slashes, no leading dot. */
+function cleanName(name) {
+    return String(name || "").replace(/[\/\\]/g, "-").replace(/^[.\s]+/, "").replace(/\s+$/, "");
+}
+
+/* First of "<base>", "<base> 2", "<base> 3", ... for which exists() is false. */
+function uniqueName(base, exists) {
     var name = base;
-    for (var n = 2; n < 100 && exists(PRESET_DIR + "/" + name + ".ablpreset"); n++) {
-        name = base + " " + n;
-    }
+    for (var n = 2; n < 100 && exists(name); n++) name = base + " " + n;
     return name;
+}
+
+function fileExists(path) {
+    return typeof host_file_exists === "function" && host_file_exists(path);
 }
 
 function showMessage(text, ticks) {
@@ -521,26 +535,24 @@ function showMessage(text, ticks) {
     overlayTimer = ticks;
 }
 
-/* Returns true when the preset was written. */
-function exportKit() {
-    if (loadState !== "ready" || sliceCount === 0) return false;
-    flushNudge();
-    flushSettings();
-    pollSlices();
+function exportFailed(text, spoken) {
+    showMessage(text, EXPORT_MSG_TICKS);
+    announce(spoken || text);
+}
 
+/* Write a Move drum rack preset that plays the slices from the sample. */
+function exportDrumPreset(base) {
     var uri = sampleUriFor(filePath);
     if (!uri) {
-        showMessage("Not in User Library", EXPORT_MSG_TICKS);
-        announce("Export failed, sample is not in the User Library");
+        exportFailed("Not in User Library", "Export failed, sample is not in the User Library");
         return false;
     }
     if (typeof host_write_file !== "function") {
-        showMessage("Export failed", EXPORT_MSG_TICKS);
-        announce("Export failed");
+        exportFailed("Export failed");
         return false;
     }
 
-    var name = uniquePresetName();
+    var name = uniqueName(base, function(n) { return fileExists(PRESET_DIR + "/" + n + ".ablpreset"); });
     var preset = buildDrumRackPreset({
         name: name,
         sampleUri: uri,
@@ -552,16 +564,141 @@ function exportKit() {
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
     var ok = host_write_file(PRESET_DIR + "/" + name + ".ablpreset", JSON.stringify(preset, null, 2));
-    debugLog("export " + name + " ok=" + ok);
+    debugLog("export preset " + name + " ok=" + ok);
     if (ok === false) {
-        showMessage("Export failed", EXPORT_MSG_TICKS);
-        announce("Export failed");
+        exportFailed("Export failed");
         return false;
     }
     exportedVersion = editVersion;
     showMessage("Saved " + name, EXPORT_MSG_TICKS);
     announce("Exported drum rack, " + name);
     return true;
+}
+
+function readExportResult() {
+    var p = (host_module_get_param("export_result") || "").split(" ");
+    return { req: parseInt(p[0], 10) || 0, done: parseInt(p[1], 10) || 0, written: parseInt(p[2], 10) || 0 };
+}
+
+/* Write one WAV per slice into a new folder next to the sample:
+ * "<name>/<name> 01.wav", ... The DSP worker writes them; pollSliceExport
+ * reports the result. */
+function exportSlices(base) {
+    var dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    if (!dir) {
+        exportFailed("Export failed");
+        return false;
+    }
+    var name = uniqueName(base, function(n) { return fileExists(dir + "/" + n); });
+    var folder = dir + "/" + name;
+    if (typeof host_ensure_dir === "function" && host_ensure_dir(folder) === false) {
+        exportFailed("Export failed", "Export failed, can't create folder");
+        return false;
+    }
+    var before = readExportResult().req;
+    setParamNow("export_slices", folder + "/" + name);
+    sliceExport = { seq: before + 1, folder: name, version: editVersion, count: sliceCount, ticks: 0 };
+    showMessage("Exporting...", SLICE_EXPORT_TIMEOUT_TICKS);
+    announce("Exporting " + sliceCount + (sliceCount === 1 ? " slice" : " slices"));
+    return true;
+}
+
+function pollSliceExport() {
+    if (!sliceExport) return;
+    var r = readExportResult();
+    if (r.done < sliceExport.seq) {
+        if (++sliceExport.ticks > SLICE_EXPORT_TIMEOUT_TICKS) {
+            sliceExport = null;
+            exportFailed("Export failed", "Export failed, timed out");
+        }
+        return;
+    }
+    var job = sliceExport;
+    sliceExport = null;
+    debugLog("export slices " + job.folder + " wrote " + r.written + "/" + job.count);
+    if (r.written === job.count) {
+        exportedVersion = job.version;
+        showMessage("Saved " + job.folder, EXPORT_MSG_TICKS);
+        announce("Exported " + r.written + (r.written === 1 ? " slice" : " slices") + " to " + job.folder);
+    } else if (r.written > 0) {
+        exportFailed("Saved " + r.written + " of " + job.count, "Export incomplete, saved " + r.written +
+                     " of " + job.count + " slices");
+    } else {
+        exportFailed("Export failed");
+    }
+}
+
+/* ============ Export menu ============ */
+
+function openExportMenu() {
+    if (loadState !== "ready" || sliceCount === 0) return;
+    if (sliceExport) {
+        announce("Still exporting");
+        return;
+    }
+    flushNudge();
+    flushSettings();
+    pollSlices();
+    touchedKnob = -1;
+    exportName = cleanName(fileName.replace(/\.wav$/i, "") + " Chop") || "Chop";
+    exportIndex = 0;     /* the name row, like the waveform editor */
+    exportMenu = true;
+    announce("Export, " + exportName);
+}
+
+function exportMenuItem() {
+    return exportIndex === 0 ? "Name, " + exportName : EXPORT_ACTIONS[exportIndex - 1];
+}
+
+function exportMenuMove(ticks) {
+    if (ticks === 0) return;
+    exportIndex = Math.max(0, Math.min(EXPORT_ACTIONS.length, exportIndex + (ticks > 0 ? 1 : -1)));
+    announce(exportMenuItem());
+}
+
+function renameExport() {
+    if (typeof host_open_text_entry !== "function") {
+        showMessage("No keyboard", EXPORT_MSG_TICKS);
+        announce("No keyboard");
+        return;
+    }
+    host_open_text_entry({
+        title: "Name",
+        initialText: exportName,
+        onConfirm: function(text) {
+            var name = cleanName(text);
+            if (name) exportName = name;
+            announce("Name, " + exportName);
+        },
+        onCancel: function() {
+            announce("Name, " + exportName);
+        }
+    });
+}
+
+function exportMenuChoose() {
+    if (exportIndex === 0) {
+        renameExport();
+        return;
+    }
+    var action = EXPORT_ACTIONS[exportIndex - 1];
+    exportMenu = false;
+    if (action === "Slices") exportSlices(exportName);
+    else if (action === "Drum Preset") exportDrumPreset(exportName);
+    else announce("Cancelled");
+}
+
+/* While the export menu is up: jog chooses, jog click confirms, Back or
+ * Record closes it. Everything else is ignored. */
+function handleExportMenuCC(cc, value) {
+    if (cc === CC_JOG) {
+        exportMenuMove(decodeDelta(value));
+    } else if (cc === CC_JOG_CLICK && value > 0) {
+        exportMenuChoose();
+    } else if ((cc === CC_BACK || cc === CC_RECORD) && value > 0) {
+        exportMenu = false;
+        announce("Cancelled");
+    }
 }
 
 /* ============ Exit ============ */
@@ -657,17 +794,19 @@ function announceMarker() {
 function setButtonLit(cc, on) {
     if (buttonLedOn[cc] === on) return;
     buttonLedOn[cc] = on;
-    setButtonLED(cc, on ? WhiteLedBright : WhiteLedOff);
+    if (cc === CC_RECORD) setButtonLED(cc, on ? White : Black);
+    else setButtonLED(cc, on ? WhiteLedBright : WhiteLedOff);
 }
 
-/* Undo, Delete and Capture are lit while pressing them would do something.
+/* Undo, Delete and Record are lit while pressing them would do something.
  * With Shift held, Undo shows whether there is anything to redo. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
-    setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && !confirmExit);
-    setButtonLit(CC_DELETE, ready && sliceCount > 1 && !confirmExit);
-    setButtonLit(CC_CAPTURE, ready && sliceCount > 0 && !confirmExit);
+    var editing = !confirmExit && !exportMenu;
+    setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
+    setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
+    setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -698,7 +837,7 @@ function exitTool() {
     clearAllPadLeds();
     setButtonLit(CC_UNDO, false);
     setButtonLit(CC_DELETE, false);
-    setButtonLit(CC_CAPTURE, false);
+    setButtonLit(CC_RECORD, false);
     exited = true;
     if (typeof host_exit_module === "function") host_exit_module();
 }
@@ -792,10 +931,31 @@ function drawConfirmExit() {
     }
 }
 
+function drawExportMenu() {
+    var title = "Export";
+    print(Math.floor((SCREEN_W - text_width(title)) / 2), 2, title, 1);
+    draw_line(0, 12, SCREEN_W - 1, 12, 1);
+    var rows = [exportName.substring(0, 20)].concat(EXPORT_ACTIONS);
+    for (var i = 0; i < rows.length; i++) {
+        var y = 15 + i * 12;
+        var x = i === 0 ? 2 : 8;     /* actions indented under the name */
+        if (i === exportIndex) {
+            fill_rect(0, y - 1, SCREEN_W, 11, 1);
+            print(x, y + 1, rows[i], 0);
+        } else {
+            print(x, y + 1, rows[i], 1);
+        }
+    }
+}
+
 function draw() {
     clear_screen();
     if (confirmExit) {
         drawConfirmExit();
+        return;
+    }
+    if (exportMenu) {
+        drawExportMenu();
         return;
     }
     if (loadState === "ready" && sliceCount > 0) {
@@ -830,6 +990,7 @@ globalThis.tick = function() {
     flushSettings();
     pollStatus();
     pollSlices();
+    pollSliceExport();
 
     if (loadState !== lastLoadState) {
         lastLoadState = loadState;
@@ -894,7 +1055,7 @@ globalThis.onMidiMessageInternal = function(data) {
     /* Knob touch: notes 0-7, on = velocity 64+, off = lower or note-off.
      * Pads are handled by the DSP on the audio thread; nothing to do here. */
     if (status === 0x90 || status === 0x80) {
-        if (d1 <= 7 && !confirmExit) onKnobTouch(d1, status === 0x90 && d2 >= 64);
+        if (d1 <= 7 && !confirmExit && !exportMenu) onKnobTouch(d1, status === 0x90 && d2 >= 64);
         return;
     }
     if (status !== 0xB0) return;
@@ -903,10 +1064,12 @@ globalThis.onMidiMessageInternal = function(data) {
         shiftHeld = d2 > 0;
     } else if (confirmExit) {
         handleConfirmCC(d1, d2);
+    } else if (exportMenu) {
+        handleExportMenuCC(d1, d2);
     } else if (d1 === CC_BACK && d2 > 0) {
         requestExit();
-    } else if (d1 === CC_CAPTURE && d2 > 0) {
-        exportKit();
+    } else if (d1 === CC_RECORD && d2 > 0) {
+        openExportMenu();
     } else if (d1 === CC_DELETE && d2 > 0) {
         deleteSelected();
     } else if (d1 === CC_UNDO && d2 > 0 && shiftHeld) {

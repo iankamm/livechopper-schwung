@@ -38,6 +38,18 @@ static void write_wav(const char *path, int frames, int channels, int rate, int 
     fclose(f);
 }
 
+static uint8_t *read_file(const char *path, long *len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    *len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *b = malloc((size_t)*len);
+    if (fread(b, 1, (size_t)*len, f) != (size_t)*len) *len = -1;
+    fclose(f);
+    return b;
+}
+
 static int ramp(int i, int c) { return (i * 3 + c * 1000) % 30000; }
 
 static void render(void *inst, int blocks) {
@@ -277,6 +289,43 @@ int main(void) {
     note(inst, 68);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
     CHECK(out[0] == ramp(0, 0) && out[1] == ramp(0, 1), "24-bit stereo decodes L/R (%d %d)", out[0], out[1]);
+
+    /* ---- Slice export copies source frames as they are ---- */
+    render(inst, 10); note(inst, 69);       /* chop: Pad 1 | Pad 2 */
+    int cut = field(inst, 10);              /* end of Pad 1 */
+    CHECK(strncmp(slices(inst), "2:0-", 4) == 0, "export setup %s", slices(inst));
+    mkdir("build/exp", 0755);
+    remove("build/exp/t24 01.wav"); remove("build/exp/t24 02.wav");
+    get(inst, "export_result", st, sizeof st);
+    CHECK(strcmp(st, "0 0 0") == 0, "no export yet: %s", st);
+    param(inst, "export_slices", "build/exp/t24");
+    for (int t = 0; t < 400; t++) {
+        get(inst, "export_result", st, sizeof st);
+        if (strcmp(st, "1 1 2") == 0) break;
+        usleep(5000);
+    }
+    CHECK(strcmp(st, "1 1 2") == 0, "export finished with 2 slices: %s", st);
+    long src_len = 0, len1 = 0, len2 = 0;
+    uint8_t *src = read_file("build/t24.wav", &src_len);
+    uint8_t *w1 = read_file("build/exp/t24 01.wav", &len1);
+    uint8_t *w2 = read_file("build/exp/t24 02.wav", &len2);
+    int ba = 6;                             /* 24-bit stereo */
+    CHECK(w1 && len1 == 44 + (long)cut * ba, "slice 1 size %ld (cut %d)", len1, cut);
+    CHECK(w2 && len2 == 44 + (long)(4800 - cut) * ba, "slice 2 size %ld", len2);
+    if (src && w1 && w2 && len1 > 44 && len2 > 44) {
+        CHECK(memcmp(w1, src, 4) == 0 && memcmp(w1 + 8, src + 8, 28) == 0, "slice 1 keeps the fmt chunk");
+        CHECK(rd_u32(w1 + 4) == (uint32_t)(len1 - 8) && rd_u32(w1 + 40) == (uint32_t)(len1 - 44), "slice 1 sizes in header");
+        CHECK(memcmp(w1 + 44, src + 44, (size_t)(len1 - 44)) == 0, "slice 1 audio is the source's first frames");
+        CHECK(memcmp(w2 + 44, src + 44 + (long)cut * ba, (size_t)(len2 - 44)) == 0, "slice 2 audio follows on");
+    }
+    free(src); free(w1); free(w2);
+    param(inst, "export_slices", "build/no-such-dir/t24");
+    for (int t = 0; t < 400; t++) {
+        get(inst, "export_result", st, sizeof st);
+        if (strncmp(st, "2 2", 3) == 0) break;
+        usleep(5000);
+    }
+    CHECK(strcmp(st, "2 2 0") == 0, "export to a missing folder writes nothing: %s", st);
     api->destroy_instance(inst);
 
     /* ---- Bad file ---- */
