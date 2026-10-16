@@ -75,7 +75,7 @@ Move drum rack preset.
   Only Pad 1's start and the last pad's end trim the sample. The selected
   slice is the one last played (or created by a chop); Left/Right change it.
   Knob 1 moves its start, Knob 2 its end, Knob 3 zooms, the jog moves the
-  active marker and jog click switches start/end. Shift gives fine steps.
+  start (only ever the start; jog click does nothing here). Shift gives fine steps.
 - Blue pad pressed while nothing is playing: nothing happens.
 - Pressing a chopped pad that is not playing: it plays its region and chokes
   whatever is playing.

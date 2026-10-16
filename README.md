@@ -18,7 +18,7 @@ Status: early development.
 | Knob 4 | Waveform vertical scale |
 | Knob 5 / 6 / 7 | Attack / Hold / Decay (all pads) |
 | Knob 8 | Transpose (all pads, repitch) |
-| Jog / Jog click | Move the active marker / switch start and end |
+| Jog | Move the selected slice's start |
 | Touch a knob | Preview its value |
 | Shift | Fine steps for knobs and jog |
 | Left / Right | Select previous / next slice |

@@ -20,7 +20,7 @@
  *   Knob 4     - Waveform vertical scale (1x-32x)
  *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
- *   Jog        - Move the active marker  |  Jog click: toggle start/end
+ *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
  *   Shift      - Fine steps for knobs and jog
  *   Left/Right - Select previous/next slice
@@ -1113,11 +1113,7 @@ globalThis.onMidiMessageInternal = function(data) {
     } else if (d1 === CC_E5 || d1 === CC_E6 || d1 === CC_E7 || d1 === CC_E8) {
         changeSetting(d1, decodeDelta(d2));
     } else if (d1 === CC_JOG) {
-        queueNudge(activeSide, decodeDelta(d2));
-    } else if (d1 === CC_JOG_CLICK && d2 > 0) {
-        activeSide = 1 - activeSide;
-        keepMarkerVisible();
-        announce("Pad " + (selectedSlice + 1) + (activeSide === 0 ? " start" : " end"));
+        queueNudge(0, decodeDelta(d2));     /* the jog only ever moves the start */
     } else if ((d1 === CC_LEFT || d1 === CC_RIGHT) && d2 > 0) {
         selectSlice(selectedSlice + (d1 === CC_LEFT ? -1 : 1));
     }

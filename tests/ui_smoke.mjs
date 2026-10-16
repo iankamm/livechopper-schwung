@@ -80,6 +80,7 @@ dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.chop 
 tick(2);
 check(lit(UNDO) && lit(DELETE) && lit(RECORD), 'three slices: Undo, Delete, Record lit');
 
+let mark;
 // Knob touch shows a readout, turning updates it
 for (let k = 0; k < 8; k++) {
   midi(0x90, k, 127); tick(1);
@@ -96,12 +97,18 @@ tick(1);
 check(printed[0] === 'Pad 2/3', `top bar shows only the pad (got "${printed[0]}")`);
 check(!printed.some(t => /x\d|st\b|START|END/.test(t)), 'no zoom/transpose/START/END when idle: ' + JSON.stringify(printed));
 
+// The jog only ever moves the start, even after touching the end knob
+midi(0x90, 1, 127); tick(1); midi(0x90, 1, 0);
+mark = sets.length;
+midi(0xB0, 3, 127); midi(0xB0, 14, 1); tick(1);
+check(sets.slice(mark).some(s => /^nudge=\d+ 0 \d+$/.test(s)) && !sets.slice(mark).some(s => /^nudge=\d+ 1 /.test(s)),
+      'jog nudges the start: ' + JSON.stringify(sets.slice(mark)));
+
 // Other controls run without throwing
 midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127); tick(30);
 
 // ---- Export ----
 const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose)=/.test(s)).map(s => s.split('=')));
-let mark;
 const presetDir = '/data/UserData/UserLibrary/Track Presets/';
 const exits = () => log.filter(l => l === 'EXIT').length;
 // Export menu (Record): row 0 name, then Slices, Drum Preset, Cancel
