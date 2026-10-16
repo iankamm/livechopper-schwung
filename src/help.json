@@ -82,11 +82,9 @@
         "the export.",
         "",
         "Knob 5: attack",
-        "Knob 6: hold",
-        "  (top = Full)",
         "Knob 7: decay, the",
         " fade after you let",
-        " go (max 30 s, the",
+        " go (max 10 s, the",
         " default, plays out",
         " like a one-shot)",
         "Knob 8: transpose",
@@ -125,8 +123,7 @@
         "a drum track.",
         "Envelope, transpose",
         "and choke carry",
-        "over (decay up to",
-        "Move's 10 s max).",
+        "over.",
         "Per-pad sound etc.",
         " are set there."
       ]

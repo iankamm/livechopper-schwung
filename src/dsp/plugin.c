@@ -41,13 +41,13 @@
  * Waveform: the worker builds three levels of peak tables at load time, so
  * get_param("wave ...") reads a bounded number of values per column.
  *
- * Sound: one global attack/hold/decay envelope and one global transpose
+ * Sound: one global attack/decay envelope and one global transpose
  * (repitch: changes speed and pitch together) apply to every slice. A
  * chop does not retrigger the envelope, so playback stays seamless.
  * Playback is always gated, like Move's A-S-R: full level while the pad
- * that started the voice is held, then Decay is the release. Hold is kept
- * for the UI and export but does not shape the sound. A long Decay (the
- * default is the 30 s maximum) makes a pad play out like a one-shot. When
+ * that started the voice is held, then Decay is the release. A long Decay
+ * (the default is the 10 s maximum, Move's own limit) makes a pad play out
+ * like a one-shot. When
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
  * Delete: set_param("delete") removes a slice by merging it into the
@@ -101,8 +101,7 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define WAVE_MAX_COLS 128
 
 /* Envelope and pitch */
-#define HOLD_FULL (-1)              /* hold until the slice ends */
-#define MAX_ENV_US 30000000         /* 30 s */
+#define MAX_ENV_US 10000000         /* 10 s, Move's drum cell decay max */
 #define DEFAULT_DECAY_US MAX_ENV_US
 #define TRANSPOSE_MIN (-24)
 #define TRANSPOSE_MAX 24
@@ -151,8 +150,8 @@ typedef struct {
     int tail_left;
 
     /* Global sound settings */
-    int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
-    int attack_frames, decay_frames;            /* hold doesn't shape the sound */
+    int attack_us, decay_us;                    /* as set */
+    int attack_frames, decay_frames;
     int transpose;                              /* semitones */
     double pitch_ratio;                         /* 2^(transpose/12) */
 
@@ -908,7 +907,6 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     inst->gate_note = -1;
     inst->release_pos = -1;
     inst->attack_us = 0;
-    inst->hold_us = HOLD_FULL;
     inst->decay_us = DEFAULT_DECAY_US;
     inst->decay_frames = us_to_frames(DEFAULT_DECAY_US);
     set_transpose(inst, 0);
@@ -991,12 +989,6 @@ static void set_param(void *instance, const char *key, const char *val) {
         const char *p = val;
         inst->attack_us = clamp_us(parse_int(&p));
         inst->attack_frames = us_to_frames(inst->attack_us);
-        return;
-    }
-    if (strcmp(key, "hold_us") == 0) {
-        const char *p = val;
-        int us = parse_int(&p);
-        inst->hold_us = us < 0 ? HOLD_FULL : clamp_us(us);
         return;
     }
     if (strcmp(key, "decay_us") == 0) {
@@ -1083,9 +1075,9 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         return n;
     }
     if (strcmp(key, "settings") == 0) {
-        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d",
-                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose);
+        /* "<attack_us> <decay_us> <transpose>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d",
+                        inst->attack_us, inst->decay_us, inst->transpose);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */

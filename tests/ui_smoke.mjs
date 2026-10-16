@@ -46,7 +46,7 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
-  settings: '0 -1 30000000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
+  settings: '0 10000000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
   exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '' };
 const sets = [];
 g.host_module_get_param = k => {
@@ -97,8 +97,12 @@ for (let k = 0; k < 8; k++) {
   midi(0xB0, 71 + k, 3); tick(1);
   const after = printed.find(t => READOUT.test(t));
   midi(0x90, k, 0); tick(70);
+  if (k === 5) {
+    check(!shown && !after && !sets.some(s => s.startsWith('hold_us')), `knob 6 does nothing: ${shown} / ${after}`);
+    continue;
+  }
   check(shown, `knob ${k + 1} touch shows a readout`);
-  if (k === 6) check(shown === 'Decay 30.00s' && after === 'Decay 30.00s', `Decay starts at the 30 s max and stays there: ${shown} / ${after}`);
+  if (k === 6) check(shown === 'Decay 10.00s' && after === 'Decay 10.00s', `Decay starts at the 10 s max and stays there: ${shown} / ${after}`);
   console.log(`knob ${k + 1}: touch="${shown}" turned="${after}"`);
 }
 
@@ -118,7 +122,7 @@ check(sets.slice(mark).some(s => /^nudge=\d+ 0 \d+$/.test(s)) && !sets.slice(mar
 midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127); tick(30);
 
 // ---- Export ----
-const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose)=/.test(s)).map(s => s.split('=')));
+const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|decay_us|transpose)=/.test(s)).map(s => s.split('=')));
 const presetDir = '/data/UserData/UserLibrary/Track Presets/';
 const exits = () => log.filter(l => l === 'EXIT').length;
 // Export menu (Record): row 0 name, then Slices, Drum Preset, Cancel
@@ -177,8 +181,8 @@ if (p1 in files) {
     }
     check(p.Voice_Envelope_Mode === 'A-S-R', 'gated: A-S-R mode');
     check(Math.abs(p.Voice_Envelope_Attack - Math.max(0.0001, settingSets.attack_us / 1e6)) < 1e-9, 'attack seconds');
-    check(p.Voice_Envelope_Hold === (+settingSets.hold_us < 0 ? 60 : +settingSets.hold_us / 1e6), 'hold seconds');
-    check(Math.abs(p.Voice_Envelope_Decay - Math.min(10, settingSets.decay_us / 1e6)) < 1e-9, 'decay seconds (Move caps at 10 s)');
+    check(p.Voice_Envelope_Hold === 60, 'hold Full (unused in A-S-R)');
+    check(Math.abs(p.Voice_Envelope_Decay - settingSets.decay_us / 1e6) < 1e-9, 'decay seconds');
     check(p.Voice_Transpose === +settingSets.transpose, 'transpose');
   });
   const c0 = rack.chains[0].devices[0].parameters;
@@ -241,7 +245,7 @@ mark = sets.length;
 midi(0xB0, 56, 127); tick(1);
 check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
 
-// ---- Always gated: Mute does nothing, Decay defaults to 30 s ----
+// ---- Always gated: Mute does nothing ----
 mark = sets.length;
 midi(0xB0, 88, 127); tick(1);
 check(!sets.slice(mark).some(s => s.startsWith('gate')) && !lit(MUTE), 'Mute does nothing and stays dark');

@@ -265,7 +265,7 @@ int main(void) {
     CHECK(out[2] == ramp(2, 0) && out[4] == ramp(4, 0), "transpose +12 reads every other frame (%d %d %d, want %d %d %d; %s)", out[0], out[2], out[4], ramp(0,0), ramp(2,0), ramp(4,0), slices(inst));
     param(inst, "transpose", "0");
 
-    /* ---- Envelope: attack ramps, hold/decay end the voice ---- */
+    /* ---- Envelope: attack ramps, decay releases ---- */
     param(inst, "nudge", "0 1 20000");      /* Pad 1 = 0-20064 */
     param(inst, "attack_us", "10000");      /* 441 frames */
     until_silent(inst);
@@ -277,18 +277,20 @@ int main(void) {
     /* ---- Always gated: plays while held, Decay is the release ---- */
     char set[64];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 30000000 0") == 0, "Decay defaults to the 30 s max: %s", set);
-    param(inst, "decay_us", "40000000");
+    CHECK(strcmp(set, "0 10000000 0") == 0, "Decay defaults to the 10 s max: %s", set);
+    param(inst, "decay_us", "30000000");
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 30000000 0") == 0, "Decay capped at 30 s: %s", set);
+    CHECK(strcmp(set, "0 10000000 0") == 0, "Decay capped at 10 s: %s", set);
+    param(inst, "hold_us", "10000");        /* no Hold any more: ignored */
+    get(inst, "settings", set, sizeof set);
+    CHECK(strcmp(set, "0 10000000 0") == 0, "hold_us ignored: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
-    CHECK(field(inst, F_PLAYING) == 0, "30 s release plays on after letting go, like a one-shot");
+    CHECK(field(inst, F_PLAYING) == 0, "10 s release plays on after letting go, like a one-shot");
     until_silent(inst);
     param(inst, "decay_us", "10000");       /* 441-frame release */
-    param(inst, "hold_us", "10000");        /* Hold doesn't shape the sound */
-    note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
-    CHECK(field(inst, F_PLAYING) == 0, "sustains while held, ignoring Hold");
+    note(inst, 68); render(inst, 20);       /* 2560 frames > decay */
+    CHECK(field(inst, F_PLAYING) == 0, "sustains while held");
     note_off(inst, 69);
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == 0, "letting go of another pad doesn't release");
@@ -309,8 +311,7 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "velocity-0 note-on releases too");
     param(inst, "delete", "1");             /* undo the chop */
-    param(inst, "hold_us", "-1");
-    param(inst, "decay_us", "30000000");
+    param(inst, "decay_us", "10000000");
 
     /* ---- Resume support: ui_state round-trips, stop silences ---- */
     get(inst, "ui_state", set, sizeof set);

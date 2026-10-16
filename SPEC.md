@@ -51,10 +51,11 @@ Move drum rack preset.
   Playback continues on the new slice (now Pad 2), not on the pad pressed.
 - Transpose: repitch only (changes length and pitch together), one global
   setting (Knob 8, -24 to +24 semitones).
-- Envelope: one global attack, hold and decay applied to every slice in chop
-  mode and carried into the export for every pad. Knobs 5/6/7. Default:
-  attack 0, hold Full, decay 30 s (the max), so slices play out like the raw
-  sample even after the pad is let go. A chop
+- Envelope: one global attack and decay applied to every slice in chop mode
+  and carried into the export for every pad. Knobs 5 and 7; Knob 6 does
+  nothing for now (Hold was removed). Default: attack 0, decay 10 s (the
+  max, Move's own drum cell limit), so slices play out like the raw sample
+  even after the pad is let go. A chop
   does not retrigger the envelope. This mode is for chopping; per-pad sound
   shaping is done in the drum rack after export.
 - Declick: when a pad cuts off another, the old voice fades out over ~1.5 ms.
@@ -64,8 +65,8 @@ Move drum rack preset.
 - Pad colors: playable slice pads are red, the pad that is currently playing
   is white, the chop target is blue, unused slice pads are dim grey.
 - Playback is always gated, like Move's A-S-R: full level while the pad that
-  started the voice is held, then Decay (up to 30 s) is the release; Hold
-  does not shape the sound. A long Decay gives one-shot behavior, so there
+  started the voice is held, then Decay (up to 10 s) is the release. A long
+  Decay gives one-shot behavior, so there
   is no one-shot/gated toggle. Pressing a pad again restarts its region.
   Letting go of the blue pad after a chop keeps the gate open.
 - Fine-tuning: chop points are linked. Moving a slice's start also moves the
@@ -109,7 +110,7 @@ Move drum rack preset.
   named "<name>" (then "<name> 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
-  is exported in seconds in A-S-R mode (hold Full = 60 s; decay clamped to
-  Move's 10 s max), transpose as
+  is exported in seconds in A-S-R mode (Voice_Envelope_Hold is written as
+  60 s, Move's "Full", and is unused in A-S-R), transpose as
   Voice_Transpose, all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).

@@ -15,7 +15,8 @@ Status: early development.
 | Knob 1 / Knob 2 | Move the selected slice's start / end |
 | Knob 3 | Zoom |
 | Knob 4 | Waveform vertical scale |
-| Knob 5 / 6 / 7 | Attack / Hold / Decay (all pads; Decay up to 30 s, the default, plays out like a one-shot) |
+| Knob 5 / 7 | Attack / Decay (all pads; Decay up to 10 s, the default, plays out like a one-shot) |
+| Knob 6 | Nothing for now |
 | Knob 8 | Transpose (all pads, repitch) |
 | Jog | Move the selected slice's start |
 | Touch a knob | Preview its value |

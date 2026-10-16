@@ -18,10 +18,9 @@ var CHOKE_GROUP = 1;
 
 /* Drum sampler limits, from values seen in Move sets. */
 var ATTACK_MIN_S = 0.0001;
-var HOLD_MIN_S = 0.001;
-var HOLD_FULL_S = 60.0;     /* "Full": longer than any slice */
+var HOLD_S = 60.0;          /* unused in A-S-R mode; Move's "Full" */
 var DECAY_MIN_S = 0.001;
-var DECAY_MAX_S = 10.0;     /* Move's drum cell max; Chopper allows 30 s */
+var DECAY_MAX_S = 10.0;     /* Move's drum cell max, and Chopper's */
 
 /* "ableton:/user-library/<path>" for a file inside the User Library, with
  * each path segment percent-encoded. null if the file is elsewhere. */
@@ -36,12 +35,12 @@ function clamp(v, lo, hi) {
 }
 
 /*
- * env: { attackUs, holdUs (-1 = Full), decayUs }
+ * env: { attackUs, decayUs }
  */
 export function envelopeSeconds(env) {
     return {
         attack: Math.max(ATTACK_MIN_S, env.attackUs / 1e6),
-        hold: env.holdUs < 0 ? HOLD_FULL_S : Math.max(HOLD_MIN_S, env.holdUs / 1e6),
+        hold: HOLD_S,
         decay: clamp(env.decayUs / 1e6, DECAY_MIN_S, DECAY_MAX_S)
     };
 }
@@ -163,7 +162,7 @@ function reverbReturnChain() {
  *   sampleUri:  from sampleUriFor()
  *   frames:     total frames in the WAV
  *   starts, ends: slice boundaries in frames (1-16 slices, time order)
- *   env:        { attackUs, holdUs, decayUs }
+ *   env:        { attackUs, decayUs }
  *   transpose:  semitones
  * }
  * Returns the preset object (JSON.stringify it to write).

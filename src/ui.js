@@ -18,7 +18,9 @@
  *   Knob 2     - Move the selected slice's end
  *   Knob 3     - Zoom
  *   Knob 4     - Waveform vertical scale (1x-32x)
- *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
+ *   Knob 5     - Attack (global, all slices)
+ *   Knob 6     - Nothing for now
+ *   Knob 7     - Decay: the fade after a pad is let go (global)
  *   Knob 8     - Transpose in semitones (global, repitch)
  *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
@@ -36,7 +38,7 @@
 import {
     MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
-    MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
+    MoveKnob5, MoveKnob7, MoveKnob8,
     MovePads,
     Black, DarkGrey, White, BrightRed, PureBlue,
     WhiteLedOff, WhiteLedBright
@@ -67,7 +69,6 @@ var CC_E2 = MoveKnob2;
 var CC_E3 = MoveKnob3;
 var CC_E4 = MoveKnob4;
 var CC_E5 = MoveKnob5;
-var CC_E6 = MoveKnob6;
 var CC_E7 = MoveKnob7;
 var CC_E8 = MoveKnob8;
 
@@ -104,11 +105,9 @@ var VSCALE_MAX = 32.0;
 var VSCALE_STEP = 0.25;
 
 /* Envelope knobs move a 0-1 position; time = max * pos^3 for fine control
- * near zero. Hold at the top of its range is Full (until the slice ends). */
+ * near zero. */
 var ATTACK_MAX_US = 2000000;
-var HOLD_MAX_US = 5000000;
-var DECAY_MAX_US = 30000000;     /* release; the max plays out like a one-shot */
-var HOLD_FULL = -1;
+var DECAY_MAX_US = 10000000;     /* Move's max; plays out like a one-shot */
 var ENV_KNOB_STEP = 0.01;
 var ENV_KNOB_FINE = 0.002;
 var TRANSPOSE_MIN = -24;
@@ -196,11 +195,9 @@ var vScale = 1.0;
 
 /* Global sound settings (DSP holds the truth; read back on load) */
 var attackUs = 0;
-var holdUs = HOLD_FULL;
 var decayUs = DECAY_MAX_US;
 var transpose = 0;
 var attackKnob = 0;
-var holdKnob = 1;
 var decayKnob = 1;
 var pendingSettings = {};   /* key -> value, sent once per tick */
 var overlayText = "";       /* footer readout while a sound knob moves */
@@ -381,14 +378,12 @@ function selectSlice(idx) {
 /* ============ Sound settings ============ */
 
 function formatUs(us) {
-    if (us === HOLD_FULL) return "Full";
     if (us < 10000) return (us / 1000).toFixed(1) + "ms";
     if (us < 1000000) return Math.round(us / 1000) + "ms";
     return (us / 1000000).toFixed(2) + "s";
 }
 
 function spokenUs(us) {
-    if (us === HOLD_FULL) return "full";
     if (us < 1000000) return (Math.round(us / 100) / 10) + " milliseconds";
     return (Math.round(us / 10000) / 100) + " seconds";
 }
@@ -411,16 +406,14 @@ function readSettings() {
     if (!raw) return;
     var p = raw.split(" ");
     attackUs = parseInt(p[0], 10) || 0;
-    holdUs = parseInt(p[1], 10);
-    if (isNaN(holdUs)) holdUs = HOLD_FULL;
-    decayUs = parseInt(p[2], 10) || 0;
-    transpose = parseInt(p[3], 10) || 0;
+    decayUs = parseInt(p[1], 10) || 0;
+    transpose = parseInt(p[2], 10) || 0;
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
-    holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
 }
 
-/* [screen text, spoken text] for knob i (0-7), from current values. */
+/* [screen text, spoken text] for knob i (0-7), from current values; null
+ * for a knob with no job. */
 function knobReadout(i) {
     switch (i) {
     case 0:
@@ -437,7 +430,7 @@ function knobReadout(i) {
     case 4:
         return ["Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
     case 5:
-        return ["Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs)];
+        return null;     /* Knob 6: Hold removed for now */
     case 6:
         return ["Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
     default:
@@ -459,7 +452,7 @@ function onKnobTouch(i, touched) {
         if (touchedKnob === i) touchedKnob = -1;
         return;
     }
-    if (loadState !== "ready") return;
+    if (loadState !== "ready" || !knobReadout(i)) return;
     touchedKnob = i;
     if (i <= 1 && activeSide !== i) {
         activeSide = i;
@@ -483,11 +476,6 @@ function changeSetting(cc, ticks) {
         attackUs = knobToUs(attackKnob, ATTACK_MAX_US);
         pendingSettings.attack_us = attackUs;
         showKnob(4);
-    } else if (cc === CC_E6) {
-        holdKnob = clamp01(holdKnob + step);
-        holdUs = holdKnob >= 1 ? HOLD_FULL : knobToUs(holdKnob, HOLD_MAX_US);
-        pendingSettings.hold_us = holdUs;
-        showKnob(5);
     } else if (cc === CC_E7) {
         decayKnob = clamp01(decayKnob + step);
         decayUs = knobToUs(decayKnob, DECAY_MAX_US);
@@ -568,7 +556,7 @@ function exportDrumPreset(base) {
         frames: frames,
         starts: sliceStarts,
         ends: sliceEnds,
-        env: { attackUs: attackUs, holdUs: holdUs, decayUs: decayUs },
+        env: { attackUs: attackUs, decayUs: decayUs },
         transpose: transpose
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
@@ -1182,7 +1170,7 @@ globalThis.onMidiMessageInternal = function(data) {
         changeZoom(decodeDelta(d2));
     } else if (d1 === CC_E4) {
         changeVScale(decodeDelta(d2));
-    } else if (d1 === CC_E5 || d1 === CC_E6 || d1 === CC_E7 || d1 === CC_E8) {
+    } else if (d1 === CC_E5 || d1 === CC_E7 || d1 === CC_E8) {
         changeSetting(d1, decodeDelta(d2));
     } else if (d1 === CC_JOG) {
         queueNudge(0, decodeDelta(d2));     /* the jog only ever moves the start */
