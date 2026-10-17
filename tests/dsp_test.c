@@ -475,14 +475,14 @@ int main(void) {
         int16_t want = (int16_t)lrint(0.25 * 32768 * sin((3 * MOVE_FRAMES_PER_BLOCK + 10) * 0.05));
         CHECK(abs(out[20] - want) <= 1, "after the ramp gain is unity (%d, want %d)", out[20], want);
 
-        param(inst, "gain_db10", "-701");                   /* below -70 dB: -inf */
+        param(inst, "gain_db10", "-1000");                  /* clamps to -70 dB, Move's floor */
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 6, " -1000") == 0, "below -70 dB is -inf: %s", set);
+        CHECK(strcmp(set + strlen(set) - 5, " -700") == 0, "gain clamps at -70 dB: %s", set);
         render(inst, 1);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-        int loud = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) loud |= out[i];
-        CHECK(loud == 0, "-inf is silent");
+        int peak = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) if (abs(out[i]) > peak) peak = abs(out[i]);
+        CHECK(peak <= 3, "-70 dB is all but silent (peak %d of 8192)", peak);
         param(inst, "gain_db10", "999");
         get(inst, "settings", set, sizeof set);
         CHECK(strcmp(set + strlen(set) - 4, " 240") == 0, "gain clamps at +24 dB: %s", set);
@@ -565,7 +565,7 @@ int main(void) {
                 if (fmt == 1) CHECK(clipped > 0, "%s: 0.25 x 4.47 clips in PCM (%d clipped)", cases[k].src, clipped);
             }
             free(sb); free(db);
-            param(inst, "gain_db10", "-1000");
+            param(inst, "gain_db10", "-700");
             remove("build/gexp/s 01.wav");
             param(inst, "export_slices", "build/gexp/s");
             for (int t = 0; t < 400; t++) {
@@ -574,9 +574,10 @@ int main(void) {
                 usleep(5000);
             }
             db = read_file("build/gexp/s 01.wav", &dl);
-            int nonzero = 0;
-            for (long i = 44; db && i + bits / 8 <= dl; i += bits / 8) nonzero |= read_native(db + i, fmt, bits) != 0.0;
-            CHECK(db && dl == sl && nonzero == 0, "%s: -inf exports silence", cases[k].src);
+            double low = 0;
+            for (long i = 44; db && i + bits / 8 <= dl; i += bits / 8) low = fmax(low, fabs(read_native(db + i, fmt, bits)));
+            double lsb = fmt == 3 ? 1e-9 : 1.0 / (1 << (bits - 1));
+            CHECK(db && dl == sl && fabs(low - 0.25 * pow(10, -3.5)) <= lsb, "%s: -70 dB export peaks at %g", cases[k].src, low);
             free(db);
             api->destroy_instance(inst);
         }

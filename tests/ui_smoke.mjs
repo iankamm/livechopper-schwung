@@ -140,7 +140,7 @@ for (let k = 0; k < 8; k++) {
   console.log(`knob ${k + 1}: touch="${shown}" turned="${after}"`);
 }
 
-// Knob 4 is Gain: 0.5 dB steps (Shift 0.1) from -24 dB up, 2 dB below, then -inf
+// Knob 4 is Gain: 0.5 dB steps (Shift 0.1) from -24 dB up, 2 dB below, -70 to +24 dB
 const gainSets = () => sets.filter(x => x.startsWith('gain_db10='));
 midi(0x90, 3, 127); tick(1);
 midi(0xB0, 74, 127); tick(1);                       // knob loop left it at +1.5 dB
@@ -150,10 +150,7 @@ check(printed.includes('Gain +1.1dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(
 midi(0xB0, 74, 63); tick(1);
 check(printed.includes('Gain +24.0dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
 midi(0xB0, 74, 65); midi(0xB0, 74, 65); tick(1);   // 126 steps down
-check(printed.includes('Gain -inf'), 'bottoms out at -inf: ' + JSON.stringify(printed));
-check(gainSets().at(-1) === 'gain_db10=-1000', '-inf sent as -1000: ' + gainSets().at(-1));
-midi(0xB0, 74, 1); tick(1);
-check(printed.includes('Gain -70.0dB'), 'one step up from -inf is -70 dB');
+check(printed.includes('Gain -70.0dB') && gainSets().at(-1) === 'gain_db10=-700', 'bottoms out at -70 dB: ' + JSON.stringify(printed));
 midi(0xB0, 74, 23); tick(1);                       // 23 x 2 dB = -24 dB
 check(printed.includes('Gain -24.0dB'), '2 dB steps below -24 dB: ' + JSON.stringify(printed));
 midi(0xB0, 74, 2); tick(1);
@@ -503,7 +500,6 @@ const presetGain = db10 => buildDrumRackPreset({ name: 'g', sampleUri: 'u', fram
   .chains[0].devices[0].chains[0].devices[0].parameters.Voice_Gain;
 check(Math.abs(presetGain(240) / 15.848933219909668 - 1) < 1e-6, 'Voice_Gain +24 dB matches Move: ' + presetGain(240));
 check(Math.abs(presetGain(-700) / 0.0003162277571391314 - 1) < 1e-6, 'Voice_Gain -70 dB matches Move: ' + presetGain(-700));
-check(presetGain(-1000) === presetGain(-700), '-inf exports as Move\'s -70 dB minimum: ' + presetGain(-1000));
 check(presetGain(0) === 1, '0 dB is 1.0');
 dsp.normGain = 'silent';
 tools(); click(); tick(1);
@@ -513,15 +509,15 @@ check(printed.includes('Sample is silent') && gainSets().at(-1) === 'gain_db10=1
 // Gain is restored from the DSP's settings (resume); an old ui_state still restores zoom
 await freshUi('gainresume');
 g.host_tool_reconnect = true;
-dsp.settings = '0 -1 50000 0 0 0 -1000';
+dsp.settings = '0 -1 50000 0 0 0 -1000';    // an old -inf session: clamped to -70 dB
 dsp.uiState = '1 0 2 4';
 g.init(); tick(2);
 midi(0x90, 3, 127); tick(1);
-check(printed.includes('Gain -inf'), 'gain restored from settings: ' + JSON.stringify(printed));
+check(printed.includes('Gain -70.0dB'), 'gain restored from settings, clamped: ' + JSON.stringify(printed));
 midi(0x90, 3, 0); midi(0x90, 2, 127); tick(1);
 check(printed.includes('Zoom x4'), 'version-1 ui_state still restores zoom: ' + JSON.stringify(printed));
 midi(0x90, 2, 0); tick(70);
-check(Math.max(0, ...waveCols()) === 0, 'waveform flat at -inf');
+check(Math.max(0, ...waveCols()) === 0, 'waveform flat at -70 dB');
 delete g.host_tool_reconnect;
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));

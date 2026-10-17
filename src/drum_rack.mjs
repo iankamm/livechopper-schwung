@@ -21,7 +21,6 @@ var HOLD_MIN_S = 0.001;
 var HOLD_FULL_S = 60.0;     /* "Full": longer than any slice */
 var DECAY_MIN_S = 0.001;
 var DECAY_MAX_S = 10.0;
-var GAIN_NEG_INF = -1000;    /* gainDb10 for -inf, as in plugin.c */
 var GAIN_MIN_DB10 = -700;    /* Move's drum sampler Gain: -70 to +24 dB */
 var GAIN_MAX_DB10 = 240;
 
@@ -51,11 +50,10 @@ export function envelopeSeconds(env) {
 }
 
 /* Voice_Gain from tenths of a dB. Move stores linear amplitude (a Song.abl
- * had +24 dB = 15.8489, -70 dB = 0.000316) and its range is -70 to +24 dB,
- * with no -inf, so -inf exports as -70 dB. */
+ * had +24 dB = 15.8489, -70 dB = 0.000316); its range is -70 to +24 dB. */
 function voiceGain(db10) {
     if (db10 === undefined || db10 === null) return 1.0;
-    if (db10 <= GAIN_NEG_INF || db10 < GAIN_MIN_DB10) db10 = GAIN_MIN_DB10;
+    if (db10 < GAIN_MIN_DB10) db10 = GAIN_MIN_DB10;
     if (db10 > GAIN_MAX_DB10) db10 = GAIN_MAX_DB10;
     return Math.pow(10, db10 / 200);
 }
@@ -180,7 +178,7 @@ function reverbReturnChain() {
  *   env:        { attackUs, holdUs, decayUs, gated }
  *   transpose:  semitones
  *   detune:     cents (-50 to +50)
- *   gainDb10:   gain in tenths of a dB, -1000 = -inf
+ *   gainDb10:   gain in tenths of a dB, -700 to 240
  * }
  * Returns the preset object (JSON.stringify it to write).
  */

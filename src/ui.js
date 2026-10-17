@@ -17,7 +17,7 @@
  *   Knob 1     - Move the selected slice's start
  *   Knob 2     - Move the selected slice's end
  *   Knob 3     - Zoom
- *   Knob 4     - Gain, -inf to +24 dB (global; the waveform follows it)
+ *   Knob 4     - Gain, -70 to +24 dB (global; the waveform follows it)
  *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
  *                Shift+Knob 8: detune, -50 to +50 cents
@@ -104,11 +104,10 @@ var OVERLAY_TICKS = 60;
 var EXPORT_MSG_TICKS = 150;
 
 /* Vertical scale, as in the waveform editor: scale *= 2^step per tick. */
-/* Gain in tenths of a dB, like Simpler's: -inf, then -70 to +24 dB.
+/* Gain in tenths of a dB, -70 to +24 dB like Move's drum sampler.
  * 0.5 dB a step (Shift: 0.1) from -24 dB up, 2 dB below that. */
 var GAIN_MIN = -700;
 var GAIN_MAX = 240;
-var GAIN_NEG_INF = -1000;        /* plugin.c */
 var GAIN_COARSE_FLOOR = -240;
 
 /* Envelope knobs move a 0-1 position; time = max * pos^3 for fine control
@@ -216,7 +215,7 @@ var holdUs = HOLD_FULL;
 var decayUs = 50000;
 var transpose = 0;
 var detune = 0;             /* cents */
-var gainDb10 = 0;           /* tenths of a dB, GAIN_NEG_INF = -inf */
+var gainDb10 = 0;           /* tenths of a dB, GAIN_MIN to GAIN_MAX */
 var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var attackKnob = 0;
 var holdKnob = 1;
@@ -465,7 +464,7 @@ function readSettings() {
     transpose = parseInt(p[3], 10) || 0;
     gated = p[4] === "1";
     detune = parseInt(p[5], 10) || 0;
-    gainDb10 = parseInt(p[6], 10) || 0;
+    gainDb10 = Math.max(GAIN_MIN, Math.min(GAIN_MAX, parseInt(p[6], 10) || 0));
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
     holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
@@ -580,26 +579,23 @@ function flushSettings() {
 }
 
 function gainLinear(db10) {
-    return db10 === GAIN_NEG_INF ? 0 : Math.pow(10, db10 / 200);
+    return Math.pow(10, db10 / 200);
 }
 
 function formatGain(db10) {
-    if (db10 === GAIN_NEG_INF) return "-inf";
     return (db10 > 0 ? "+" : db10 < 0 ? "-" : "") + (Math.abs(db10) / 10).toFixed(1) + "dB";
 }
 
 function spokenGain(db10) {
-    if (db10 === GAIN_NEG_INF) return "minus infinity";
     return (db10 > 0 ? "plus " : db10 < 0 ? "minus " : "") + (Math.abs(db10) / 10).toFixed(1) + " decibels";
 }
 
 /* One knob step up (dir 1) or down (dir -1) from db10. */
 function gainStep(db10, dir) {
-    if (db10 === GAIN_NEG_INF) return dir > 0 ? GAIN_MIN : GAIN_NEG_INF;
     var coarse = dir > 0 ? db10 < GAIN_COARSE_FLOOR : db10 <= GAIN_COARSE_FLOOR;
     var v = db10 + dir * (coarse ? 20 : (shiftHeld ? 1 : 5));
     if (v > GAIN_MAX) return GAIN_MAX;
-    if (v < GAIN_MIN) return db10 > GAIN_MIN ? GAIN_MIN : GAIN_NEG_INF;
+    if (v < GAIN_MIN) return GAIN_MIN;
     return v;
 }
 

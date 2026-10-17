@@ -62,8 +62,8 @@ a Move drum rack preset or one WAV per slice.
   does not retrigger the envelope. This mode is for chopping; per-pad sound
   shaping is done in the drum rack after export.
 - Declick: when a pad cuts off another, the old voice fades out over ~1.5 ms.
-- Gain: Knob 4, one global setting like Simpler's Gain: -inf, then -70 to
-  +24 dB, default 0 dB. 0.5 dB steps (Shift: 0.1 dB) from -24 dB up, 2 dB
+- Gain: Knob 4, one global setting like Simpler's Gain, with the range of
+  Move's drum sampler: -70 to +24 dB, default 0 dB. 0.5 dB steps (Shift: 0.1 dB) from -24 dB up, 2 dB
   steps below. Applied to playback (ramped over a block, so no clicks; boosts
   clip at full scale). The waveform is drawn at the gained level.
 - Choke: all pads choke each other by default, in chop mode and in the exported
@@ -121,8 +121,7 @@ a Move drum rack preset or one WAV per slice.
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
   is exported in seconds in A-H-D mode, or A-S-R when gated (hold Full =
   60 s), transpose as Voice_Transpose, detune as Voice_Detune (in semitones, so -30 cents is -0.3), gain as
-  Voice_Gain (linear amplitude, 1.0 = 0 dB; Move's range is -70 to +24 dB,
-  so -inf exports as -70 dB),
+  Voice_Gain (linear amplitude, 1.0 = 0 dB, -70 to +24 dB as on Move),
   all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).
 - Tools menu (Shift + jog click): Normalize audio / Back. Jog chooses, jog

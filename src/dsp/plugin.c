@@ -64,7 +64,7 @@
  * chop, delete or marker nudge clears the redo stack.
  *
  * Gain: one global gain, set_param("gain_db10") in tenths of a dB (-70 to
- * +24 dB, anything lower is -inf), ramped over a block so changes don't
+ * +24 dB, Move's drum sampler range), ramped over a block so changes don't
  * click. The loader also finds the file's peak at full precision, and
  * get_param("normalize_gain") is the gain that puts it at 0 dBFS, so
  * Normalize is just a gain setting. Slice export applies the gain.
@@ -115,9 +115,8 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define TRANSPOSE_MAX 24
 #define DETUNE_MIN (-50)            /* cents */
 #define DETUNE_MAX 50
-#define GAIN_DB10_MIN (-700)        /* -70 dB; anything lower is -inf */
+#define GAIN_DB10_MIN (-700)        /* -70 dB, as on Move's drum sampler */
 #define GAIN_DB10_MAX 240           /* +24 dB */
-#define GAIN_NEG_INF (-1000)        /* gain_db10 for -inf */
 #define NORM_GAIN_SILENT (-32768)   /* normalize_gain of an all-zero file */
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
 
@@ -171,7 +170,7 @@ typedef struct {
     int detune;                                 /* cents */
     int gated;                                  /* 1 = A-S-R, 0 = one-shot A-H-D */
     double pitch_ratio;                         /* 2^((transpose*100 + detune)/1200) */
-    int gain_db10;                              /* tenths of a dB, GAIN_NEG_INF = -inf */
+    int gain_db10;                              /* tenths of a dB, -700 to 240 */
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
 
@@ -778,13 +777,13 @@ static void set_transpose(live_chopper_t *inst, int semis) {
     update_pitch_ratio(inst);
 }
 
-/* Tenths of a dB; below GAIN_DB10_MIN is -inf (silent). The audio ramps
- * to it over the next block. */
+/* Tenths of a dB, clamped to -70..+24 dB. The audio ramps to it over the
+ * next block. */
 static void set_gain(live_chopper_t *inst, int db10) {
     if (db10 > GAIN_DB10_MAX) db10 = GAIN_DB10_MAX;
-    if (db10 < GAIN_DB10_MIN) db10 = GAIN_NEG_INF;
+    if (db10 < GAIN_DB10_MIN) db10 = GAIN_DB10_MIN;
     inst->gain_db10 = db10;
-    inst->gain_target = db10 == GAIN_NEG_INF ? 0.0f : (float)pow(10.0, db10 / 200.0);
+    inst->gain_target = (float)pow(10.0, db10 / 200.0);
 }
 
 static void set_detune(live_chopper_t *inst, int cents) {
@@ -1259,7 +1258,7 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
     }
     if (strcmp(key, "settings") == 0) {
         /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>
-         *  <gain_db10, -1000 = -inf>" */
+         *  <gain_db10>" */
         return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d",
                         inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
                         inst->detune, inst->gain_db10);
