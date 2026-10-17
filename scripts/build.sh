@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Chopper module for Schwung (ARM64)
+# Build LiveChopper module for Schwung (ARM64)
 #
 # Adapted from schwung-waveform-editor, Copyright (c) 2025 Charles Vestal (MIT).
 #
@@ -9,7 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-MODULE_ID="chopper"
+MODULE_ID="live-chopper"
 IMAGE_NAME="schwung-builder"
 
 # Use a locally installed cross-compiler if there is one
@@ -19,7 +19,7 @@ fi
 
 # Check if we need Docker
 if [ -z "$CROSS_PREFIX" ] && [ ! -f "/.dockerenv" ]; then
-    echo "=== Chopper Module Build (via Docker) ==="
+    echo "=== LiveChopper module Build (via Docker) ==="
     echo ""
 
     # Build Docker image if needed
@@ -48,7 +48,7 @@ CROSS_PREFIX="${CROSS_PREFIX:-aarch64-linux-gnu-}"
 
 cd "$REPO_ROOT"
 
-echo "=== Building Chopper Module ==="
+echo "=== Building LiveChopper module ==="
 
 # Compile DSP plugin
 echo "Compiling DSP..."

@@ -310,7 +310,7 @@ check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
 exportPreset();                          // exports it
 midi(0xB0, 51, 127); tick(1);
-check(!prompt() && printed.includes('Leave Chopper') && printed.includes('Exit') && !printed.includes('Discard and exit'),
+check(!prompt() && printed.includes('Leave LiveChopper') && printed.includes('Exit') && !printed.includes('Discard and exit'),
       'everything exported: plain Exit, no warning: ' + JSON.stringify(printed));
 jog(1); click(); tick(1);
 check(exits() === 2, 'Exit exits');

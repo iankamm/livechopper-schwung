@@ -1,12 +1,12 @@
 #!/bin/bash
-# Install Chopper module to Move
+# Install LiveChopper module to Move
 #
 # Adapted from schwung-waveform-editor, Copyright (c) 2025 Charles Vestal (MIT).
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-MODULE_ID="chopper"
+MODULE_ID="live-chopper"
 
 cd "$REPO_ROOT"
 
@@ -15,7 +15,7 @@ if [ ! -d "dist/$MODULE_ID" ]; then
     exit 1
 fi
 
-echo "=== Installing Chopper Module ==="
+echo "=== Installing LiveChopper module ==="
 
 # Deploy to Move - tools subdirectory
 echo "Copying module to Move..."

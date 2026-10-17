@@ -1,4 +1,4 @@
-# Chopper spec
+# LiveChopper spec
 
 A tool for Ableton Move (Schwung) that chops a sample across pads in real time
 by tapping pads while it plays (the "lazy chop" / live chop workflow of Akai

@@ -1,4 +1,4 @@
-# Chopper: a Schwung module
+# LiveChopper: a Schwung module
 
 This repo is a standalone module for the Schwung framework on Ableton Move.
 We do NOT modify the framework. Never edit files outside this repo.

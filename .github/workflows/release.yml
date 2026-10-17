@@ -36,7 +36,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/chopper-module.tar.gz
+          files: dist/live-chopper-module.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -54,7 +54,7 @@ jobs:
             cat > release.json << EOF
           {
             "version": "${VERSION}",
-            "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/chopper-module.tar.gz",
+            "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/live-chopper-module.tar.gz",
             "install_path": "${INSTALL_PATH}"
           }
           EOF
@@ -62,7 +62,7 @@ jobs:
             cat > release.json << EOF
           {
             "version": "${VERSION}",
-            "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/chopper-module.tar.gz"
+            "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/live-chopper-module.tar.gz"
           }
           EOF
           fi

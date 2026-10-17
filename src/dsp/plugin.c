@@ -1,5 +1,5 @@
 /*
- * Chopper DSP Plugin
+ * LiveChopper DSP Plugin
  *
  * Real-time sample chopping across pads. See SPEC.md.
  *
@@ -196,7 +196,7 @@ typedef struct {
     pthread_t worker;
     int worker_started;
     atomic_int worker_quit;
-} chopper_t;
+} live_chopper_t;
 
 static const host_api_v1_t *g_host = NULL;
 
@@ -504,7 +504,7 @@ static void worker_demote(void) {
 }
 
 static void *worker_main(void *arg) {
-    chopper_t *inst = (chopper_t *)arg;
+    live_chopper_t *inst = (live_chopper_t *)arg;
     unsigned seen_seq = 0;
     worker_demote();
 
@@ -538,7 +538,7 @@ static void *worker_main(void *arg) {
                     atomic_store(&inst->load_state, LOAD_FAILED);
                     if (g_host && g_host->log) {
                         char msg[PATH_MAX_LEN + ERROR_MAX_LEN + 16];
-                        snprintf(msg, sizeof(msg), "chopper: %s: %s", err, path);
+                        snprintf(msg, sizeof(msg), "live-chopper: %s: %s", err, path);
                         g_host->log(msg);
                     }
                 }
@@ -579,7 +579,7 @@ static void *worker_main(void *arg) {
 
 /* Take a newly loaded buffer if the worker has published one and the
  * previous retired buffer has been collected. */
-static void adopt_incoming(chopper_t *inst) {
+static void adopt_incoming(live_chopper_t *inst) {
     if (atomic_load(&inst->incoming) == NULL || atomic_load(&inst->retired) != NULL) return;
     sample_buf_t *s = atomic_exchange(&inst->incoming, NULL);
     if (!s) return;
@@ -613,7 +613,7 @@ static int note_to_pad(int note) {
 
 /* Start a slice from its beginning. Cuts off whatever was playing. */
 /* Envelope gain for the main voice at its current position. */
-static float env_gain(const chopper_t *inst) {
+static float env_gain(const live_chopper_t *inst) {
     int p = inst->env_pos;
     if (inst->gated) {
         if (inst->release_pos >= 0) {
@@ -631,14 +631,14 @@ static float env_gain(const chopper_t *inst) {
     return 1.0f - (float)p / (float)inst->decay_frames;
 }
 
-static int env_finished(const chopper_t *inst) {
+static int env_finished(const live_chopper_t *inst) {
     if (inst->gated) return inst->release_pos >= 0 && inst->release_pos >= inst->decay_frames;
     if (inst->hold_frames == HOLD_FULL) return 0;
     return inst->env_pos >= inst->attack_frames + inst->hold_frames + inst->decay_frames;
 }
 
 /* Gated: start the release from wherever the envelope is now. */
-static void release_voice(chopper_t *inst) {
+static void release_voice(live_chopper_t *inst) {
     if (!inst->playing || inst->release_pos >= 0) return;
     inst->release_gain = env_gain(inst);
     inst->release_pos = 0;
@@ -654,7 +654,7 @@ static int clamp_us(int us) {
     return us;
 }
 
-static void set_transpose(chopper_t *inst, int semis) {
+static void set_transpose(live_chopper_t *inst, int semis) {
     if (semis < TRANSPOSE_MIN) semis = TRANSPOSE_MIN;
     if (semis > TRANSPOSE_MAX) semis = TRANSPOSE_MAX;
     inst->transpose = semis;
@@ -672,7 +672,7 @@ static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
 }
 
 /* Hand the playing voice to the tail so it fades instead of clicking. */
-static void fade_out_voice(chopper_t *inst) {
+static void fade_out_voice(live_chopper_t *inst) {
     inst->tail_active = 1;
     inst->tail_pos = inst->play_pos;
     inst->tail_end = inst->play_end;
@@ -680,7 +680,7 @@ static void fade_out_voice(chopper_t *inst) {
     inst->tail_left = DECLICK_FRAMES;
 }
 
-static void play_slice(chopper_t *inst, int idx, int note) {
+static void play_slice(live_chopper_t *inst, int idx, int note) {
     sample_buf_t *s = inst->current;
     if (!s || idx < 0 || idx >= inst->slice_count) return;
     if (inst->playing) fade_out_voice(inst);
@@ -696,7 +696,7 @@ static void play_slice(chopper_t *inst, int idx, int note) {
 
 /* Save the slice list onto a stack, dropping the oldest entry when full.
  * Bounded: at worst one shift of the stack. */
-static void push_snapshot(chopper_t *inst, slice_snapshot_t *stack, int *depth) {
+static void push_snapshot(live_chopper_t *inst, slice_snapshot_t *stack, int *depth) {
     if (*depth == UNDO_DEPTH) {
         memmove(&stack[0], &stack[1], sizeof(slice_snapshot_t) * (UNDO_DEPTH - 1));
         (*depth)--;
@@ -708,7 +708,7 @@ static void push_snapshot(chopper_t *inst, slice_snapshot_t *stack, int *depth) 
 }
 
 /* Replace the slice list with a saved one. */
-static void restore_snapshot(chopper_t *inst, const slice_snapshot_t *u) {
+static void restore_snapshot(live_chopper_t *inst, const slice_snapshot_t *u) {
     memcpy(inst->slice_start, u->slice_start, sizeof(inst->slice_start));
     memcpy(inst->slice_end, u->slice_end, sizeof(inst->slice_end));
     inst->slice_count = u->slice_count;
@@ -716,14 +716,14 @@ static void restore_snapshot(chopper_t *inst, const slice_snapshot_t *u) {
 }
 
 /* Save the slice list before a new edit. A new edit ends the redo chain. */
-static void push_undo(chopper_t *inst) {
+static void push_undo(live_chopper_t *inst) {
     push_snapshot(inst, inst->undo_stack, &inst->undo_depth);
     inst->redo_depth = 0;
 }
 
 /* After the slice list changes under a playing voice, keep playing in
  * whichever slice now holds the playhead. */
-static void relocate_playhead(chopper_t *inst) {
+static void relocate_playhead(live_chopper_t *inst) {
     if (!inst->playing) return;
     int pos = (int)inst->play_pos;
     for (int i = 0; i < inst->slice_count; i++) {
@@ -742,7 +742,7 @@ static void relocate_playhead(chopper_t *inst) {
 /* Split the playing slice at the playhead. The new slice goes right after
  * it, later slices move up one pad, and playback continues into the new
  * slice. Bounded: at most MAX_SLICES moves. */
-static void chop_at_playhead(chopper_t *inst) {
+static void chop_at_playhead(live_chopper_t *inst) {
     int p = inst->playing_slice;
     if (!inst->playing || p < 0 || inst->slice_count >= MAX_SLICES) return;
 
@@ -770,7 +770,7 @@ static void chop_at_playhead(chopper_t *inst) {
 /* Move a slice's start (side 0) or end (side 1) by delta source frames.
  * Interior chop points are shared with the neighbor, so they are clamped
  * to keep both slices at least MIN_SLICE_FRAMES long. */
-static void nudge_marker(chopper_t *inst, int idx, int side, int delta) {
+static void nudge_marker(live_chopper_t *inst, int idx, int side, int delta) {
     sample_buf_t *s = inst->current;
     if (!s || idx < 0 || idx >= inst->slice_count || delta == 0) return;
     int last = inst->slice_count - 1;
@@ -818,7 +818,7 @@ static int parse_int(const char **p) {
 
 /* Fill buf with cols two-hex-digit peaks covering source frames [a, b).
  * Bounded: each column reads at most ~32 peak entries or 128 frames. */
-static int render_wave(chopper_t *inst, int a, int b, int cols, char *buf, int buf_len) {
+static int render_wave(live_chopper_t *inst, int a, int b, int cols, char *buf, int buf_len) {
     sample_buf_t *s = inst->current;
     static const char hex[] = "0123456789abcdef";
     if (!s || cols <= 0 || cols > WAVE_MAX_COLS || buf_len < cols * 2 + 1) return -1;
@@ -862,7 +862,7 @@ static int render_wave(chopper_t *inst, int a, int b, int cols, char *buf, int b
 
 /* Restore the slice list from before the last chop. If something is
  * playing, it carries on in whichever restored slice holds the playhead. */
-static void undo_last_chop(chopper_t *inst) {
+static void undo_last_chop(live_chopper_t *inst) {
     if (inst->undo_depth <= 0) return;
     push_snapshot(inst, inst->redo_stack, &inst->redo_depth);
     restore_snapshot(inst, &inst->undo_stack[--inst->undo_depth]);
@@ -871,7 +871,7 @@ static void undo_last_chop(chopper_t *inst) {
 }
 
 /* Put back the slice list the last undo replaced. */
-static void redo_last_undo(chopper_t *inst) {
+static void redo_last_undo(live_chopper_t *inst) {
     if (inst->redo_depth <= 0) return;
     push_snapshot(inst, inst->undo_stack, &inst->undo_depth);
     restore_snapshot(inst, &inst->redo_stack[--inst->redo_depth]);
@@ -882,7 +882,7 @@ static void redo_last_undo(chopper_t *inst) {
 /* Merge slice idx into the previous one, removing the chop point between
  * them. Pad 1 has no previous slice, so deleting it trims its audio off
  * the start and Pad 2 becomes Pad 1. Later slices move down one pad. */
-static void delete_slice(chopper_t *inst, int idx) {
+static void delete_slice(live_chopper_t *inst, int idx) {
     if (!inst->current || inst->slice_count < 2 || idx < 0 || idx >= inst->slice_count) return;
     push_undo(inst);
 
@@ -904,7 +904,7 @@ static void delete_slice(chopper_t *inst, int idx) {
 static void *create_instance(const char *module_dir, const char *json_defaults) {
     (void)module_dir;
     (void)json_defaults;
-    chopper_t *inst = (chopper_t *)calloc(1, sizeof(chopper_t));
+    live_chopper_t *inst = (live_chopper_t *)calloc(1, sizeof(live_chopper_t));
     if (!inst) return NULL;
     atomic_init(&inst->req_seq, 0);
     atomic_init(&inst->incoming, NULL);
@@ -930,7 +930,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
 }
 
 static void destroy_instance(void *instance) {
-    chopper_t *inst = (chopper_t *)instance;
+    live_chopper_t *inst = (live_chopper_t *)instance;
     if (!inst) return;
     if (inst->worker_started) {
         atomic_store(&inst->worker_quit, 1);
@@ -943,7 +943,7 @@ static void destroy_instance(void *instance) {
 }
 
 static void on_midi(void *instance, const uint8_t *msg, int len, int source) {
-    chopper_t *inst = (chopper_t *)instance;
+    live_chopper_t *inst = (live_chopper_t *)instance;
     (void)source;
     if (!inst || len < 3) return;
 
@@ -973,7 +973,7 @@ static void on_midi(void *instance, const uint8_t *msg, int len, int source) {
 }
 
 static void set_param(void *instance, const char *key, const char *val) {
-    chopper_t *inst = (chopper_t *)instance;
+    live_chopper_t *inst = (live_chopper_t *)instance;
     if (!inst || !key || !val) return;
 
     if (strcmp(key, "delete") == 0) {
@@ -1072,7 +1072,7 @@ static void set_param(void *instance, const char *key, const char *val) {
 }
 
 static int get_param(void *instance, const char *key, char *buf, int buf_len) {
-    chopper_t *inst = (chopper_t *)instance;
+    live_chopper_t *inst = (live_chopper_t *)instance;
     if (!inst || !key || !buf || buf_len <= 0) return -1;
 
     if (strcmp(key, "file_path") == 0) {
@@ -1135,13 +1135,13 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
 }
 
 static int get_error(void *instance, char *buf, int buf_len) {
-    chopper_t *inst = (chopper_t *)instance;
+    live_chopper_t *inst = (live_chopper_t *)instance;
     if (!inst || atomic_load(&inst->load_state) != LOAD_FAILED) return 0;
     return snprintf(buf, (size_t)buf_len, "%s", inst->load_error);
 }
 
 static void render_block(void *instance, int16_t *out, int frames) {
-    chopper_t *inst = (chopper_t *)instance;
+    live_chopper_t *inst = (live_chopper_t *)instance;
     memset(out, 0, (size_t)frames * 2 * sizeof(int16_t));
     if (!inst) return;
 

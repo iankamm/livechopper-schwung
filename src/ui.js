@@ -1,5 +1,5 @@
 /*
- * Chopper UI
+ * LiveChopper UI
  *
  * Chop a sample across pads in real time. See SPEC.md.
  * 128x64 1-bit monochrome display, QuickJS runtime.
@@ -50,7 +50,7 @@ import { announce } from '/data/UserData/schwung/shared/screen_reader.mjs';
 import { buildDrumRackPreset, sampleUriFor, PRESET_DIR } from './drum_rack.mjs';
 
 import { log as uniLog } from '/data/UserData/schwung/shared/logger.mjs';
-function debugLog(msg) { uniLog("Chopper", msg); }
+function debugLog(msg) { uniLog("LiveChopper", msg); }
 
 /* ============ Constants ============ */
 
@@ -1008,7 +1008,7 @@ function drawEditor() {
 }
 
 function drawConfirmExit() {
-    print(2, 2, hasUnexported() ? "Not exported" : "Leave Chopper", 1);
+    print(2, 2, hasUnexported() ? "Not exported" : "Leave LiveChopper", 1);
     var items = confirmItems();
     for (var i = 0; i < items.length; i++) {
         var y = 18 + i * 12;
@@ -1052,7 +1052,7 @@ function draw() {
         drawEditor();
         return;
     }
-    print(2, 2, "Chopper", 1);
+    print(2, 2, "LiveChopper", 1);
     print(2, 14, fileName ? fileName.substring(0, 20) : "(no file)", 1);
     if (loadState === "loading") print(2, 30, "Loading...", 1);
     else if (loadState === "error") print(2, 30, errorMsg.substring(0, 20), 1);
@@ -1081,7 +1081,7 @@ globalThis.init = function() {
         }
     }
     debugLog("init file=" + filePath);
-    announce("Chopper, loading " + (fileName || "no file"));
+    announce("LiveChopper, loading " + (fileName || "no file"));
 };
 
 globalThis.tick = function() {

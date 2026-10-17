@@ -1,5 +1,5 @@
 {
-  "title": "Chopper",
+  "title": "LiveChopper",
   "children": [
     {
       "title": "Overview",
@@ -49,8 +49,8 @@
         "Back: menu",
         " Keep for later:",
         " leave it running;",
-        " Tools > Chopper >",
-        " Resume to return",
+        " Tools > LiveChopper",
+        " > Resume to return",
         " (e.g. after a tempo",
         " change in Move)",
         " Discard and exit:",
