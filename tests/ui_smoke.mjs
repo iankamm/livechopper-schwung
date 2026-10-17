@@ -26,8 +26,12 @@ function check(cond, msg) {
 const log = [];
 const files = {};
 const g = globalThis;
+let vlines = [];   // heights of vertical lines drawn this frame (the waveform)
 for (const f of ['clear_screen', 'set_pixel', 'draw_rect', 'fill_rect', 'draw_line'])
-  g[f] = (...a) => { if (a.some(v => typeof v === 'number' && !Number.isFinite(v))) throw new Error(f + ' got non-finite ' + JSON.stringify(a)); };
+  g[f] = (...a) => {
+    if (a.some(v => typeof v === 'number' && !Number.isFinite(v))) throw new Error(f + ' got non-finite ' + JSON.stringify(a));
+    if (f === 'draw_line' && a[0] === a[2]) vlines.push({ len: Math.abs(a[3] - a[1]), mid: (a[1] + a[3]) / 2 });
+  };
 let printed = [];
 g.print = (x, y, t) => { if (typeof t !== 'string') throw new Error('print non-string'); printed.push(t); };
 g.text_width = t => t.length * 5;
@@ -47,18 +51,21 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 // Fake DSP state
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
   settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
-  exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '' };
+  exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '',
+  normGain: '0' };
 const sets = [];
-let lastWave = null;   // [_, from, to, cols] of the last waveform request
+let lastWave = null;
+let waveRequests = 0;   // [_, from, to, cols] of the last waveform request
 g.host_module_get_param = k => {
   if (k === 'status') return `ready ${dsp.frames} ${dsp.rate} ${dsp.playing} ${dsp.pos}`;
   if (k === 'slices') return [dsp.chop, dsp.undo, dsp.del, dsp.depth, dsp.redo, dsp.redoDepth, dsp.playing ? 0 : -1, dsp.sel, dsp.starts.length,
     ...dsp.starts.flatMap((s, i) => [s, dsp.ends[i]])].join(' ');
   if (k === 'settings') return dsp.settings;
-  if (k.startsWith('wave ')) { lastWave = k.split(' ').map(Number); const c = lastWave[3]; return 'a0'.repeat(c); }
+  if (k.startsWith('wave ')) { waveRequests++; lastWave = k.split(' ').map(Number); const c = lastWave[3]; return 'a0'.repeat(c); }
   if (k === 'error') return '';
   if (k === 'ui_state') return dsp.uiState;
   if (k === 'file_path') return dsp.filePath;
+  if (k === 'normalize_gain') return dsp.normGain;
   if (k === 'export_result') return `${dsp.exportReq} ${dsp.exportDone} ${dsp.exportWritten}`;
   return null;
 };
@@ -79,9 +86,9 @@ g.host_open_text_entry = o => {
 };
 
 await import(pathToFileURL(path.join(dir, 'ui_under_test.mjs')).href);
-const tick = n => { for (let i = 0; i < n; i++) { printed = []; g.tick(); } };
+const tick = n => { for (let i = 0; i < n; i++) { printed = []; vlines = []; g.tick(); } };
 const midi = (s, d1, d2) => g.onMidiMessageInternal([s, d1, d2]);
-const READOUT = /Start|End|Zoom|Scale|Attack|Hold|Decay|Transpose/;
+const READOUT = /Start|End|Zoom|Gain|Attack|Hold|Decay|Transpose/;
 
 g.init(); tick(5);
 check(!lit(UNDO) && !lit(DELETE) && lit(RECORD), 'one slice: only Record lit');
@@ -132,6 +139,42 @@ for (let k = 0; k < 8; k++) {
   check(shown, `knob ${k + 1} touch shows a readout`);
   console.log(`knob ${k + 1}: touch="${shown}" turned="${after}"`);
 }
+
+// Knob 4 is Gain: 0.5 dB steps (Shift 0.1) from -24 dB up, 2 dB below, then -inf
+const gainSets = () => sets.filter(x => x.startsWith('gain_db10='));
+midi(0x90, 3, 127); tick(1);
+midi(0xB0, 74, 127); tick(1);                       // knob loop left it at +1.5 dB
+check(printed.includes('Gain +1.0dB') && gainSets().at(-1) === 'gain_db10=10', 'one step down is 0.5 dB: ' + JSON.stringify(printed));
+midi(0xB0, 49, 127); midi(0xB0, 74, 1); midi(0xB0, 49, 0); tick(1);
+check(printed.includes('Gain +1.1dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(printed));
+midi(0xB0, 74, 63); tick(1);
+check(printed.includes('Gain +24.0dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
+midi(0xB0, 74, 65); midi(0xB0, 74, 65); tick(1);   // 126 steps down
+check(printed.includes('Gain -inf'), 'bottoms out at -inf: ' + JSON.stringify(printed));
+check(gainSets().at(-1) === 'gain_db10=-1000', '-inf sent as -1000: ' + gainSets().at(-1));
+midi(0xB0, 74, 1); tick(1);
+check(printed.includes('Gain -70.0dB'), 'one step up from -inf is -70 dB');
+midi(0xB0, 74, 23); tick(1);                       // 23 x 2 dB = -24 dB
+check(printed.includes('Gain -24.0dB'), '2 dB steps below -24 dB: ' + JSON.stringify(printed));
+midi(0xB0, 74, 2); tick(1);
+check(printed.includes('Gain -23.0dB'), '0.5 dB steps from -24 dB up: ' + JSON.stringify(printed));
+midi(0xB0, 74, 46); tick(1);
+check(printed.includes('Gain 0.0dB'), 'back to 0 dB: ' + JSON.stringify(printed));
+midi(0x90, 3, 0); tick(70);
+check(log.includes('SAY: Gain 0.0 decibels'), 'gain spoken: ' + log.slice(-3));
+
+// The waveform is drawn at the gained level
+// Waveform columns are centred on the wave's midline (markers run top to bottom)
+const WAVE_MID_Y = 28, WAVE_HALF_H = 18;   // ui.js WAVE_MID / WAVE_HALF; fake peaks are 0xa0
+const waveCols = () => vlines.filter(l => l.mid === WAVE_MID_Y && l.len < 40).map(l => l.len);
+const waveH = () => { tick(1); return Math.max(0, ...waveCols()); };
+const waveWant = db => 2 * Math.min(WAVE_HALF_H, Math.round(0xa0 * Math.pow(10, db / 20) * WAVE_HALF_H / 255));
+check(waveH() === waveWant(0), `waveform at 0 dB: ${waveH()} vs ${waveWant(0)}`);
+midi(0xB0, 74, 6); tick(70);                       // +3 dB
+check(waveH() === waveWant(3) && waveWant(3) > waveWant(0), `waveform taller at +3 dB: ${waveH()} vs ${waveWant(3)}`);
+midi(0xB0, 74, 6); tick(70);                       // +6 dB: past the edge
+check(waveH() === 2 * WAVE_HALF_H, 'a boost flattens at the edges: ' + waveH());
+midi(0xB0, 74, 116); tick(70);                     // back to 0 dB
 
 // Shift + Knob 8 is detune in cents (-50 to +50), leaving transpose alone
 mark = sets.length;
@@ -376,9 +419,9 @@ check(!prompt() && printed.includes('Exit'), 'a full slices export counts as exp
 midi(0xB0, 51, 127); tick(1);
 
 // ---- Keep for later, then resume ----
-midi(0xB0, 73, 5); midi(0xB0, 74, 5); tick(1);   // zoom in, scale up: remembered
+midi(0xB0, 73, 5); tick(1);                       // zoom in: remembered
 dsp.chop = 7; tick(1);                            // unexported work
-check(/^1 1 [\d.]+ [\d.]+$/.test(dsp.uiState) && dsp.uiState !== '1 1 0 1', 'ui_state saved as it changes: ' + dsp.uiState);
+check(/^2 1 [\d.]+$/.test(dsp.uiState) && dsp.uiState !== '2 1 0', 'ui_state saved as it changes: ' + dsp.uiState);
 mark = sets.length;
 midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
@@ -398,7 +441,7 @@ g.init(); tick(2);
 check(!sets.slice(mark).some(s => s.startsWith('file_path=')), 'resume does not reload the file');
 check(log.slice(logMark).includes(`SAY: Resumed test loop.wav, ${dsp.starts.length} slices`), 'resume announced: ' + JSON.stringify(log.slice(logMark)));
 check(!log.slice(logMark).some(l => /SAY: (Chop|Undo|Redo|Deleted)/.test(l)), 'resume does not replay old edits');
-check(dsp.uiState === keptState, 'zoom, scale and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
+check(dsp.uiState === keptState, 'zoom and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
 check(lit(MUTE) && lit(RECORD), 'buttons lit again after resuming');
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'unexported work is still unexported after resuming');
@@ -410,6 +453,75 @@ dsp.filePath = '';
 mark = sets.length;
 g.init(); tick(1);
 check(sets.slice(mark).includes('file_path=' + g.host_tool_file_path), 'replaced DSP: file loaded again');
+delete g.host_tool_reconnect;
+
+// ---- Tools menu (Shift + jog click): Normalize audio / Back ----
+tick(70);
+const tools = () => { midi(0xB0, 49, 127); click(); midi(0xB0, 49, 0); tick(1); };
+tools();
+check(printed.includes('Tools') && printed.includes('Normalize audio') && printed.includes('Back'), 'Shift + jog click opens Tools: ' + JSON.stringify(printed));
+check(log.at(-1) === 'SAY: Tools, Normalize audio', 'Tools announced');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'Tools: buttons dark');
+mark = sets.length;
+midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 118, 127); tick(1);
+check(printed.includes('Tools') && !sets.slice(mark).some(s => !s.startsWith('ui_state=')), 'knobs and Record ignored in Tools');
+jog(1); click(); tick(1);
+check(!printed.includes('Tools') && log.at(-1) === 'SAY: Closed', 'Back item closes Tools');
+tools(); midi(0xB0, 51, 127); tick(1);
+check(!printed.includes('Tools') && exits() === 2 && log.at(-1) === 'SAY: Closed', 'Back button closes Tools without the exit menu');
+click(); tick(1);
+check(!printed.includes('Tools'), 'jog click without Shift does not open Tools');
+
+// Normalize sets Gain from the DSP's peak: no prompt, no file written
+midi(0xB0, 51, 127); tick(1);
+check(!prompt(), 'nothing unexported before normalizing');
+midi(0xB0, 51, 127); tick(1);
+const fileCount2 = Object.keys(files).length;
+dsp.normGain = '127';
+tools(); click(); tick(1);
+check(gainSets().at(-1) === 'gain_db10=127', 'Normalize sets the gain: ' + gainSets().at(-1));
+check(printed.includes('Gain +12.7dB'), 'new gain shown: ' + JSON.stringify(printed));
+check(log.at(-1) === 'SAY: Normalized, gain plus 12.7 decibels', 'normalize announced: ' + log.at(-1));
+check(Object.keys(files).length === fileCount2, 'no file written');
+midi(0xB0, 51, 127); tick(1);
+check(prompt(), 'normalizing counts as unexported');
+midi(0xB0, 51, 127); tick(1);
+midi(0x90, 3, 127); tick(1);
+check(printed.includes('Gain +12.7dB'), 'Knob 4 shows the normalized gain');
+midi(0xB0, 74, 1); tick(1);
+check(printed.includes('Gain +13.2dB'), 'and turns on from it');
+midi(0xB0, 74, 127); midi(0x90, 3, 0); tick(70);
+exportPreset();
+const newestPreset = () => JSON.parse(files[Object.keys(files).filter(f => f.startsWith(presetDir)).at(-1)] || '{}');
+const gp = newestPreset();
+const vg = gp.chains && gp.chains[0].devices[0].chains[0].devices[0].parameters.Voice_Gain;
+check(Math.abs(vg - Math.pow(10, 12.7 / 20)) < 1e-9, 'Drum Preset carries the gain as Voice_Gain: ' + vg);
+// Move's own Song.abl (float32): +24 dB = 15.848933219909668, -70 dB = 0.0003162277571391314
+const { buildDrumRackPreset } = await import(pathToFileURL(path.join(repo, 'src/drum_rack.mjs')).href);
+const presetGain = db10 => buildDrumRackPreset({ name: 'g', sampleUri: 'u', frames: 10, starts: [0], ends: [10],
+  env: { attackUs: 0, holdUs: -1, decayUs: 0, gated: false }, transpose: 0, detune: 0, gainDb10: db10 })
+  .chains[0].devices[0].chains[0].devices[0].parameters.Voice_Gain;
+check(Math.abs(presetGain(240) / 15.848933219909668 - 1) < 1e-6, 'Voice_Gain +24 dB matches Move: ' + presetGain(240));
+check(Math.abs(presetGain(-700) / 0.0003162277571391314 - 1) < 1e-6, 'Voice_Gain -70 dB matches Move: ' + presetGain(-700));
+check(presetGain(-1000) === presetGain(-700), '-inf exports as Move\'s -70 dB minimum: ' + presetGain(-1000));
+check(presetGain(0) === 1, '0 dB is 1.0');
+dsp.normGain = 'silent';
+tools(); click(); tick(1);
+check(printed.includes('Sample is silent') && gainSets().at(-1) === 'gain_db10=127' && log.at(-1) === 'SAY: Sample is silent, nothing to normalize',
+      'silent sample: gain left alone');
+
+// Gain is restored from the DSP's settings (resume); an old ui_state still restores zoom
+await freshUi('gainresume');
+g.host_tool_reconnect = true;
+dsp.settings = '0 -1 50000 0 0 0 -1000';
+dsp.uiState = '1 0 2 4';
+g.init(); tick(2);
+midi(0x90, 3, 127); tick(1);
+check(printed.includes('Gain -inf'), 'gain restored from settings: ' + JSON.stringify(printed));
+midi(0x90, 3, 0); midi(0x90, 2, 127); tick(1);
+check(printed.includes('Zoom x4'), 'version-1 ui_state still restores zoom: ' + JSON.stringify(printed));
+midi(0x90, 2, 0); tick(70);
+check(Math.max(0, ...waveCols()) === 0, 'waveform flat at -inf');
 delete g.host_tool_reconnect;
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));

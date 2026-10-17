@@ -42,6 +42,8 @@
         " chop or delete",
         "Shift+Undo: redo",
         "Record: export menu",
+        "Shift+Jog click:",
+        " tools menu",
         "Play: play/stop the",
         " Move set (set tempo",
         " and metronome in",
@@ -63,7 +65,6 @@
         "Knob 1: move start",
         "Knob 2: move end",
         "Knob 3: zoom",
-        "Knob 4: wave scale",
         "Jog: move start",
         "Shift: fine steps",
         "Left/Right: select",
@@ -83,6 +84,9 @@
         "pads and carry into",
         "the export.",
         "",
+        "Knob 4: gain (-inf",
+        " to +24 dB; the",
+        " waveform follows)",
         "Knob 5: attack",
         "Knob 6: hold",
         "  (top = Full)",
@@ -124,11 +128,31 @@
         "Load the preset on",
         "a drum track.",
         "Envelope, one-shot/",
-        "gated, transpose,",
-        "detune and choke",
-        "carry over.",
+        "gated, gain,",
+        "transpose, detune",
+        "and choke carry",
+        "over. Slice WAVs",
+        "get the gain.",
         "Per-pad sound etc.",
         " are set there."
+      ]
+    },
+    {
+      "title": "Tools",
+      "lines": [
+        "Shift+Jog click",
+        "opens Tools. Jog to",
+        "choose, click to do",
+        "it, Back to close.",
+        "",
+        "Normalize audio:",
+        " sets Gain so the",
+        " sample's peak is",
+        " at 0 dB. The file",
+        " is not changed;",
+        " Knob 4 adjusts it",
+        " from there.",
+        "Back: close"
       ]
     }
   ]

@@ -12,7 +12,7 @@ Status: early development.
 | Red pad | Select and play slice |
 | Blue pad | Chop at the playhead |
 | Knob 1 / 2 | Slice start / end |
-| Knob 3 / 4 | Zoom / waveform scale |
+| Knob 3 / 4 | Zoom / gain |
 | Knob 5 / 6 / 7 | Attack / hold / decay |
 | Knob 8 / Shift+Knob 8 | Transpose / detune (±50 cents) |
 | Jog | Slice start |
@@ -22,10 +22,11 @@ Status: early development.
 | Delete | Delete slice |
 | Undo / Shift+Undo | Undo / redo |
 | Record | Export menu |
+| Shift+Jog click | Tools menu (normalize: sets gain) |
 | Play | Play / stop Move's set |
 | Back | Keep for later / exit |
 
-Envelope, transpose and detune apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
+Envelope, gain, transpose and detune apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 

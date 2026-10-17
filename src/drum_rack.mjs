@@ -21,6 +21,9 @@ var HOLD_MIN_S = 0.001;
 var HOLD_FULL_S = 60.0;     /* "Full": longer than any slice */
 var DECAY_MIN_S = 0.001;
 var DECAY_MAX_S = 10.0;
+var GAIN_NEG_INF = -1000;    /* gainDb10 for -inf, as in plugin.c */
+var GAIN_MIN_DB10 = -700;    /* Move's drum sampler Gain: -70 to +24 dB */
+var GAIN_MAX_DB10 = 240;
 
 /* "ableton:/user-library/<path>" for a file inside the User Library, with
  * each path segment percent-encoded. null if the file is elsewhere. */
@@ -47,7 +50,17 @@ export function envelopeSeconds(env) {
     };
 }
 
-function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune) {
+/* Voice_Gain from tenths of a dB. Move stores linear amplitude (a Song.abl
+ * had +24 dB = 15.8489, -70 dB = 0.000316) and its range is -70 to +24 dB,
+ * with no -inf, so -inf exports as -70 dB. */
+function voiceGain(db10) {
+    if (db10 === undefined || db10 === null) return 1.0;
+    if (db10 <= GAIN_NEG_INF || db10 < GAIN_MIN_DB10) db10 = GAIN_MIN_DB10;
+    if (db10 > GAIN_MAX_DB10) db10 = GAIN_MAX_DB10;
+    return Math.pow(10, db10 / 200);
+}
+
+function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10) {
     return {
         "Effect_EightBitFilterDecay": 5.0,
         "Effect_EightBitResamplingRate": 14080.0,
@@ -82,7 +95,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, det
         "Voice_Filter_PeakGain": 1.0,
         "Voice_Filter_Resonance": 0.0,
         "Voice_Filter_Type": "Lowpass",
-        "Voice_Gain": 1.0,
+        "Voice_Gain": voiceGain(gainDb10),
         "Voice_ModulationAmount": 0.0,
         "Voice_ModulationSource": "Velocity",
         "Voice_ModulationTarget": "Filter",
@@ -167,6 +180,7 @@ function reverbReturnChain() {
  *   env:        { attackUs, holdUs, decayUs, gated }
  *   transpose:  semitones
  *   detune:     cents (-50 to +50)
+ *   gainDb10:   gain in tenths of a dB, -1000 = -inf
  * }
  * Returns the preset object (JSON.stringify it to write).
  */
@@ -189,7 +203,7 @@ export function buildDrumRackPreset(opts) {
                 "presetUri": null,
                 "kind": "drumCell",
                 "name": "",
-                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune),
+                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10),
                 "deviceData": { "sampleUri": opts.sampleUri }
             }],
             "mixer": {

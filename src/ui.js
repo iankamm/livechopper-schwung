@@ -17,7 +17,7 @@
  *   Knob 1     - Move the selected slice's start
  *   Knob 2     - Move the selected slice's end
  *   Knob 3     - Zoom
- *   Knob 4     - Waveform vertical scale (1x-32x)
+ *   Knob 4     - Gain, -inf to +24 dB (global; the waveform follows it)
  *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
  *                Shift+Knob 8: detune, -50 to +50 cents
@@ -28,11 +28,13 @@
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
  *   Mute       - Toggle one-shot (lit) / gated (unlit) playback
- *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
+ *   Record     - Export menu: rename, Drum Preset, Slices (one WAV per pad)
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
  *   Back       - Menu: Keep for later (hide; resume from Tools) / Discard
  *                and exit / Cancel
+ *   Shift+Jog click - Tools menu: Normalize audio (sets Gain so the
+ *                sample's peak is at 0 dBFS; the file is not changed) / Back
  */
 
 import {
@@ -102,9 +104,12 @@ var OVERLAY_TICKS = 60;
 var EXPORT_MSG_TICKS = 150;
 
 /* Vertical scale, as in the waveform editor: scale *= 2^step per tick. */
-var VSCALE_MIN = 1.0;
-var VSCALE_MAX = 32.0;
-var VSCALE_STEP = 0.25;
+/* Gain in tenths of a dB, like Simpler's: -inf, then -70 to +24 dB.
+ * 0.5 dB a step (Shift: 0.1) from -24 dB up, 2 dB below that. */
+var GAIN_MIN = -700;
+var GAIN_MAX = 240;
+var GAIN_NEG_INF = -1000;        /* plugin.c */
+var GAIN_COARSE_FLOOR = -240;
 
 /* Envelope knobs move a 0-1 position; time = max * pos^3 for fine control
  * near zero. Hold at the top of its range is Full (until the slice ends). */
@@ -185,6 +190,11 @@ var exportName = "";
 var EXPORT_ACTIONS = ["Drum Preset", "Slices", "Cancel"];
 var sliceExport = null;     /* { seq, folder, version } while the DSP writes WAVs */
 var SLICE_EXPORT_TIMEOUT_TICKS = 3000;
+
+/* Tools menu (Shift + jog click) */
+var toolsMenu = false;
+var toolsIndex = 0;
+var TOOLS_ITEMS = ["Normalize audio", "Back"];
 var lastSelectedSlice = -1;
 var lastPlayingSlice = -1;
 var buttonLedOn = {};        /* last on/off sent per button CC */
@@ -199,7 +209,6 @@ var viewStart = 0;
 var pendingNudge = null;    /* { slice, side, delta } sent once per tick */
 var followMarker = false;   /* tick keeps the active marker in view after a nudge */
 var announceTimer = 0;
-var vScale = 1.0;
 
 /* Global sound settings (DSP holds the truth; read back on load) */
 var attackUs = 0;
@@ -207,6 +216,7 @@ var holdUs = HOLD_FULL;
 var decayUs = 50000;
 var transpose = 0;
 var detune = 0;             /* cents */
+var gainDb10 = 0;           /* tenths of a dB, GAIN_NEG_INF = -inf */
 var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var attackKnob = 0;
 var holdKnob = 1;
@@ -455,6 +465,7 @@ function readSettings() {
     transpose = parseInt(p[3], 10) || 0;
     gated = p[4] === "1";
     detune = parseInt(p[5], 10) || 0;
+    gainDb10 = parseInt(p[6], 10) || 0;
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
     holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
@@ -483,7 +494,7 @@ function knobReadout(i) {
         var z = Math.round(Math.pow(2, zoom));
         return ["Zoom x" + z, "Zoom " + z];
     case 3:
-        return ["Scale " + vScale.toFixed(1) + "x", "Scale " + vScale.toFixed(1)];
+        return ["Gain " + formatGain(gainDb10), "Gain " + spokenGain(gainDb10)];
     case 4:
         return ["Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
     case 5:
@@ -568,12 +579,40 @@ function flushSettings() {
     pendingSettings = {};
 }
 
-function changeVScale(ticks) {
+function gainLinear(db10) {
+    return db10 === GAIN_NEG_INF ? 0 : Math.pow(10, db10 / 200);
+}
+
+function formatGain(db10) {
+    if (db10 === GAIN_NEG_INF) return "-inf";
+    return (db10 > 0 ? "+" : db10 < 0 ? "-" : "") + (Math.abs(db10) / 10).toFixed(1) + "dB";
+}
+
+function spokenGain(db10) {
+    if (db10 === GAIN_NEG_INF) return "minus infinity";
+    return (db10 > 0 ? "plus " : db10 < 0 ? "minus " : "") + (Math.abs(db10) / 10).toFixed(1) + " decibels";
+}
+
+/* One knob step up (dir 1) or down (dir -1) from db10. */
+function gainStep(db10, dir) {
+    if (db10 === GAIN_NEG_INF) return dir > 0 ? GAIN_MIN : GAIN_NEG_INF;
+    var coarse = dir > 0 ? db10 < GAIN_COARSE_FLOOR : db10 <= GAIN_COARSE_FLOOR;
+    var v = db10 + dir * (coarse ? 20 : (shiftHeld ? 1 : 5));
+    if (v > GAIN_MAX) return GAIN_MAX;
+    if (v < GAIN_MIN) return db10 > GAIN_MIN ? GAIN_MIN : GAIN_NEG_INF;
+    return v;
+}
+
+function setGain(db10) {
+    gainDb10 = db10;
+    pendingSettings.gain_db10 = gainDb10;
+}
+
+function changeGain(ticks) {
     if (loadState !== "ready" || ticks === 0) return;
-    vScale *= Math.pow(2, ticks * VSCALE_STEP);
-    if (vScale < VSCALE_MIN) vScale = VSCALE_MIN;
-    if (vScale > VSCALE_MAX) vScale = VSCALE_MAX;
-    if (vScale > 0.9 && vScale < 1.1) vScale = 1.0;
+    var v = gainDb10;
+    for (var n = 0; n < Math.abs(ticks); n++) v = gainStep(v, ticks > 0 ? 1 : -1);
+    setGain(v);
     showKnob(3);
 }
 
@@ -628,7 +667,8 @@ function exportDrumPreset(base) {
         ends: sliceEnds,
         env: { attackUs: attackUs, holdUs: holdUs, decayUs: decayUs, gated: gated },
         transpose: transpose,
-        detune: detune
+        detune: detune,
+        gainDb10: gainDb10
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
     var ok = host_write_file(PRESET_DIR + "/" + name + ".ablpreset", JSON.stringify(preset, null, 2));
@@ -769,6 +809,65 @@ function handleExportMenuCC(cc, value) {
     }
 }
 
+/* ============ Tools menu ============ */
+
+function openToolsMenu() {
+    if (loadState !== "ready" || sliceCount === 0) return;
+    if (sliceExport) {
+        announce("Still exporting");
+        return;
+    }
+    flushNudge();
+    flushSettings();
+    touchedKnob = -1;
+    toolsIndex = 0;
+    toolsMenu = true;
+    announce("Tools, " + TOOLS_ITEMS[toolsIndex]);
+}
+
+function toolsChoose() {
+    toolsMenu = false;
+    if (TOOLS_ITEMS[toolsIndex] === "Normalize audio") {
+        normalizeGain();
+    } else {
+        announce("Closed");
+    }
+}
+
+/* While the Tools menu is up: jog chooses, jog click confirms, Back
+ * closes it. Everything else is ignored. */
+function handleToolsCC(cc, value) {
+    if (cc === CC_JOG) {
+        var t = decodeDelta(value);
+        if (t === 0) return;
+        toolsIndex = Math.max(0, Math.min(TOOLS_ITEMS.length - 1, toolsIndex + (t > 0 ? 1 : -1)));
+        announce(TOOLS_ITEMS[toolsIndex]);
+    } else if (cc === CC_JOG_CLICK && value > 0) {
+        toolsChoose();
+    } else if (cc === CC_BACK && value > 0) {
+        toolsMenu = false;
+        announce("Closed");
+    }
+}
+
+/* Set Gain so the sample's peak is at 0 dBFS (the DSP found the peak when
+ * it loaded the file). Nothing is written; Knob 4 takes it back. */
+function normalizeGain() {
+    var g = host_module_get_param("normalize_gain");
+    if (g === "silent") {
+        exportFailed("Sample is silent", "Sample is silent, nothing to normalize");
+        return;
+    }
+    var v = parseInt(g, 10);
+    if (isNaN(v)) {
+        exportFailed("Normalize failed");
+        return;
+    }
+    setGain(Math.max(GAIN_MIN, Math.min(GAIN_MAX, v)));
+    showMessage("Gain " + formatGain(gainDb10), EXPORT_MSG_TICKS);
+    announce("Normalized, gain " + spokenGain(gainDb10));
+}
+
 /* ============ Exit ============ */
 
 function hasUnexported() {
@@ -824,9 +923,9 @@ function handleConfirmCC(cc, value) {
 
 /* ============ Resume ============ */
 
-/* "<version> <unexported> <zoom> <vScale>" */
+/* "2 <unexported> <zoom>" (version 1 also had a waveform scale after zoom) */
 function uiStateString() {
-    return "1 " + (hasUnexported() ? 1 : 0) + " " + zoom + " " + vScale;
+    return "2 " + (hasUnexported() ? 1 : 0) + " " + zoom;
 }
 
 /* Keep the DSP's copy current, so a resume finds it however the tool was
@@ -841,15 +940,13 @@ function saveUiState() {
 
 function restoreUiState() {
     var p = (host_module_get_param("ui_state") || "").split(" ");
-    if (p[0] !== "1") return;
+    if (p[0] !== "1" && p[0] !== "2") return;
     if (p[1] === "1") {
         editVersion = 1;
         exportedVersion = 0;
     }
     var z = parseFloat(p[2]);
     if (z >= 0 && z <= ZOOM_MAX) zoom = z;
-    var v = parseFloat(p[3]);
-    if (v >= VSCALE_MIN && v <= VSCALE_MAX) vScale = v;
     lastUiState = uiStateString();
 }
 
@@ -932,7 +1029,7 @@ function setButtonLit(cc, on) {
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
-    var editing = !confirmExit && !exportMenu;
+    var editing = !confirmExit && !exportMenu && !toolsMenu;
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
@@ -993,9 +1090,11 @@ function drawMarkerLine(x, dashed) {
     }
 }
 
+/* Drawn at the level you hear: Gain scales it, and a boost flattens at the edges. */
 function drawWaveform() {
+    var gain = gainLinear(gainDb10);
     for (var c = 0; c < wavePeaks.length; c++) {
-        var h = Math.min(WAVE_HALF, Math.round(wavePeaks[c] * vScale * WAVE_HALF / 255));
+        var h = Math.min(WAVE_HALF, Math.round(wavePeaks[c] * gain * WAVE_HALF / 255));
         var x = WAVE_X + c;
         if (h > 0) draw_line(x, WAVE_MID - h, x, WAVE_MID + h, 1);
         else set_pixel(x, WAVE_MID, 1);
@@ -1083,6 +1182,22 @@ function drawExportMenu() {
     }
 }
 
+/* Title, a rule, then the rows with the chosen one highlighted. */
+function drawMenu(title, rows, index) {
+    print(Math.floor((SCREEN_W - text_width(title)) / 2), 2, title, 1);
+    draw_line(0, 12, SCREEN_W - 1, 12, 1);
+    var top = 15;
+    for (var i = 0; i < rows.length; i++) {
+        var y = top + i * 12;
+        if (i === index) {
+            fill_rect(0, y - 1, SCREEN_W, 11, 1);
+            print(4, y + 1, rows[i], 0);
+        } else {
+            print(4, y + 1, rows[i], 1);
+        }
+    }
+}
+
 function draw() {
     clear_screen();
     if (confirmExit) {
@@ -1091,6 +1206,10 @@ function draw() {
     }
     if (exportMenu) {
         drawExportMenu();
+        return;
+    }
+    if (toolsMenu) {
+        drawMenu("Tools", TOOLS_ITEMS, toolsIndex);
         return;
     }
     if (loadState === "ready" && sliceCount > 0) {
@@ -1211,7 +1330,7 @@ globalThis.onMidiMessageInternal = function(data) {
     /* Knob touch: notes 0-7, on = velocity 64+, off = lower or note-off.
      * Pads are handled by the DSP on the audio thread; nothing to do here. */
     if (status === 0x90 || status === 0x80) {
-        if (d1 <= 7 && !confirmExit && !exportMenu) onKnobTouch(d1, status === 0x90 && d2 >= 64);
+        if (d1 <= 7 && !confirmExit && !exportMenu && !toolsMenu) onKnobTouch(d1, status === 0x90 && d2 >= 64);
         return;
     }
     if (status !== 0xB0) return;
@@ -1222,6 +1341,10 @@ globalThis.onMidiMessageInternal = function(data) {
         handleConfirmCC(d1, d2);
     } else if (exportMenu) {
         handleExportMenuCC(d1, d2);
+    } else if (toolsMenu) {
+        handleToolsCC(d1, d2);
+    } else if (d1 === CC_JOG_CLICK && d2 > 0 && shiftHeld) {
+        openToolsMenu();
     } else if (d1 === CC_BACK && d2 > 0) {
         requestExit();
     } else if (d1 === CC_RECORD && d2 > 0) {
@@ -1247,7 +1370,7 @@ globalThis.onMidiMessageInternal = function(data) {
     } else if (d1 === CC_E3) {
         changeZoom(decodeDelta(d2));
     } else if (d1 === CC_E4) {
-        changeVScale(decodeDelta(d2));
+        changeGain(decodeDelta(d2));
     } else if (d1 === CC_E5 || d1 === CC_E6 || d1 === CC_E7 || d1 === CC_E8) {
         changeSetting(d1, decodeDelta(d2));
     } else if (d1 === CC_JOG) {

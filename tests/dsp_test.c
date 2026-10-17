@@ -50,6 +50,41 @@ static uint8_t *read_file(const char *path, long *len) {
     return b;
 }
 
+/* Sine WAV at `amp` of full scale: fmt 1 = PCM, 3 = float. Channel c is
+ * phase-shifted so the channels differ. amp 0 writes silence. */
+static void write_sine(const char *path, int frames, int channels, int bits, int fmt, double amp) {
+    FILE *f = fopen(path, "wb");
+    int bps = bits / 8, data = frames * channels * bps;
+    fwrite("RIFF", 1, 4, f); wr32(f, 36 + data); fwrite("WAVE", 1, 4, f);
+    fwrite("fmt ", 1, 4, f); wr32(f, 16); wr16(f, fmt); wr16(f, channels);
+    wr32(f, 44100); wr32(f, 44100 * channels * bps); wr16(f, channels * bps); wr16(f, bits);
+    fwrite("data", 1, 4, f); wr32(f, data);
+    uint8_t b[8];
+    for (int i = 0; i < frames; i++) {
+        for (int c = 0; c < channels; c++) {
+            write_native(b, amp * sin(i * 0.05 + c), fmt, bits);
+            fwrite(b, 1, (size_t)bps, f);
+        }
+    }
+    fclose(f);
+}
+
+/* Largest |sample| in a canonical 44-byte-header WAV, as a fraction of full scale. */
+static double file_peak(const char *path, int fmt, int bits) {
+    long len = 0;
+    uint8_t *b = read_file(path, &len);
+    double peak = -1;
+    if (b && len > 44) {
+        peak = 0;
+        for (long i = 44; i + bits / 8 <= len; i += bits / 8) {
+            double v = fabs(read_native(b + i, fmt, bits));
+            if (v > peak) peak = v;
+        }
+    }
+    free(b);
+    return peak;
+}
+
 static int ramp(int i, int c) { return (i * 3 + c * 1000) % 30000; }
 
 static void render(void *inst, int blocks) {
@@ -273,7 +308,9 @@ int main(void) {
     CHECK(abs(out[80] - 124) <= 1, "detune +50 cents reads 40 frames as 41.17 (%d, want ~124)", out[80]);
     char det[64];
     get(inst, "settings", det, sizeof det);
-    CHECK(strcmp(det + strlen(det) - 3, " 50") == 0, "detune clamped and reported: %s", det);
+    int d6 = 0;
+    sscanf(det, "%*d %*d %*d %*d %*d %d", &d6);
+    CHECK(d6 == 50, "detune clamped and reported: %s", det);
     param(inst, "detune", "-50");
     until_silent(inst);
     note(inst, 68);
@@ -299,7 +336,7 @@ int main(void) {
     /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
     char set[64];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 0 0") == 0, "one-shot by default: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 0 0 0") == 0, "one-shot by default: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
     CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
@@ -307,7 +344,7 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 1 0") == 0, "gated reported: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 1 0 0") == 0, "gated reported: %s", set);
     param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
     note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
     CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");
@@ -402,6 +439,148 @@ int main(void) {
     }
     CHECK(strcmp(st, "2 2 0") == 0, "export to a missing folder writes nothing: %s", st);
     api->destroy_instance(inst);
+
+    /* ---- Gain: applied to playback, ramped, in the settings ---- */
+    {
+        write_sine("build/g16.wav", 20000, 1, 16, 1, 0.25);
+        inst = load("build/g16.wav");
+        note(inst, 68); render(inst, 1);                    /* past the first block */
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
+        memcpy(ref, out, sizeof ref);
+        until_silent(inst);
+        param(inst, "gain_db10", "60");                     /* +6.0 dB = x1.995 */
+        note(inst, 68); render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int worst = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) {
+            int e = abs(out[i] - (int)lrint(ref[i] * pow(10, 0.3)));
+            if (e > worst) worst = e;
+        }
+        CHECK(worst <= 2, "+6 dB scales playback (worst error %d)", worst);
+        char set[64];
+        get(inst, "settings", set, sizeof set);
+        CHECK(strcmp(set + strlen(set) - 3, " 60") == 0, "gain is settings field 7: %s", set);
+
+        /* A change mid-note ramps over one block, never past either end */
+        param(inst, "gain_db10", "0");
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int over = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            /* this block reads the frames after ref's block; bound by |sample| * 2 */
+            if (abs(out[i * 2]) > 2 * 8192 + 2) over++;
+        }
+        CHECK(over == 0, "gain ramp stays within range (%d over)", over);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int16_t want = (int16_t)lrint(0.25 * 32768 * sin((3 * MOVE_FRAMES_PER_BLOCK + 10) * 0.05));
+        CHECK(abs(out[20] - want) <= 1, "after the ramp gain is unity (%d, want %d)", out[20], want);
+
+        param(inst, "gain_db10", "-701");                   /* below -70 dB: -inf */
+        get(inst, "settings", set, sizeof set);
+        CHECK(strcmp(set + strlen(set) - 6, " -1000") == 0, "below -70 dB is -inf: %s", set);
+        render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int loud = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) loud |= out[i];
+        CHECK(loud == 0, "-inf is silent");
+        param(inst, "gain_db10", "999");
+        get(inst, "settings", set, sizeof set);
+        CHECK(strcmp(set + strlen(set) - 4, " 240") == 0, "gain clamps at +24 dB: %s", set);
+        param(inst, "gain_db10", "0");
+        api->destroy_instance(inst);
+    }
+
+    /* ---- normalize_gain: the gain that puts the peak at 0 dBFS ---- */
+    {
+        struct { const char *path; int ch, bits, fmt; double amp; } cases[] = {
+            { "build/n16.wav", 1, 16, 1, 0.25 },
+            { "build/n24.wav", 2, 24, 1, 0.25 },
+            { "build/nf32.wav", 2, 32, 3, 0.25 },
+            { "build/nf32hot.wav", 1, 32, 3, 2.0 },     /* float above full scale */
+        };
+        for (int k = 0; k < 4; k++) {
+            write_sine(cases[k].path, 20000, cases[k].ch, cases[k].bits, cases[k].fmt, cases[k].amp);
+            double peak = file_peak(cases[k].path, cases[k].fmt, cases[k].bits);
+            double full = cases[k].fmt == 3 ? 1.0 : 1.0 - 1.0 / (1 << (cases[k].bits - 1));
+            double exact = 200 * log10(full / peak);
+            inst = load(cases[k].path);
+            char g[32];
+            get(inst, "normalize_gain", g, sizeof g);
+            int got = atoi(g);
+            CHECK(got <= exact + 1e-6 && got > exact - 1, "%s: normalize_gain %s, exact %.2f (rounded down)", cases[k].path, g, exact);
+            api->destroy_instance(inst);
+        }
+        FILE *nf = fopen("build/nneg.wav", "wb");          /* -32768 is full scale */
+        fwrite("RIFF", 1, 4, nf); wr32(nf, 36 + 4); fwrite("WAVE", 1, 4, nf);
+        fwrite("fmt ", 1, 4, nf); wr32(nf, 16); wr16(nf, 1); wr16(nf, 1);
+        wr32(nf, 44100); wr32(nf, 88200); wr16(nf, 2); wr16(nf, 16);
+        fwrite("data", 1, 4, nf); wr32(nf, 4); wr16(nf, -32768); wr16(nf, 100);
+        fclose(nf);
+        inst = load("build/nneg.wav");
+        char g[32];
+        get(inst, "normalize_gain", g, sizeof g);
+        CHECK(strcmp(g, "-1") == 0, "-32768 peak: normalize_gain %s (just under 0 dB)", g);
+        api->destroy_instance(inst);
+        write_sine("build/nsilent.wav", 1000, 1, 16, 1, 0.0);
+        inst = load("build/nsilent.wav");
+        get(inst, "normalize_gain", g, sizeof g);
+        CHECK(strcmp(g, "silent") == 0, "silent file: normalize_gain %s", g);
+        api->destroy_instance(inst);
+    }
+
+    /* ---- Slice export applies the gain ---- */
+    {
+        mkdir("build/gexp", 0755);
+        struct { const char *src; int ch, bits, fmt; } cases[] = {
+            { "build/n24.wav", 2, 24, 1 },
+            { "build/nf32.wav", 2, 32, 3 },
+        };
+        for (int k = 0; k < 2; k++) {
+            int bits = cases[k].bits, fmt = cases[k].fmt;
+            inst = load(cases[k].src);
+            remove("build/gexp/g 01.wav");
+            param(inst, "gain_db10", "130");                /* +13 dB: 0.25 -> 1.12, clips in PCM */
+            char st[64];
+            get(inst, "export_result", st, sizeof st);
+            param(inst, "export_slices", "build/gexp/g");
+            for (int t = 0; t < 400; t++) {
+                get(inst, "export_result", st, sizeof st);
+                if (strcmp(st, "1 1 1") == 0) break;
+                usleep(5000);
+            }
+            CHECK(strcmp(st, "1 1 1") == 0, "%s: gained export done: %s", cases[k].src, st);
+            long sl = 0, dl = 0;
+            uint8_t *sb = read_file(cases[k].src, &sl), *db = read_file("build/gexp/g 01.wav", &dl);
+            CHECK(sb && db && sl == dl && memcmp(sb + 8, db + 8, 36) == 0, "%s: same format and length", cases[k].src);
+            if (sb && db && sl == dl) {
+                double g = pow(10, 0.65), worst = 0, lsb = fmt == 3 ? 1e-6 : 1.0 / (1 << (bits - 1));
+                int clipped = 0;
+                for (long i = 44; i + bits / 8 <= sl; i += bits / 8) {
+                    double want = read_native(sb + i, fmt, bits) * g, got = read_native(db + i, fmt, bits);
+                    if (fmt == 1 && fabs(want) >= 1.0 - lsb) { clipped++; continue; }
+                    double e = fabs(got - want);
+                    if (e > worst) worst = e;
+                }
+                CHECK(worst <= lsb, "%s: slice samples scaled by +13 dB (worst %g)", cases[k].src, worst);
+                if (fmt == 1) CHECK(clipped > 0, "%s: 0.25 x 4.47 clips in PCM (%d clipped)", cases[k].src, clipped);
+            }
+            free(sb); free(db);
+            param(inst, "gain_db10", "-1000");
+            remove("build/gexp/s 01.wav");
+            param(inst, "export_slices", "build/gexp/s");
+            for (int t = 0; t < 400; t++) {
+                get(inst, "export_result", st, sizeof st);
+                if (strcmp(st, "2 2 1") == 0) break;
+                usleep(5000);
+            }
+            db = read_file("build/gexp/s 01.wav", &dl);
+            int nonzero = 0;
+            for (long i = 44; db && i + bits / 8 <= dl; i += bits / 8) nonzero |= read_native(db + i, fmt, bits) != 0.0;
+            CHECK(db && dl == sl && nonzero == 0, "%s: -inf exports silence", cases[k].src);
+            free(db);
+            api->destroy_instance(inst);
+        }
+    }
 
     /* ---- Bad file ---- */
     FILE *f = fopen("build/bad.wav", "wb"); fputs("not a wav", f); fclose(f);

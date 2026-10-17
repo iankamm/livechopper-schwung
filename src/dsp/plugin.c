@@ -27,15 +27,16 @@
  * 1's start and the last slice's end trim the sample.
  *
  * Slice export: set_param("export_slices", "<path prefix>") snapshots the
- * slice list and bumps a sequence number. The worker copies each slice's
- * frames straight from the source file (same format, bit depth and channel
- * count) into "<prefix> 01.wav", "<prefix> 02.wav", ... and publishes how
- * many it wrote; get_param("export_result") reports it.
+ * slice list and the gain and bumps a sequence number. The worker copies
+ * each slice's frames from the source file (same format, bit depth and
+ * channel count; scaled by the gain unless it is 0 dB) into
+ * "<prefix> 01.wav", "<prefix> 02.wav", ... and publishes how many it
+ * wrote; get_param("export_result") reports it.
  *
  * Resume: "Keep for later" hides the tool and leaves this instance running,
  * so the slices, undo history and settings are still here when the UI
  * reconnects. set_param("ui_state") keeps a short opaque string for the UI
- * (zoom, wave scale, unexported flag) and set_param("stop") fades out any
+ * (zoom, unexported flag) and set_param("stop") fades out any
  * voice before the pads go back to Move.
  *
  * Waveform: the worker builds three levels of peak tables at load time, so
@@ -61,6 +62,12 @@
  * Redo: undo pushes the slice list it replaces onto a redo stack, and
  * set_param("redo") pops it back (pushing onto the undo stack). Any new
  * chop, delete or marker nudge clears the redo stack.
+ *
+ * Gain: one global gain, set_param("gain_db10") in tenths of a dB (-70 to
+ * +24 dB, anything lower is -inf), ramped over a block so changes don't
+ * click. The loader also finds the file's peak at full precision, and
+ * get_param("normalize_gain") is the gain that puts it at 0 dBFS, so
+ * Normalize is just a gain setting. Slice export applies the gain.
  */
 
 #define _GNU_SOURCE
@@ -108,6 +115,10 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define TRANSPOSE_MAX 24
 #define DETUNE_MIN (-50)            /* cents */
 #define DETUNE_MAX 50
+#define GAIN_DB10_MIN (-700)        /* -70 dB; anything lower is -inf */
+#define GAIN_DB10_MAX 240           /* +24 dB */
+#define GAIN_NEG_INF (-1000)        /* gain_db10 for -inf */
+#define NORM_GAIN_SILENT (-32768)   /* normalize_gain of an all-zero file */
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
 
 enum {
@@ -123,6 +134,7 @@ typedef struct {
     char path[PATH_MAX_LEN]; /* source file, for slice export */
     uint8_t *peaks[PEAK_LEVELS];  /* 0-255, max of |L| and |R| per block */
     int peak_len[PEAK_LEVELS];
+    int norm_gain_db10; /* gain putting the peak at 0 dBFS, or NORM_GAIN_SILENT */
 } sample_buf_t;
 
 /* Everything a chop changes, so undo can restore it whole. */
@@ -159,6 +171,9 @@ typedef struct {
     int detune;                                 /* cents */
     int gated;                                  /* 1 = A-S-R, 0 = one-shot A-H-D */
     double pitch_ratio;                         /* 2^((transpose*100 + detune)/1200) */
+    int gain_db10;                              /* tenths of a dB, GAIN_NEG_INF = -inf */
+    float gain_target;                          /* linear, from gain_db10 */
+    float gain_cur;                             /* linear, ramps to gain_target */
 
     /* Slices, in time order. Pad i plays slice i. */
     int slice_start[MAX_SLICES];
@@ -192,6 +207,7 @@ typedef struct {
     int export_start[MAX_SLICES];
     int export_end[MAX_SLICES];
     int export_count;
+    float export_gain;          /* linear gain at the time of the request */
     atomic_uint export_req_seq;
     atomic_uint export_done_seq;
     atomic_int export_written;  /* slices written by the last finished export */
@@ -211,6 +227,57 @@ static const host_api_v1_t *g_host = NULL;
 static uint16_t rd_u16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 static uint32_t rd_u32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void wr_u16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void wr_u32(uint8_t *p, uint32_t v) { wr_u16(p, v & 0xFFFF); wr_u16(p + 2, v >> 16); }
+
+/* One sample at p as a fraction of full scale (-1 to just under 1 for PCM).
+ * fmt: 1 = PCM int, 3 = IEEE float, at the source's full precision. */
+static double read_native(const uint8_t *p, int fmt, int bits) {
+    if (fmt == 3) {
+        if (bits == 32) {
+            float v;
+            memcpy(&v, p, 4);
+            return v;
+        }
+        double d;
+        memcpy(&d, p, 8);
+        return d;
+    }
+    switch (bits) {
+    case 8:  return ((int)p[0] - 128) / 128.0;
+    case 16: return (int16_t)rd_u16(p) / 32768.0;
+    case 24: {
+        int32_t v = (int32_t)((uint32_t)p[0] << 8 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 24) >> 8;
+        return v / 8388608.0;
+    }
+    default: return (int32_t)rd_u32(p) / 2147483648.0;
+    }
+}
+
+/* Inverse of read_native, rounding and clipping PCM to its range. */
+static void write_native(uint8_t *p, double v, int fmt, int bits) {
+    if (fmt == 3) {
+        if (bits == 32) {
+            float f = (float)v;
+            memcpy(p, &f, 4);
+        } else {
+            memcpy(p, &v, 8);
+        }
+        return;
+    }
+    double scale = (double)(1LL << (bits - 1));
+    double q = floor(v * scale + 0.5);
+    if (q > scale - 1) q = scale - 1;
+    if (q < -scale) q = -scale;
+    int64_t i = (int64_t)q;
+    switch (bits) {
+    case 8:  p[0] = (uint8_t)(i + 128); break;
+    case 16: wr_u16(p, (uint32_t)(i & 0xFFFF)); break;
+    case 24: p[0] = (uint8_t)i; p[1] = (uint8_t)(i >> 8); p[2] = (uint8_t)(i >> 16); break;
+    default: wr_u32(p, (uint32_t)i); break;
+    }
 }
 
 /* Round to nearest and clip. */
@@ -238,6 +305,18 @@ static int16_t decode_sample(const uint8_t *p, int fmt, int bits) {
     case 24: return (int16_t)rd_u16(p + 1);     /* top 16 of 24 bits */
     default: return (int16_t)rd_u16(p + 2);     /* top 16 of 32 bits */
     }
+}
+
+/* Gain in tenths of a dB that puts `peak` (fraction of full scale) at
+ * 0 dBFS: PCM full scale is the top code, one step under 1.0. Rounded down
+ * so normalizing never clips. */
+static int normalize_gain_db10(double peak, int fmt, int bits) {
+    if (peak <= 0.0) return NORM_GAIN_SILENT;
+    double full = fmt == 3 ? 1.0 : 1.0 - 1.0 / (double)(1LL << (bits - 1));
+    double g = floor(200.0 * log10(full / peak) + 1e-9);
+    if (g > GAIN_DB10_MAX) g = GAIN_DB10_MAX;
+    if (g < GAIN_DB10_MIN) g = GAIN_DB10_MIN;
+    return (int)g;
 }
 
 /* Returns a new buffer, or NULL with err filled in. */
@@ -323,6 +402,7 @@ static sample_buf_t *load_wav(const char *path, char *err, size_t err_len) {
 
     int frames_per_chunk = READ_CHUNK_BYTES / block_align;
     long done = 0;
+    double peak = 0.0;          /* at full precision, every channel, for Normalize */
     while (done < frames) {
         long want = frames - done;
         if (want > frames_per_chunk) want = frames_per_chunk;
@@ -333,6 +413,10 @@ static sample_buf_t *load_wav(const char *path, char *err, size_t err_len) {
             int16_t r = channels > 1 ? decode_sample(fp + bytes_per_sample, fmt, bits) : l;
             out[(done + (long)i) * 2] = l;
             out[(done + (long)i) * 2 + 1] = r;
+            for (int c = 0; c < channels; c++) {
+                double v = fabs(read_native(fp + c * bytes_per_sample, fmt, bits));
+                if (v > peak) peak = v;
+            }
         }
         done += (long)got;
         if ((long)got < want) break; /* truncated file: keep what we have */
@@ -349,6 +433,7 @@ static sample_buf_t *load_wav(const char *path, char *err, size_t err_len) {
     s->data = out;
     s->frames = (int)done;
     s->sample_rate = rate;
+    s->norm_gain_db10 = normalize_gain_db10(peak, fmt, bits);
     return s;
 }
 
@@ -404,47 +489,80 @@ static void chown_to_ableton(const char *path) {
     if (pw && chown(path, pw->pw_uid, pw->pw_gid) != 0) { /* best effort */ }
 }
 
-static void wr_u16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
-static void wr_u32(uint8_t *p, uint32_t v) { wr_u16(p, v & 0xFFFF); wr_u16(p + 2, v >> 16); }
-
 #define FMT_MAX_BYTES 64
 
-/* Write each slice of src as its own WAV, copying the source frames as they
- * are. Returns the number of files written. Worker only. */
+/* Find the fmt chunk (copied into fmt) and the data chunk of an open WAV.
+ * fmt_len stays 0 or data_off -1 when they are missing. Worker only. */
+static void read_wav_layout(FILE *f, uint8_t *fmt, uint32_t *fmt_len, long *data_off, uint32_t *data_bytes) {
+    uint8_t hdr[12];
+    if (fread(hdr, 1, 12, f) != 12 || memcmp(hdr, "RIFF", 4) != 0 || memcmp(hdr + 8, "WAVE", 4) != 0) return;
+    for (;;) {
+        uint8_t ch[8];
+        if (fread(ch, 1, 8, f) != 8) break;
+        uint32_t len = rd_u32(ch + 4);
+        if (memcmp(ch, "fmt ", 4) == 0) {
+            if (len < 16 || len > FMT_MAX_BYTES || fread(fmt, 1, len, f) != len) break;
+            *fmt_len = len;
+            if ((len & 1) && fseek(f, 1, SEEK_CUR) != 0) break;
+        } else if (memcmp(ch, "data", 4) == 0) {
+            *data_bytes = len;
+            *data_off = ftell(f);
+            break;
+        } else if (fseek(f, (long)(len + (len & 1)), SEEK_CUR) != 0) {
+            break;
+        }
+    }
+}
+
+/* RIFF header, the given fmt chunk and a data chunk header for `bytes` of
+ * audio. Returns 1 on success. Worker only. */
+static int write_wav_header(FILE *o, const uint8_t *fmt, uint32_t fmt_len, uint32_t bytes) {
+    uint8_t h[12 + 8 + FMT_MAX_BYTES + 1 + 8];
+    int n;
+    memcpy(h, "RIFF", 4);
+    wr_u32(h + 4, 4 + (8 + fmt_len + (fmt_len & 1)) + (8 + bytes + (bytes & 1)));
+    memcpy(h + 8, "WAVE", 4);
+    memcpy(h + 12, "fmt ", 4);
+    wr_u32(h + 16, fmt_len);
+    memcpy(h + 20, fmt, fmt_len);
+    n = 20 + (int)fmt_len;
+    if (fmt_len & 1) h[n++] = 0;
+    memcpy(h + n, "data", 4);
+    wr_u32(h + n + 4, bytes);
+    n += 8;
+    return fwrite(h, 1, (size_t)n, o) == (size_t)n;
+}
+
+/* Write each slice of src as its own WAV in the source's format. At unity
+ * gain the frames are copied as they are; otherwise each sample is scaled
+ * (PCM clips at full scale). Returns the number of files written. Worker
+ * only. */
 static int write_slices(const char *src, const char *prefix,
-                        const int *starts, const int *ends, int count) {
+                        const int *starts, const int *ends, int count, float gain) {
     FILE *f = fopen(src, "rb");
     if (!f) return 0;
 
     uint8_t fmt[FMT_MAX_BYTES];
     uint32_t fmt_len = 0, data_bytes = 0;
     long data_off = -1;
-    uint8_t hdr[12];
-    if (fread(hdr, 1, 12, f) == 12 && memcmp(hdr, "RIFF", 4) == 0 && memcmp(hdr + 8, "WAVE", 4) == 0) {
-        for (;;) {
-            uint8_t ch[8];
-            if (fread(ch, 1, 8, f) != 8) break;
-            uint32_t len = rd_u32(ch + 4);
-            if (memcmp(ch, "fmt ", 4) == 0) {
-                if (len < 16 || len > FMT_MAX_BYTES || fread(fmt, 1, len, f) != len) break;
-                fmt_len = len;
-                if ((len & 1) && fseek(f, 1, SEEK_CUR) != 0) break;
-            } else if (memcmp(ch, "data", 4) == 0) {
-                data_bytes = len;
-                data_off = ftell(f);
-                break;
-            } else if (fseek(f, (long)(len + (len & 1)), SEEK_CUR) != 0) {
-                break;
-            }
-        }
-    }
+    read_wav_layout(f, fmt, &fmt_len, &data_off, &data_bytes);
     int block_align = fmt_len ? rd_u16(fmt + 12) : 0;
+    int tag = fmt_len ? rd_u16(fmt) : 0;
+    int bits = fmt_len ? rd_u16(fmt + 14) : 0;
+    if (tag == 0xFFFE && fmt_len >= 26) tag = rd_u16(fmt + 24);   /* EXTENSIBLE subformat */
+    int scale = gain != 1.0f;
+    int ok_fmt = (tag == 1 && (bits == 8 || bits == 16 || bits == 24 || bits == 32)) ||
+                 (tag == 3 && (bits == 32 || bits == 64));
+    int bps = bits / 8;
     uint8_t *buf = (uint8_t *)malloc(READ_CHUNK_BYTES);
-    if (!fmt_len || data_off < 0 || block_align <= 0 || !buf) {
+    if (!fmt_len || data_off < 0 || block_align <= 0 || !buf ||
+        (scale && (!ok_fmt || block_align % bps != 0))) {
         free(buf);
         fclose(f);
         return 0;
     }
+    /* Whole frames per read, so scaling never splits a sample. */
+    uint32_t chunk = (uint32_t)(READ_CHUNK_BYTES - READ_CHUNK_BYTES % block_align);
     long total_frames = (long)(data_bytes / (uint32_t)block_align);
 
     int written = 0;
@@ -460,26 +578,16 @@ static int write_slices(const char *src, const char *prefix,
         FILE *o = fopen(path, "wb");
         if (!o) continue;
 
-        uint8_t h[12 + 8 + FMT_MAX_BYTES + 8];
-        int n = 0;
-        memcpy(h, "RIFF", 4);
-        wr_u32(h + 4, 4 + (8 + fmt_len + (fmt_len & 1)) + (8 + bytes + pad));
-        memcpy(h + 8, "WAVE", 4);
-        memcpy(h + 12, "fmt ", 4);
-        wr_u32(h + 16, fmt_len);
-        memcpy(h + 20, fmt, fmt_len);
-        n = 20 + (int)fmt_len;
-        if (fmt_len & 1) h[n++] = 0;
-        memcpy(h + n, "data", 4);
-        wr_u32(h + n + 4, bytes);
-        n += 8;
-
-        int ok = fwrite(h, 1, (size_t)n, o) == (size_t)n &&
+        int ok = write_wav_header(o, fmt, fmt_len, bytes) &&
                  fseek(f, data_off + a * block_align, SEEK_SET) == 0;
         uint32_t left = bytes;
         while (ok && left > 0) {
-            size_t want = left < READ_CHUNK_BYTES ? left : READ_CHUNK_BYTES;
-            ok = fread(buf, 1, want, f) == want && fwrite(buf, 1, want, o) == want;
+            size_t want = left < chunk ? left : chunk;
+            ok = fread(buf, 1, want, f) == want;
+            for (size_t k = 0; ok && scale && k < want; k += (size_t)bps) {
+                write_native(buf + k, read_native(buf + k, tag, bits) * gain, tag, bits);
+            }
+            ok = ok && fwrite(buf, 1, want, o) == want;
             left -= (uint32_t)want;
         }
         if (ok && pad) ok = fputc(0, o) != EOF;
@@ -559,12 +667,13 @@ static void *worker_main(void *arg) {
             memcpy(starts, inst->export_start, sizeof(starts));
             memcpy(ends, inst->export_end, sizeof(ends));
             int count = inst->export_count;
+            float gain = inst->export_gain;
             /* A newer request landed mid-copy: take it next time round. */
             if (atomic_load_explicit(&inst->export_req_seq, memory_order_acquire) == eseq) {
                 src[PATH_MAX_LEN - 1] = '\0';
                 prefix[PATH_MAX_LEN - 1] = '\0';
                 if (count < 0 || count > MAX_SLICES) count = 0;
-                int written = write_slices(src, prefix, starts, ends, count);
+                int written = write_slices(src, prefix, starts, ends, count, gain);
                 atomic_store(&inst->export_written, written);
                 atomic_store_explicit(&inst->export_done_seq, eseq, memory_order_release);
                 continue;
@@ -667,6 +776,15 @@ static void set_transpose(live_chopper_t *inst, int semis) {
     if (semis > TRANSPOSE_MAX) semis = TRANSPOSE_MAX;
     inst->transpose = semis;
     update_pitch_ratio(inst);
+}
+
+/* Tenths of a dB; below GAIN_DB10_MIN is -inf (silent). The audio ramps
+ * to it over the next block. */
+static void set_gain(live_chopper_t *inst, int db10) {
+    if (db10 > GAIN_DB10_MAX) db10 = GAIN_DB10_MAX;
+    if (db10 < GAIN_DB10_MIN) db10 = GAIN_NEG_INF;
+    inst->gain_db10 = db10;
+    inst->gain_target = db10 == GAIN_NEG_INF ? 0.0f : (float)pow(10.0, db10 / 200.0);
 }
 
 static void set_detune(live_chopper_t *inst, int cents) {
@@ -938,6 +1056,8 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     inst->decay_us = DEFAULT_DECAY_US;
     inst->decay_frames = us_to_frames(DEFAULT_DECAY_US);
     set_transpose(inst, 0);
+    set_gain(inst, 0);
+    inst->gain_cur = inst->gain_target;
     if (pthread_create(&inst->worker, NULL, worker_main, inst) == 0) {
         inst->worker_started = 1;
     }
@@ -1080,7 +1200,13 @@ static void set_param(void *instance, const char *key, const char *val) {
         memcpy(inst->export_start, inst->slice_start, sizeof(inst->export_start));
         memcpy(inst->export_end, inst->slice_end, sizeof(inst->export_end));
         inst->export_count = inst->slice_count;
+        inst->export_gain = inst->gain_target;
         atomic_fetch_add_explicit(&inst->export_req_seq, 1, memory_order_release);
+        return;
+    }
+    if (strcmp(key, "gain_db10") == 0) {
+        const char *p = val;
+        set_gain(inst, parse_int(&p));
         return;
     }
     if (strcmp(key, "file_path") == 0) {
@@ -1097,6 +1223,12 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
 
     if (strcmp(key, "file_path") == 0) {
         return snprintf(buf, (size_t)buf_len, "%s", inst->req_path);
+    }
+    if (strcmp(key, "normalize_gain") == 0) {
+        /* Gain (tenths of a dB) that puts the peak at 0 dBFS, or "silent" */
+        if (!inst->current) return -1;
+        if (inst->current->norm_gain_db10 == NORM_GAIN_SILENT) return snprintf(buf, (size_t)buf_len, "silent");
+        return snprintf(buf, (size_t)buf_len, "%d", inst->current->norm_gain_db10);
     }
     if (strcmp(key, "status") == 0) {
         /* "<state> <frames> <rate> <playing> <pos>"
@@ -1126,10 +1258,11 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         return n;
     }
     if (strcmp(key, "settings") == 0) {
-        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d",
+        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>
+         *  <gain_db10, -1000 = -inf>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d",
                         inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
-                        inst->detune);
+                        inst->detune, inst->gain_db10);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
@@ -1169,6 +1302,9 @@ static void render_block(void *instance, int16_t *out, int frames) {
     adopt_incoming(inst);
 
     sample_buf_t *s = inst->current;
+    /* Gain ramps linearly to its target across the block. */
+    float g0 = inst->gain_cur, g1 = inst->gain_target;
+    inst->gain_cur = g1;
     if (!s || (!inst->playing && !inst->tail_active)) return;
 
     double step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE * inst->pitch_ratio;
@@ -1203,8 +1339,9 @@ static void render_block(void *instance, int16_t *out, int frames) {
             }
         }
 
-        out[i * 2] = clamp16(l);
-        out[i * 2 + 1] = clamp16(r);
+        float gain = g0 + (g1 - g0) * (float)(i + 1) / (float)frames;
+        out[i * 2] = clamp16(l * gain);
+        out[i * 2 + 1] = clamp16(r * gain);
     }
 }
 
