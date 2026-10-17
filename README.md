@@ -56,6 +56,12 @@ This produces `dist/live-chopper-module.tar.gz`. To install:
   [schwung-waveform-editor](https://github.com/charlesvestal/schwung-waveform-editor)
   (MIT, Copyright (c) 2025 Charles Vestal)
 
+## AI Disclosure
+
+This module was written with AI assistance: the code, tests and docs were
+developed with [Claude Code](https://claude.com/claude-code) (Anthropic's
+Claude), directed, reviewed and tested on an Ableton Move by the author.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).
