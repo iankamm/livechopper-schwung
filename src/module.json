@@ -1,7 +1,7 @@
 {
     "id": "live-chopper",
     "name": "LiveChopper",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Chop a sample across pads in real time and export a drum rack",
     "author": "iankamm",
     "dsp": "dsp.so",
