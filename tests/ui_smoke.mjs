@@ -69,8 +69,10 @@ const fakeSet = (k, v) => {
   return true;
 };
 g.host_hide_module = () => log.push('HIDE');
-let deviceMuted = null;
-g.host_mute_move_audio = f => { deviceMuted = !!f; };
+const injected = [];
+g.move_midi_inject_to_move = p => injected.push(p.join(','));
+let moveInfo = { valid: true, playing: false };
+g.host_get_move_info = () => moveInfo;
 g.host_module_set_param = fakeSet;
 g.host_module_set_param_blocking = fakeSet;
 let keyboardText = null;   // what the fake on-screen keyboard "types"; null = cancel
@@ -247,18 +249,27 @@ mark = sets.length;
 midi(0xB0, 56, 127); tick(1);
 check(sets.slice(mark).includes('undo=1'), 'Undo without Shift still undoes');
 
-// ---- Mute: all device audio ----
-check(deviceMuted === false && !lit(MUTE), 'init unmutes; Mute dark');
+// ---- Mute = stop: Move's set (only if playing) and Chopper's pad ----
+check(!lit(MUTE), 'Mute dark: nothing playing');
+midi(0xB0, 88, 127); tick(3);
+check(injected.length === 0 && log.at(-1) === 'SAY: Stopped', 'stopped set not touched (no Play press that could start it)');
+moveInfo = { valid: true, playing: true }; tick(1);
+check(lit(MUTE), 'Mute lit while the set plays');
 midi(0xB0, 88, 127); tick(1);
-check(deviceMuted === true && lit(MUTE), 'Mute mutes all audio and lights');
-check(printed.includes('Muted') && log.at(-1) === 'SAY: All audio muted', 'muted shown and spoken');
-midi(0xB0, 118, 127); midi(0xB0, 88, 127); tick(1);
-check(deviceMuted === false && !lit(MUTE) && menu(), 'Mute works inside the export menu too');
-midi(0xB0, 51, 127); tick(1);
+check(injected.join(' ') === '11,176,85,127', 'Play press sent first: ' + injected.join(' '));
+tick(1);
+check(injected.join(' ') === '11,176,85,127 11,176,85,0', 'then the release');
+check(printed.includes('Stopped') && log.some(l => l === 'SAY: Stopped set'), 'stop shown and spoken');
+moveInfo = { valid: false, playing: true }; injected.length = 0;
+midi(0xB0, 88, 127); tick(3);
+check(injected.length === 0, 'unknown Move state: no Play press');
+moveInfo = { valid: true, playing: false };
+dsp.playing = 1; tick(1);
+check(lit(MUTE), 'Mute lit while a Chopper pad plays');
+mark = sets.length;
 midi(0xB0, 88, 127); tick(1);
-check(printed.includes('Unmuted') === false && deviceMuted === true, 'muted again');
-midi(0xB0, 88, 127); tick(1);
-check(deviceMuted === false && printed.includes('Unmuted') && log.at(-1) === 'SAY: Unmuted', 'unmuted shown and spoken');
+check(sets.slice(mark).includes('stop=1'), 'Mute stops the Chopper pad');
+dsp.playing = 0; tick(1);
 
 // ---- Export slices ----
 const sampleDir = '/data/UserData/UserLibrary/Samples/';
@@ -303,10 +314,12 @@ midi(0xB0, 51, 127); jog(2); click(); tick(1);
 check(!prompt() && exits() === 0, 'choosing Cancel stays');
 midi(0xB0, 51, 127); jog(3); click(); tick(1);
 check(!prompt() && exits() === 0, 'jog past the end stays on Cancel');
-midi(0xB0, 88, 127); tick(1);                    // mute, then leave
+moveInfo = { valid: true, playing: true }; injected.length = 0;
+midi(0xB0, 88, 127);                             // stop, then leave at once
 midi(0xB0, 51, 127); jog(1); click(); tick(1);
 check(exits() === 1 && !log.includes('HIDE'), 'Discard and exit exits');
-check(deviceMuted === false, 'exiting unmutes');
+check(injected.length === 2 && injected[1] === '11,176,85,0', 'exiting sends the queued Play release');
+moveInfo = { valid: true, playing: false };
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'exit turns the buttons off');
 dsp.chop = 3; tick(1);                   // more unexported work
 exportPreset();                          // exports it
@@ -326,13 +339,10 @@ midi(0xB0, 51, 127); tick(1);
 midi(0xB0, 73, 5); midi(0xB0, 74, 5); tick(1);   // zoom in, scale up: remembered
 dsp.chop = 7; tick(1);                            // unexported work
 check(/^1 1 [\d.]+ [\d.]+$/.test(dsp.uiState) && dsp.uiState !== '1 1 0 1', 'ui_state saved as it changes: ' + dsp.uiState);
-midi(0xB0, 88, 127); tick(1);                    // mute, then keep for later
-check(deviceMuted === true, 'muted before hiding');
 mark = sets.length;
 midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
-check(deviceMuted === false, 'hiding unmutes');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'hiding turns the buttons off');
 check(log.some(l => l === 'SAY: Kept for later, resume from Tools'), 'hiding announced');

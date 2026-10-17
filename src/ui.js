@@ -28,8 +28,9 @@
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
- *   Mute       - Mute / unmute all audio on the device (Move and Chopper);
- *                lit while muted. Leaving Chopper always unmutes.
+ *   Mute       - Stop: stops Move's set (a Play press, sent only while it is
+ *                playing) and any Chopper pad. Lit while there is
+ *                something to stop.
  *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
@@ -38,7 +39,7 @@
  */
 
 import {
-    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveMute, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveMute, MovePlay, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
     MoveKnob5, MoveKnob7, MoveKnob8,
     MovePads,
@@ -175,9 +176,10 @@ var resumed = false;        /* reconnected to a running session */
 var countsSynced = false;   /* DSP edit counters adopted without announcing */
 var lastUiState = "";
 
-/* Mute: silences the device's whole output (host_mute_move_audio). The
- * flag lives in the host and outlasts us, so every way out unmutes. */
-var muted = false;
+/* Mute = stop: Move's Play button is pressed for it, only while the set is
+ * playing, so it can never start playback. Packets to Move go out one per
+ * tick (press, then release). */
+var injectQueue = [];
 
 /* Export menu: row 0 is the name (click to rename), then the actions. */
 var exportMenu = false;
@@ -796,7 +798,7 @@ function hideTool() {
     flushSettings();
     saveUiState();
     setParamNow("stop", "1");
-    setMuted(false);
+    flushInject();
     if (typeof host_hide_module !== "function") {
         exitTool();
         return;
@@ -864,8 +866,8 @@ function setButtonLit(cc, on) {
 }
 
 /* Undo, Delete and Record are lit while pressing them would do something.
- * With Shift held, Undo shows whether there is anything to redo. Mute is
- * lit while all audio is muted. */
+ * With Shift held, Undo shows whether there is anything to redo. Mute (stop)
+ * is lit while Move's set or a Chopper pad is playing. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
@@ -873,7 +875,7 @@ function updateButtonLeds() {
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
-    setButtonLit(CC_MUTE, muted);
+    setButtonLit(CC_MUTE, ready && (playing || (movePlaying() && canInjectToMove())));
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -898,20 +900,36 @@ function clearAllPadLeds() {
     for (var i = 0; i < MovePads.length; i++) setLED(MovePads[i], Black);
 }
 
-function setMuted(on) {
-    muted = on;
-    if (typeof host_mute_move_audio === "function") host_mute_move_audio(on ? 1 : 0);
+/* True only when Move says its set is playing; unknown counts as not. */
+function movePlaying() {
+    if (typeof host_get_move_info !== "function") return false;
+    var mi = host_get_move_info();
+    return !!(mi && mi.valid && mi.playing);
 }
 
-function toggleMute() {
-    if (typeof host_mute_move_audio !== "function") {
-        showMessage("Mute unavailable", OVERLAY_TICKS);
-        announce("Mute unavailable");
-        return;
+function canInjectToMove() {
+    return typeof move_midi_inject_to_move === "function";
+}
+
+function drainInject() {
+    if (injectQueue.length > 0) move_midi_inject_to_move(injectQueue.shift());
+}
+
+/* Stop everything: Move's set (if it is playing) and Chopper's pad. */
+function stopAll() {
+    var stopMove = movePlaying() && canInjectToMove() && injectQueue.length === 0;
+    if (stopMove) {
+        injectQueue.push([0x0B, 0xB0, MovePlay, 127]);
+        injectQueue.push([0x0B, 0xB0, MovePlay, 0]);
     }
-    setMuted(!muted);
-    showMessage(muted ? "Muted" : "Unmuted", OVERLAY_TICKS);
-    announce(muted ? "All audio muted" : "Unmuted");
+    if (playing) setParamNow("stop", "1");
+    showMessage("Stopped", OVERLAY_TICKS);
+    announce(stopMove ? "Stopped set" : "Stopped");
+}
+
+/* Leaving: send a queued Play release now so Move never sees Play held. */
+function flushInject() {
+    while (injectQueue.length > 0) drainInject();
 }
 
 function turnOffLeds() {
@@ -925,7 +943,7 @@ function turnOffLeds() {
 function exitTool() {
     flushNudge();
     flushSettings();
-    setMuted(false);
+    flushInject();
     turnOffLeds();
     exited = true;
     if (typeof host_exit_module === "function") host_exit_module();
@@ -1063,7 +1081,6 @@ globalThis.init = function() {
     filePath = (typeof host_tool_file_path === "string") ? host_tool_file_path : "";
     fileName = baseName(filePath);
     clearAllPadLeds();
-    setMuted(false);        /* start audible, whatever was left behind */
     /* Resuming a kept session: the DSP still has this file and its slices,
      * so don't reload it. If another tool replaced the DSP meanwhile, the
      * host still says "reconnect" but the file isn't there: load it fresh. */
@@ -1090,6 +1107,7 @@ globalThis.tick = function() {
     pollStatus();
     pollSlices();
     pollSliceExport();
+    drainInject();
     if (!countsSynced) {
         /* A resumed DSP has counted edits already: adopt the counts without
          * announcing them or marking them unexported. */
@@ -1172,7 +1190,7 @@ globalThis.onMidiMessageInternal = function(data) {
     if (d1 === CC_SHIFT) {
         shiftHeld = d2 > 0;
     } else if (d1 === CC_MUTE && d2 > 0) {
-        toggleMute();       /* works in menus too: a quick way to silence */
+        stopAll();          /* works in menus too: a quick way to silence */
     } else if (confirmExit) {
         handleConfirmCC(d1, d2);
     } else if (exportMenu) {
