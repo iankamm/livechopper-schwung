@@ -172,11 +172,11 @@ midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127);
 const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose|detune)=/.test(s)).map(s => s.split('=')));
 const presetDir = '/data/UserData/UserLibrary/Track Presets/';
 const exits = () => log.filter(l => l === 'EXIT').length;
-// Export menu (Record): row 0 name, then Slices, Drum Preset, Cancel
+// Export menu (Record): row 0 name, then Drum Preset, Slices, Cancel
 const menu = () => printed.includes('Export');
 const jog = n => { for (let i = 0; i < Math.abs(n); i++) midi(0xB0, 14, n > 0 ? 1 : 127); };
 const click = () => midi(0xB0, 3, 127);
-function exportPreset() { midi(0xB0, 118, 127); jog(2); click(); tick(2); }
+function exportPreset() { midi(0xB0, 118, 127); jog(1); click(); tick(2); }
 midi(0xB0, 52, 127); tick(1);
 check(!menu() && Object.keys(files).length === 0, 'Capture no longer exports');
 midi(0xB0, 118, 127); tick(1);
@@ -199,7 +199,7 @@ check(log.includes('KEYBOARD: test loop Chop'), 'keyboard opens with the current
 check(menu() && printed.includes('My-Kit'), 'renamed to My-Kit: ' + JSON.stringify(printed));
 keyboardText = null; click(); tick(1);
 check(menu() && printed.includes('My-Kit'), 'cancelling the keyboard keeps the name');
-jog(2); click(); tick(2);
+jog(1); click(); tick(2);
 check(presetDir + 'My-Kit.ablpreset' in files, 'Drum Preset uses the new name');
 check(!menu(), 'menu closes after exporting');
 exportPreset();                        // default name
@@ -231,7 +231,8 @@ if (p1 in files) {
     check(p.Voice_Envelope_Hold === (+settingSets.hold_us < 0 ? 60 : +settingSets.hold_us / 1e6), 'hold seconds');
     check(Math.abs(p.Voice_Envelope_Decay - settingSets.decay_us / 1e6) < 1e-9, 'decay seconds');
     check(p.Voice_Transpose === +settingSets.transpose, 'transpose');
-    check(p.Voice_Detune === -30 && +settingSets.detune === -30, 'detune cents: ' + p.Voice_Detune);
+    // Move's Song.abl stores detune in semitones: -0.25 st was saved as -0.2522932291030884
+    check(Math.abs(p.Voice_Detune - -0.3) < 1e-12 && +settingSets.detune === -30, 'detune -30 cents exported as -0.3 semitones: ' + p.Voice_Detune);
   });
   const c0 = rack.chains[0].devices[0].parameters;
   console.log(`export: attack=${c0.Voice_Envelope_Attack}s hold=${c0.Voice_Envelope_Hold}s decay=${c0.Voice_Envelope_Decay}s transpose=${c0.Voice_Transpose} detune=${c0.Voice_Detune}`);
@@ -305,7 +306,7 @@ check(!lit(MUTE), 'Mute dark in the export menu');
 mark = sets.length;
 midi(0xB0, 88, 127); tick(1);
 check(sets.slice(mark).length === 0, 'Mute ignored in the export menu');
-jog(2); click(); tick(2);
+jog(1); click(); tick(2);
 const gatedPreset = JSON.parse(files[presetDir + 'test loop Chop 3.ablpreset'] || '{}');
 check(gatedPreset.chains && gatedPreset.chains[0].devices[0].chains[0].devices[0].parameters.Voice_Envelope_Mode === 'A-S-R',
       'gated exports as A-S-R');
@@ -319,7 +320,7 @@ const sampleDir = '/data/UserData/UserLibrary/Samples/';
 files[sampleDir + 'test loop Chop'] = 'dir';     // folder taken: pick the next name
 dsp.chop = 4; tick(1);                            // unexported work
 mark = sets.length;
-midi(0xB0, 118, 127); jog(1); click(); tick(1);
+midi(0xB0, 118, 127); jog(2); click(); tick(1);
 check(sets.slice(mark).includes('export_slices=' + sampleDir + 'test loop Chop 2/test loop Chop 2'),
       'Slices asks the DSP for a new folder: ' + JSON.stringify(sets.slice(mark)));
 check(printed.includes('Exporting...') && !lit(RECORD), 'exporting shown, Record dark');
@@ -331,7 +332,7 @@ check(log.some(l => l.startsWith(`SAY: Export incomplete, saved ${n - 1} of ${n}
 midi(0xB0, 51, 127); tick(1);
 check(printed.includes('Not exported'), 'a partial export still counts as unexported');
 midi(0xB0, 51, 127); tick(1);
-midi(0xB0, 118, 127); jog(1); click(); tick(1);
+midi(0xB0, 118, 127); jog(2); click(); tick(1);
 dsp.exportDone = dsp.exportReq; dsp.exportWritten = n; tick(1);
 check(log.some(l => l === `SAY: Exported ${n} slices to test loop Chop 2`), 'slices export announced');
 check(lit(RECORD), 'Record lit again');
@@ -368,7 +369,7 @@ check(!prompt() && printed.includes('Leave LiveChopper') && printed.includes('Ex
 jog(1); click(); tick(1);
 check(exits() === 2, 'Exit exits');
 dsp.chop = 6; tick(1);
-midi(0xB0, 118, 127); jog(1); click(); tick(1);
+midi(0xB0, 118, 127); jog(2); click(); tick(1);
 dsp.exportDone = dsp.exportReq; dsp.exportWritten = dsp.starts.length; tick(1);
 midi(0xB0, 51, 127); tick(1);
 check(!prompt() && printed.includes('Exit'), 'a full slices export counts as exported');

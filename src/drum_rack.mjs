@@ -72,7 +72,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, det
         "Enabled": true,
         "NotePitchBend": true,
         "Pan": 0.0,
-        "Voice_Detune": detune || 0,
+        "Voice_Detune": (detune || 0) / 100,     /* Move stores semitones */
         "Voice_Envelope_Attack": envS.attack,
         "Voice_Envelope_Decay": envS.decay,
         "Voice_Envelope_Hold": envS.hold,

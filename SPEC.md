@@ -28,7 +28,7 @@ a Move drum rack preset or one WAV per slice.
 - Fine-tune chop points afterwards with knobs/jog and a waveform view, borrowing
   from the waveform editor's marker and zoom UI.
 - Export menu on the Record button, like the waveform editor's: rename,
-  export Slices (one WAV per pad), export a Drum Preset, or Cancel.
+  export a Drum Preset, export Slices (one WAV per pad), or Cancel.
 - Undo the last chop or delete; Shift+Undo redoes it.
 - help.json and screen-reader announcements (chop made, pad selected, export
   done).
@@ -103,7 +103,7 @@ a Move drum rack preset or one WAV per slice.
   replaces the DSP meanwhile, resuming loads the sample fresh.
 - Export menu (Record button, CC 118, as in the waveform editor): the name
   row on top (jog click opens the on-screen keyboard; starts as
-  "<sample> Chop"), then Slices / Drum Preset / Cancel. Jog chooses, jog
+  "<sample> Chop"), then Drum Preset / Slices / Cancel. Jog chooses, jog
   click runs it and closes the menu, Back or Record closes it. Capture does
   nothing. Either export clears the "not exported" state for the exit prompt.
 - Export Slices: one WAV per pad in a new folder next to the sample,
@@ -115,6 +115,6 @@ a Move drum rack preset or one WAV per slice.
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
   is exported in seconds in A-H-D mode, or A-S-R when gated (hold Full =
-  60 s), transpose as Voice_Transpose, detune as Voice_Detune (cents),
+  60 s), transpose as Voice_Transpose, detune as Voice_Detune (in semitones, so -30 cents is -0.3),
   all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).
