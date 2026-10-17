@@ -1,9 +1,7 @@
 # LiveChopper for Schwung
 
-Chop a sample across your Ableton Move's pads by ear, while it plays. Start
-from Pad 1 and tap the next pad wherever you want a cut; playback carries on
-into the new slice. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, then export a Move drum rack
-preset or one WAV per slice. See [SPEC.md](SPEC.md).
+Chop a sample across your Ableton Move's pads by ear, while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, then export a Move drum rack
+preset or a folder of WAV files. See [SPEC.md](SPEC.md).
 
 Status: early development.
 
