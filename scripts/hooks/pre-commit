@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# LiveChopper pre-commit hook: runs the CI 'tests' job locally
+# (./scripts/test.sh: DSP test with ASan/UBSan + UI smoke test, a few
+# seconds, no Docker). The ARM64 build is left to CI.
+#
+# Enable (once per clone):  ./scripts/install-hooks.sh
+# Bypass one commit:        git commit --no-verify
+# Skip via env:             LIVECHOPPER_SKIP_HOOKS=1 git commit ...
+set -uo pipefail
+
+if [ "${LIVECHOPPER_SKIP_HOOKS:-0}" = "1" ]; then
+    echo "[pre-commit] LIVECHOPPER_SKIP_HOOKS=1, skipping"
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[pre-commit] ./scripts/test.sh ..."
+if ! ./scripts/test.sh; then
+    echo "[pre-commit] tests failed; commit aborted (bypass: git commit --no-verify)"
+    exit 1
+fi

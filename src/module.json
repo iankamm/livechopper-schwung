@@ -2,10 +2,11 @@
     "id": "live-chopper",
     "name": "LiveChopper",
     "version": "0.2.0",
-    "description": "Chop a sample across pads in real time and export a drum rack",
+    "description": "Schwung module for live chopping across Ableton Move pads",
     "author": "iankamm",
     "dsp": "dsp.so",
     "api_version": 2,
+    "min_host_version": "1.7.3",
     "component_type": "tool",
     "tool_config": {
         "interactive": true,

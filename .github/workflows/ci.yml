@@ -1,0 +1,62 @@
+name: CI
+
+# Fork-safe: pull_request (never pull_request_target), read-only token, no
+# secrets. Mirrors Schwung's CI split: host tests, then the ARM64 build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      # tests/ui_smoke.mjs reads ../schwung (shared JS, a Move set fixture)
+      # and ../schwung-waveform-editor (reference preset), so check all three
+      # out side by side. Schwung is pinned to min_host_version.
+      - uses: actions/checkout@v4
+        with:
+          path: livechopper
+
+      - uses: actions/checkout@v4
+        with:
+          repository: charlesvestal/schwung
+          ref: v1.7.3
+          path: schwung
+
+      - uses: actions/checkout@v4
+        with:
+          repository: charlesvestal/schwung-waveform-editor
+          path: schwung-waveform-editor
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Host tests (DSP with ASan/UBSan, UI smoke test)
+        working-directory: livechopper
+        run: ./scripts/test.sh
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with Docker (same as release.yml)
+        run: |
+          docker build -t module-builder -f scripts/Dockerfile .
+          docker run --rm -v "$PWD:/build" -w /build module-builder ./scripts/build.sh
+
+      - name: Check artifacts
+        run: |
+          set -e
+          ID=$(jq -r .id src/module.json)
+          file "dist/$ID/dsp.so" | tee /dev/stderr | grep -q 'ARM aarch64'
+          for f in module.json ui.js drum_rack.mjs dsp.so help.json; do
+            tar tzf "dist/$ID-module.tar.gz" | grep -qx "$ID/$f" || { echo "missing $ID/$f"; exit 1; }
+          done
+          echo "Artifacts OK"

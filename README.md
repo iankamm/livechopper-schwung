@@ -29,14 +29,20 @@ Envelope and transpose apply to all pads. Settings can be adjusted per pad after
 
 ## Requirements
 
-[Schwung](https://github.com/charlesvestal/schwung) installed on your Ableton Move.
+[Schwung](https://github.com/charlesvestal/schwung) 1.7.3 or later installed on your Ableton Move.
 
 ## Build and Install
 
 ```bash
-./scripts/test.sh       # host-side tests (gcc, node)
-./scripts/build.sh      # aarch64-linux-gnu-gcc if installed, else Docker
+./scripts/test.sh           # host-side tests (gcc, node)
+./scripts/build.sh          # aarch64-linux-gnu-gcc if installed, else Docker
+./scripts/install-hooks.sh  # once per clone: run the tests on every commit
 ```
+
+The tests expect [schwung](https://github.com/charlesvestal/schwung) and
+[schwung-waveform-editor](https://github.com/charlesvestal/schwung-waveform-editor)
+checked out next to this repo. CI runs the same tests and the ARM64 build on
+every push and pull request.
 
 This produces `dist/live-chopper-module.tar.gz`. To install:
 
