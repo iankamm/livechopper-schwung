@@ -1,7 +1,13 @@
 # Chopper for Schwung
 
-Chop a sample across the pads of your Ableton Move in real time, like the chop
-modes on MPC and SP drum machines, then export the result as a Move drum rack
+Chop a sample across the pads of your Ableton Move by ear, while it plays.
+Start it from Pad 1 and tap the next pad wherever you want a cut: playback
+carries straight on into the new slice, so a whole loop is chopped in one
+pass. This is the tap-to-slice workflow known as "lazy chop" or live chop on
+Akai MPCs, and also found as real-time chop on the Roland SP-404MKII and on
+Teenage Engineering's EP-133 K.O. II.
+
+Then fine-tune the chop points and export the result as a Move drum rack
 preset or as one WAV per slice. See [SPEC.md](SPEC.md).
 
 Status: early development.
@@ -26,7 +32,7 @@ Status: early development.
 | Play | Play / stop Move's set |
 | Back | Keep for later / exit |
 
-Touch a knob to see its value. Envelope and transpose apply to all pads.
+Touch a knob to see its value. Envelope and transpose apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 

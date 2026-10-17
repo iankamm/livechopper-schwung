@@ -1,8 +1,9 @@
 # Chopper spec
 
-A tool for Ableton Move (Schwung) that chops a sample across pads in real time,
-like the chop modes on MPC and SP drum machines, then exports the result as a
-Move drum rack preset.
+A tool for Ableton Move (Schwung) that chops a sample across pads in real time
+by tapping pads while it plays (the "lazy chop" / live chop workflow of Akai
+MPCs, also on the SP-404MKII and EP-133 K.O. II), then exports the result as
+a Move drum rack preset or one WAV per slice.
 
 ## Core: real-time chopping (primary focus)
 
