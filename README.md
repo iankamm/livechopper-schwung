@@ -25,7 +25,7 @@ Status: early development.
 | Play | Play / stop Move's set |
 | Back | Keep for later / exit |
 
-Touch a knob to see its value. Envelope and transpose apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
+Envelope and transpose apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 
