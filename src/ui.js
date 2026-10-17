@@ -28,9 +28,6 @@
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
- *   Mute       - Stop: stops Move's set (a Play press, sent only while it is
- *                playing) and any Chopper pad. Lit while there is
- *                something to stop.
  *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
@@ -39,7 +36,7 @@
  */
 
 import {
-    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveMute, MovePlay, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
     MoveKnob5, MoveKnob7, MoveKnob8,
     MovePads,
@@ -61,7 +58,6 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
 var CC_RECORD = MoveRecord;      /* RGB LED */
-var CC_MUTE = MoveMute;
 var CC_DELETE = MoveDelete;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
@@ -175,11 +171,6 @@ var CONFIRM_CANCEL = 2;
 var resumed = false;        /* reconnected to a running session */
 var countsSynced = false;   /* DSP edit counters adopted without announcing */
 var lastUiState = "";
-
-/* Mute = stop: Move's Play button is pressed for it, only while the set is
- * playing, so it can never start playback. Packets to Move go out one per
- * tick (press, then release). */
-var injectQueue = [];
 
 /* Export menu: row 0 is the name (click to rename), then the actions. */
 var exportMenu = false;
@@ -798,7 +789,6 @@ function hideTool() {
     flushSettings();
     saveUiState();
     setParamNow("stop", "1");
-    flushInject();
     if (typeof host_hide_module !== "function") {
         exitTool();
         return;
@@ -866,8 +856,7 @@ function setButtonLit(cc, on) {
 }
 
 /* Undo, Delete and Record are lit while pressing them would do something.
- * With Shift held, Undo shows whether there is anything to redo. Mute (stop)
- * is lit while Move's set or a Chopper pad is playing. */
+ * With Shift held, Undo shows whether there is anything to redo. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
@@ -875,7 +864,6 @@ function updateButtonLeds() {
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
-    setButtonLit(CC_MUTE, ready && (playing || (movePlaying() && canInjectToMove())));
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -900,50 +888,16 @@ function clearAllPadLeds() {
     for (var i = 0; i < MovePads.length; i++) setLED(MovePads[i], Black);
 }
 
-/* True only when Move says its set is playing; unknown counts as not. */
-function movePlaying() {
-    if (typeof host_get_move_info !== "function") return false;
-    var mi = host_get_move_info();
-    return !!(mi && mi.valid && mi.playing);
-}
-
-function canInjectToMove() {
-    return typeof move_midi_inject_to_move === "function";
-}
-
-function drainInject() {
-    if (injectQueue.length > 0) move_midi_inject_to_move(injectQueue.shift());
-}
-
-/* Stop everything: Move's set (if it is playing) and Chopper's pad. */
-function stopAll() {
-    var stopMove = movePlaying() && canInjectToMove() && injectQueue.length === 0;
-    if (stopMove) {
-        injectQueue.push([0x0B, 0xB0, MovePlay, 127]);
-        injectQueue.push([0x0B, 0xB0, MovePlay, 0]);
-    }
-    if (playing) setParamNow("stop", "1");
-    showMessage("Stopped", OVERLAY_TICKS);
-    announce(stopMove ? "Stopped set" : "Stopped");
-}
-
-/* Leaving: send a queued Play release now so Move never sees Play held. */
-function flushInject() {
-    while (injectQueue.length > 0) drainInject();
-}
-
 function turnOffLeds() {
     clearAllPadLeds();
     setButtonLit(CC_UNDO, false);
     setButtonLit(CC_DELETE, false);
     setButtonLit(CC_RECORD, false);
-    setButtonLit(CC_MUTE, false);
 }
 
 function exitTool() {
     flushNudge();
     flushSettings();
-    flushInject();
     turnOffLeds();
     exited = true;
     if (typeof host_exit_module === "function") host_exit_module();
@@ -1107,7 +1061,6 @@ globalThis.tick = function() {
     pollStatus();
     pollSlices();
     pollSliceExport();
-    drainInject();
     if (!countsSynced) {
         /* A resumed DSP has counted edits already: adopt the counts without
          * announcing them or marking them unexported. */
@@ -1189,8 +1142,6 @@ globalThis.onMidiMessageInternal = function(data) {
 
     if (d1 === CC_SHIFT) {
         shiftHeld = d2 > 0;
-    } else if (d1 === CC_MUTE && d2 > 0) {
-        stopAll();          /* works in menus too: a quick way to silence */
     } else if (confirmExit) {
         handleConfirmCC(d1, d2);
     } else if (exportMenu) {

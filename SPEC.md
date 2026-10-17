@@ -85,13 +85,6 @@ Move drum rack preset.
   one. Undo restores it; undo covers chops and deletes and
   keeps the last 32 steps. Shift+Undo redoes what was undone, until a new
   chop, delete or chop point move.
-- Mute (CC 88) is Stop: it stops any Chopper pad and, if Move's set is
-  playing (host_get_move_info), presses Move's Play for it with
-  move_midi_inject_to_move, which stops the transport and its clips. It
-  never presses Play when the set is stopped or its state is unknown, so it
-  can't start playback. Lit while something is playing; the bottom line and
-  screen reader confirm. Works in menus too. A queued Play release is sent
-  before exiting or hiding.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
   Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,

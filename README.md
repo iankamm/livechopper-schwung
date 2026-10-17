@@ -24,7 +24,6 @@ Status: early development.
 | Left / Right | Select previous / next slice |
 | Delete | Delete the selected slice (merges it into the previous one; Pad 1 is trimmed off) |
 | Undo / Shift+Undo | Undo the last chop or delete / redo it |
-| Mute | Stop: stops Move's set and any playing pad (lit while something is playing) |
 | Record | Export menu: rename, Slices (one WAV per pad), Drum Preset, Cancel |
 | Play | Play / stop Move's set (handled by Move, to practise along) |
 | Back | Menu: Keep for later (resume from Tools, e.g. after changing tempo in Move) / Discard and exit / Cancel |
