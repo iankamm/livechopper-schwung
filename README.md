@@ -10,41 +10,41 @@ Status: early development.
 
 | Control | Function |
 |---------|----------|
-| Red pad | Play that slice and select it |
-| Mute | Toggle one-shot (lit, default) / gated (unlit: plays while the pad is held) |
-| Blue pad | While a slice plays: chop at the playhead |
-| Knob 1 / Knob 2 | Move the selected slice's start / end |
-| Knob 3 | Zoom |
-| Knob 4 | Waveform vertical scale |
-| Knob 5 / 6 / 7 | Attack / Hold / Decay (all pads) |
-| Knob 8 | Transpose (all pads, repitch) |
-| Jog | Move the selected slice's start |
-| Touch a knob | Preview its value |
-| Shift | Fine steps for knobs and jog |
-| Left / Right | Select previous / next slice |
-| Delete | Delete the selected slice (merges it into the previous one; Pad 1 is trimmed off) |
-| Undo / Shift+Undo | Undo the last chop or delete / redo it |
-| Record | Export menu: rename, Slices (one WAV per pad), Drum Preset, Cancel |
-| Play | Play / stop Move's set (handled by Move, to practise along) |
-| Back | Menu: Keep for later (resume from Tools, e.g. after changing tempo in Move) / Discard and exit / Cancel |
+| Red pad | Play and select slice |
+| Blue pad | Chop at the playhead |
+| Knob 1 / 2 | Slice start / end |
+| Knob 3 / 4 | Zoom / waveform scale |
+| Knob 5 / 6 / 7 | Attack / hold / decay |
+| Knob 8 | Transpose |
+| Jog | Slice start |
+| Left / Right | Previous / next slice |
+| Shift | Fine adjust |
+| Mute | One-shot (lit) / gated |
+| Delete | Delete slice |
+| Undo / Shift+Undo | Undo / redo |
+| Record | Export menu |
+| Play | Play / stop Move's set |
+| Back | Keep for later / exit |
 
-## Prerequisites
+Touch a knob to see its value. Envelope and transpose apply to all pads.
 
-- [Schwung](https://github.com/charlesvestal/schwung) installed on your Ableton Move
-- SSH access enabled: http://move.local/development/ssh
+## Requirements
 
-## Build from Source
+[Schwung](https://github.com/charlesvestal/schwung) installed on your Ableton Move.
+
+## Build and Install
 
 ```bash
 ./scripts/test.sh       # host-side tests (gcc, node)
-./scripts/build.sh      # uses aarch64-linux-gnu-gcc if installed, else Docker
+./scripts/build.sh      # aarch64-linux-gnu-gcc if installed, else Docker
 ```
 
-This produces `dist/chopper-module.tar.gz`. Install it either way:
+This produces `dist/chopper-module.tar.gz`. To install:
 
-- **Web manager (no ssh):** open http://move.local:7700/modules, use the
-  custom install option to upload the tarball, then restart Schwung.
-- **ssh:** `./scripts/install.sh` copies `dist/chopper` to the Move.
+- **Web manager:** upload the tarball at http://move.local:7700/modules
+  (custom install), then restart Schwung.
+- **ssh:** `./scripts/install.sh` (needs SSH enabled at
+  http://move.local/development/ssh).
 
 ## Credits
 
