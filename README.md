@@ -59,8 +59,7 @@ This produces `dist/live-chopper-module.tar.gz`. To install:
 ## AI Disclosure
 
 This module was written with AI assistance: the code, tests and docs were
-developed with [Claude Code](https://claude.com/claude-code) (Anthropic's
-Claude), directed, reviewed and tested on an Ableton Move by the author.
+developed with Claude Code, directed, reviewed and tested on an Ableton Move by the author.
 
 ## License
 
