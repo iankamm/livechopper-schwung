@@ -1,7 +1,7 @@
 {
     "id": "live-chopper",
     "name": "LiveChopper",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Schwung module for live chopping across Ableton Move pads",
     "author": "iankamm",
     "dsp": "dsp.so",
