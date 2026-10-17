@@ -51,11 +51,10 @@ Move drum rack preset.
   Playback continues on the new slice (now Pad 2), not on the pad pressed.
 - Transpose: repitch only (changes length and pitch together), one global
   setting (Knob 8, -24 to +24 semitones).
-- Envelope: one global attack and decay applied to every slice in chop mode
-  and carried into the export for every pad. Knobs 5 and 7; Knob 6 does
-  nothing for now (Hold was removed). Default: attack 0, decay 10 s (the
-  max, Move's own drum cell limit), so slices play out like the raw sample
-  even after the pad is let go. A chop
+- Envelope: one global attack, hold and decay (AHD, matching the Move drum
+  sampler's A-H-D mode) applied to every slice in chop mode and carried into
+  the export for every pad. Knobs 5/6/7. Default: attack 0, hold Full (until
+  the slice ends), short decay, so slices sound like the raw sample. A chop
   does not retrigger the envelope. This mode is for chopping; per-pad sound
   shaping is done in the drum rack after export.
 - Declick: when a pad cuts off another, the old voice fades out over ~1.5 ms.
@@ -64,11 +63,13 @@ Move drum rack preset.
   drum rack preset (supported: every pad gets the same chokeGroup).
 - Pad colors: playable slice pads are red, the pad that is currently playing
   is white, the chop target is blue, unused slice pads are dim grey.
-- Playback is always gated, like Move's A-S-R: full level while the pad that
-  started the voice is held, then Decay (up to 10 s) is the release. A long
-  Decay gives one-shot behavior, so there
-  is no one-shot/gated toggle. Pressing a pad again restarts its region.
-  Letting go of the blue pad after a chop keeps the gate open.
+- Playback is one-shot by default: a pad plays its whole region and
+  releasing it does not stop it. Pressing it again restarts the region.
+  Mute toggles gated playback for all pads (Mute lit = one-shot, unlit =
+  gated; the bottom line and screen reader confirm). Gated is Move's A-S-R:
+  full level while the pad that started the voice is held, then Decay is the
+  release; Hold does nothing. Letting go of the blue pad after a chop keeps
+  the gate open.
 - Fine-tuning: chop points are linked. Moving a slice's start also moves the
   previous slice's end (and vice versa), so slices never gap or overlap.
   Only Pad 1's start and the last pad's end trim the sample. The selected
@@ -88,7 +89,7 @@ Move drum rack preset.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
   Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,
-  envelope, transpose; zoom and waveform scale don't count); with
+  envelope, gate, transpose; zoom and waveform scale don't count); with
   nothing unexported the middle item is just "Exit".
 - Keep for later (resume): stops any voice and hides the tool with
   host_hide_module(), leaving the DSP loaded. Schwung's Tools browser then
@@ -110,7 +111,7 @@ Move drum rack preset.
   named "<name>" (then "<name> 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
-  is exported in seconds in A-S-R mode (Voice_Envelope_Hold is written as
-  60 s, Move's "Full", and is unused in A-S-R), transpose as
+  is exported in seconds in A-H-D mode, or A-S-R when gated (hold Full =
+  60 s), transpose as
   Voice_Transpose, all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).

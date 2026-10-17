@@ -10,13 +10,13 @@ Status: early development.
 
 | Control | Function |
 |---------|----------|
-| Red pad | Play that slice while held and select it; letting go fades it out over Decay |
+| Red pad | Play that slice and select it |
+| Mute | Toggle one-shot (lit, default) / gated (unlit: plays while the pad is held) |
 | Blue pad | While a slice plays: chop at the playhead |
 | Knob 1 / Knob 2 | Move the selected slice's start / end |
 | Knob 3 | Zoom |
 | Knob 4 | Waveform vertical scale |
-| Knob 5 / 7 | Attack / Decay (all pads; Decay up to 10 s, the default, plays out like a one-shot) |
-| Knob 6 | Nothing for now |
+| Knob 5 / 6 / 7 | Attack / Hold / Decay (all pads) |
 | Knob 8 | Transpose (all pads, repitch) |
 | Jog | Move the selected slice's start |
 | Touch a knob | Preview its value |

@@ -265,7 +265,7 @@ int main(void) {
     CHECK(out[2] == ramp(2, 0) && out[4] == ramp(4, 0), "transpose +12 reads every other frame (%d %d %d, want %d %d %d; %s)", out[0], out[2], out[4], ramp(0,0), ramp(2,0), ramp(4,0), slices(inst));
     param(inst, "transpose", "0");
 
-    /* ---- Envelope: attack ramps, decay releases ---- */
+    /* ---- Envelope: attack ramps, hold/decay end the voice ---- */
     param(inst, "nudge", "0 1 20000");      /* Pad 1 = 0-20064 */
     param(inst, "attack_us", "10000");      /* 441 frames */
     until_silent(inst);
@@ -273,24 +273,28 @@ int main(void) {
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
     CHECK(out[0] == 0 && abs(out[200] - ramp(100, 0) * 100 / 441) <= 1, "attack ramps from 0 (%d)", out[200]);
     param(inst, "attack_us", "0");
+    param(inst, "hold_us", "10000");
+    param(inst, "decay_us", "10000");
+    note(inst, 68);
+    render(inst, 8);                        /* 1024 frames > 441 + 441 */
+    CHECK(field(inst, F_PLAYING) == -1, "voice ends after hold + decay");
+    param(inst, "hold_us", "-1");
 
-    /* ---- Always gated: plays while held, Decay is the release ---- */
+    /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
     char set[64];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 10000000 0") == 0, "Decay defaults to the 10 s max: %s", set);
-    param(inst, "decay_us", "30000000");
-    get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 10000000 0") == 0, "Decay capped at 10 s: %s", set);
-    param(inst, "hold_us", "10000");        /* no Hold any more: ignored */
-    get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 10000000 0") == 0, "hold_us ignored: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 0") == 0, "one-shot by default: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
-    CHECK(field(inst, F_PLAYING) == 0, "10 s release plays on after letting go, like a one-shot");
-    until_silent(inst);
-    param(inst, "decay_us", "10000");       /* 441-frame release */
-    note(inst, 68); render(inst, 20);       /* 2560 frames > decay */
-    CHECK(field(inst, F_PLAYING) == 0, "sustains while held");
+    CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
+    param(inst, "gate", "1");               /* pad already let go: release now */
+    render(inst, 5);
+    CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
+    get(inst, "settings", set, sizeof set);
+    CHECK(strcmp(set, "0 -1 10000 0 1") == 0, "gated reported: %s", set);
+    param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
+    note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
+    CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");
     note_off(inst, 69);
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == 0, "letting go of another pad doesn't release");
@@ -303,7 +307,7 @@ int main(void) {
     note_off(inst, 68);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
     CHECK(abs(out[254]) < before, "release fades (%d -> %d)", before, abs(out[254]));
-    render(inst, 4);
+    render(inst, 4);                        /* 441-frame release */
     CHECK(field(inst, F_PLAYING) == -1, "voice ends after the release");
     note(inst, 68); render(inst, 2);
     uint8_t off0[3] = { 0x90, 68, 0 };      /* note-on velocity 0 = note-off */
@@ -311,7 +315,8 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "velocity-0 note-on releases too");
     param(inst, "delete", "1");             /* undo the chop */
-    param(inst, "decay_us", "10000000");
+    param(inst, "gate", "0");
+    param(inst, "hold_us", "-1");
 
     /* ---- Resume support: ui_state round-trips, stop silences ---- */
     get(inst, "ui_state", set, sizeof set);

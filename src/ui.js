@@ -12,15 +12,13 @@
  * slice's end. The marker/zoom UI follows the waveform editor's.
  *
  * Controls:
- *   Red pads   - Play that slice while held (chokes the others); selects it
+ *   Red pads   - Play that slice (chokes the others); selects it
  *   Blue pad   - While a slice plays: chop at the playhead
  *   Knob 1     - Move the selected slice's start
  *   Knob 2     - Move the selected slice's end
  *   Knob 3     - Zoom
  *   Knob 4     - Waveform vertical scale (1x-32x)
- *   Knob 5     - Attack (global, all slices)
- *   Knob 6     - Nothing for now
- *   Knob 7     - Decay: the fade after a pad is let go (global)
+ *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
  *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
@@ -28,6 +26,7 @@
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
+ *   Mute       - Toggle one-shot (lit) / gated (unlit) playback
  *   Record     - Export menu: rename, Slices (one WAV per pad), Drum Preset
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
@@ -36,9 +35,9 @@
  */
 
 import {
-    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveShift, MoveLeft, MoveRight,
+    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveMute, MoveShift, MoveLeft, MoveRight,
     MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
-    MoveKnob5, MoveKnob7, MoveKnob8,
+    MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
     MovePads,
     Black, DarkGrey, White, BrightRed, PureBlue,
     WhiteLedOff, WhiteLedBright
@@ -58,6 +57,7 @@ function debugLog(msg) { uniLog("Chopper", msg); }
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
 var CC_RECORD = MoveRecord;      /* RGB LED */
+var CC_MUTE = MoveMute;
 var CC_DELETE = MoveDelete;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
@@ -69,6 +69,7 @@ var CC_E2 = MoveKnob2;
 var CC_E3 = MoveKnob3;
 var CC_E4 = MoveKnob4;
 var CC_E5 = MoveKnob5;
+var CC_E6 = MoveKnob6;
 var CC_E7 = MoveKnob7;
 var CC_E8 = MoveKnob8;
 
@@ -105,9 +106,11 @@ var VSCALE_MAX = 32.0;
 var VSCALE_STEP = 0.25;
 
 /* Envelope knobs move a 0-1 position; time = max * pos^3 for fine control
- * near zero. */
+ * near zero. Hold at the top of its range is Full (until the slice ends). */
 var ATTACK_MAX_US = 2000000;
-var DECAY_MAX_US = 10000000;     /* Move's max; plays out like a one-shot */
+var HOLD_MAX_US = 5000000;
+var DECAY_MAX_US = 10000000;
+var HOLD_FULL = -1;
 var ENV_KNOB_STEP = 0.01;
 var ENV_KNOB_FINE = 0.002;
 var TRANSPOSE_MIN = -24;
@@ -195,10 +198,13 @@ var vScale = 1.0;
 
 /* Global sound settings (DSP holds the truth; read back on load) */
 var attackUs = 0;
-var decayUs = DECAY_MAX_US;
+var holdUs = HOLD_FULL;
+var decayUs = 50000;
 var transpose = 0;
+var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var attackKnob = 0;
-var decayKnob = 1;
+var holdKnob = 1;
+var decayKnob = 0;
 var pendingSettings = {};   /* key -> value, sent once per tick */
 var overlayText = "";       /* footer readout while a sound knob moves */
 var overlayTimer = 0;
@@ -378,12 +384,14 @@ function selectSlice(idx) {
 /* ============ Sound settings ============ */
 
 function formatUs(us) {
+    if (us === HOLD_FULL) return "Full";
     if (us < 10000) return (us / 1000).toFixed(1) + "ms";
     if (us < 1000000) return Math.round(us / 1000) + "ms";
     return (us / 1000000).toFixed(2) + "s";
 }
 
 function spokenUs(us) {
+    if (us === HOLD_FULL) return "full";
     if (us < 1000000) return (Math.round(us / 100) / 10) + " milliseconds";
     return (Math.round(us / 10000) / 100) + " seconds";
 }
@@ -406,14 +414,27 @@ function readSettings() {
     if (!raw) return;
     var p = raw.split(" ");
     attackUs = parseInt(p[0], 10) || 0;
-    decayUs = parseInt(p[1], 10) || 0;
-    transpose = parseInt(p[2], 10) || 0;
+    holdUs = parseInt(p[1], 10);
+    if (isNaN(holdUs)) holdUs = HOLD_FULL;
+    decayUs = parseInt(p[2], 10) || 0;
+    transpose = parseInt(p[3], 10) || 0;
+    gated = p[4] === "1";
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
+    holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
 }
 
-/* [screen text, spoken text] for knob i (0-7), from current values; null
- * for a knob with no job. */
+/* Mute: switch between one-shot and gated playback for every pad. */
+function toggleGate() {
+    if (loadState !== "ready") return;
+    gated = !gated;
+    pendingSettings.gate = gated ? 1 : 0;
+    var text = gated ? "Gated: plays while held" : "One-shot";
+    showMessage(gated ? "Gated" : "One-shot", OVERLAY_TICKS);
+    announce(text);
+}
+
+/* [screen text, spoken text] for knob i (0-7), from current values. */
 function knobReadout(i) {
     switch (i) {
     case 0:
@@ -430,7 +451,7 @@ function knobReadout(i) {
     case 4:
         return ["Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
     case 5:
-        return null;     /* Knob 6: Hold removed for now */
+        return ["Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs)];
     case 6:
         return ["Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
     default:
@@ -452,7 +473,7 @@ function onKnobTouch(i, touched) {
         if (touchedKnob === i) touchedKnob = -1;
         return;
     }
-    if (loadState !== "ready" || !knobReadout(i)) return;
+    if (loadState !== "ready") return;
     touchedKnob = i;
     if (i <= 1 && activeSide !== i) {
         activeSide = i;
@@ -476,6 +497,11 @@ function changeSetting(cc, ticks) {
         attackUs = knobToUs(attackKnob, ATTACK_MAX_US);
         pendingSettings.attack_us = attackUs;
         showKnob(4);
+    } else if (cc === CC_E6) {
+        holdKnob = clamp01(holdKnob + step);
+        holdUs = holdKnob >= 1 ? HOLD_FULL : knobToUs(holdKnob, HOLD_MAX_US);
+        pendingSettings.hold_us = holdUs;
+        showKnob(5);
     } else if (cc === CC_E7) {
         decayKnob = clamp01(decayKnob + step);
         decayUs = knobToUs(decayKnob, DECAY_MAX_US);
@@ -556,7 +582,7 @@ function exportDrumPreset(base) {
         frames: frames,
         starts: sliceStarts,
         ends: sliceEnds,
-        env: { attackUs: attackUs, decayUs: decayUs },
+        env: { attackUs: attackUs, holdUs: holdUs, decayUs: decayUs, gated: gated },
         transpose: transpose
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
@@ -856,7 +882,8 @@ function setButtonLit(cc, on) {
 }
 
 /* Undo, Delete and Record are lit while pressing them would do something.
- * With Shift held, Undo shows whether there is anything to redo. */
+ * With Shift held, Undo shows whether there is anything to redo. Mute is lit
+ * for one-shot playback and dark for gated. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
@@ -864,6 +891,7 @@ function updateButtonLeds() {
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
+    setButtonLit(CC_MUTE, ready && editing && !gated);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -893,6 +921,7 @@ function turnOffLeds() {
     setButtonLit(CC_UNDO, false);
     setButtonLit(CC_DELETE, false);
     setButtonLit(CC_RECORD, false);
+    setButtonLit(CC_MUTE, false);
 }
 
 function exitTool() {
@@ -1150,6 +1179,8 @@ globalThis.onMidiMessageInternal = function(data) {
         requestExit();
     } else if (d1 === CC_RECORD && d2 > 0) {
         openExportMenu();
+    } else if (d1 === CC_MUTE && d2 > 0) {
+        toggleGate();
     } else if (d1 === CC_DELETE && d2 > 0) {
         deleteSelected();
     } else if (d1 === CC_UNDO && d2 > 0 && shiftHeld) {
@@ -1170,7 +1201,7 @@ globalThis.onMidiMessageInternal = function(data) {
         changeZoom(decodeDelta(d2));
     } else if (d1 === CC_E4) {
         changeVScale(decodeDelta(d2));
-    } else if (d1 === CC_E5 || d1 === CC_E7 || d1 === CC_E8) {
+    } else if (d1 === CC_E5 || d1 === CC_E6 || d1 === CC_E7 || d1 === CC_E8) {
         changeSetting(d1, decodeDelta(d2));
     } else if (d1 === CC_JOG) {
         queueNudge(0, decodeDelta(d2));     /* the jog only ever moves the start */
