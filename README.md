@@ -10,7 +10,7 @@ Status: early development.
 
 | Control | Function |
 |---------|----------|
-| Red pad | Play and select slice |
+| Red pad | Select and play slice |
 | Blue pad | Chop at the playhead |
 | Knob 1 / 2 | Slice start / end |
 | Knob 3 / 4 | Zoom / waveform scale |
