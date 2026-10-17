@@ -1,11 +1,10 @@
 # LiveChopper for Schwung
 
-Chop a sample across the pads of your Ableton Move by ear, while it plays.
-Start it from Pad 1 and tap the next pad wherever you want a cut: playback
-carries straight on into the new slice, so a whole loop is chopped in one
-pass. This is the tap-to-slice workflow known as "lazy chop" or live chop on
-Akai MPCs, and also found as real-time chop on the Roland SP-404MKII and on
-Teenage Engineering's EP-133 K.O. II. Fine-tune the chop points and export the result as a Move drum rack preset or as one WAV per slice. See [SPEC.md](SPEC.md).
+Chop a sample across your Ableton Move's pads by ear, while it plays. Start
+from Pad 1 and tap the next pad wherever you want a cut; playback carries on
+into the new slice. It's the live chop workflow of Akai MPCs, also found on
+the SP-404 and TE K.O. II. Fine-tune the chops, then export a Move drum rack
+preset or one WAV per slice. See [SPEC.md](SPEC.md).
 
 Status: early development.
 
