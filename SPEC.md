@@ -52,6 +52,8 @@ a Move drum rack preset or one WAV per slice.
   Playback continues on the new slice (now Pad 2), not on the pad pressed.
 - Transpose: repitch only (changes length and pitch together), one global
   setting (Knob 8, -24 to +24 semitones).
+- Detune: fine repitch on top of transpose, one global setting (Shift +
+  Knob 8, -50 to +50 cents, default 0). Exported as Voice_Detune.
 - Envelope: one global attack, hold and decay (AHD, matching the Move drum
   sampler's A-H-D mode) applied to every slice in chop mode and carried into
   the export for every pad. Knobs 5/6/7. Default: attack 0, hold Full (until
@@ -90,7 +92,7 @@ a Move drum rack preset or one WAV per slice.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
   Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,
-  envelope, gate, transpose; zoom and waveform scale don't count); with
+  envelope, gate, transpose, detune; zoom and waveform scale don't count); with
   nothing unexported the middle item is just "Exit".
 - Keep for later (resume): stops any voice and hides the tool with
   host_hide_module(), leaving the DSP loaded. Schwung's Tools browser then
@@ -113,6 +115,6 @@ a Move drum rack preset or one WAV per slice.
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
   slice, so no audio is rewritten. Pads without a slice are muted. Envelope
   is exported in seconds in A-H-D mode, or A-S-R when gated (hold Full =
-  60 s), transpose as
-  Voice_Transpose, all pads in choke group 1. The sample must be inside the
+  60 s), transpose as Voice_Transpose, detune as Voice_Detune (cents),
+  all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).

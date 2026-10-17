@@ -20,9 +20,10 @@
  *   Knob 4     - Waveform vertical scale (1x-32x)
  *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
+ *                Shift+Knob 8: detune, -50 to +50 cents
  *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
- *   Shift      - Fine steps for knobs and jog
+ *   Shift      - Fine steps for knobs and jog (detune on Knob 8)
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
@@ -115,6 +116,8 @@ var ENV_KNOB_STEP = 0.01;
 var ENV_KNOB_FINE = 0.002;
 var TRANSPOSE_MIN = -24;
 var TRANSPOSE_MAX = 24;
+var DETUNE_MIN = -50;            /* cents */
+var DETUNE_MAX = 50;
 var EDIT_TIMEOUT_MS = 100;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
@@ -183,6 +186,7 @@ var EXPORT_ACTIONS = ["Slices", "Drum Preset", "Cancel"];
 var sliceExport = null;     /* { seq, folder, version } while the DSP writes WAVs */
 var SLICE_EXPORT_TIMEOUT_TICKS = 3000;
 var lastSelectedSlice = -1;
+var lastPlayingSlice = -1;
 var buttonLedOn = {};        /* last on/off sent per button CC */
 var exited = false;         /* no LED updates once we have handed back */
 var padColors = [];         /* last color sent per pad index, to avoid LED spam */
@@ -193,6 +197,7 @@ var activeSide = 0;         /* 0 = start marker, 1 = end marker */
 var zoom = 0;
 var viewStart = 0;
 var pendingNudge = null;    /* { slice, side, delta } sent once per tick */
+var followMarker = false;   /* tick keeps the active marker in view after a nudge */
 var announceTimer = 0;
 var vScale = 1.0;
 
@@ -201,6 +206,7 @@ var attackUs = 0;
 var holdUs = HOLD_FULL;
 var decayUs = 50000;
 var transpose = 0;
+var detune = 0;             /* cents */
 var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var attackKnob = 0;
 var holdKnob = 1;
@@ -296,6 +302,30 @@ function centerOn(pos) {
     clampView();
 }
 
+/* Zoom always centers on the selected slice's start, whichever marker is active. */
+function centerOnStart() {
+    followMarker = false;
+    if (selectedSlice < sliceCount) centerOn(sliceStarts[selectedSlice]);
+}
+
+/* Bring a newly selected or played slice into view: its start always, and its
+ * end too when the whole slice fits. Scrolls as little as needed. */
+function revealSlice() {
+    followMarker = false;
+    if (selectedSlice >= sliceCount) return;
+    var len = viewLen();
+    var margin = Math.floor(len * EDGE_MARGIN);
+    var s = sliceStarts[selectedSlice];
+    var e = sliceEnds[selectedSlice];
+    if (e - s <= len - 2 * margin) {
+        if (s < viewStart + margin) viewStart = s - margin;
+        else if (e > viewStart + len - margin) viewStart = e - len + margin;
+    } else if (s < viewStart + margin || s > viewStart + len - margin) {
+        centerOn(s);
+    }
+    clampView();
+}
+
 /* Scroll only when the active marker nears the edge of the view. */
 function keepMarkerVisible() {
     var len = viewLen();
@@ -342,6 +372,7 @@ function queueNudge(side, ticks) {
     if (!pendingNudge) pendingNudge = { slice: selectedSlice, side: side, delta: 0 };
     pendingNudge.delta += ticks * step;
     announceTimer = ANNOUNCE_SETTLE_TICKS;
+    followMarker = true;
 }
 
 function flushNudge() {
@@ -369,7 +400,7 @@ function changeZoom(ticks) {
     zoom += ticks * ZOOM_STEP;
     if (zoom < 0) zoom = 0;
     if (zoom > ZOOM_MAX) zoom = ZOOM_MAX;
-    centerOn(activeMarkerPos());
+    centerOnStart();
     showKnob(2);
 }
 
@@ -400,6 +431,10 @@ function formatTranspose(t) {
     return (t > 0 ? "+" : "") + t + "st";
 }
 
+function formatDetune(c) {
+    return (c > 0 ? "+" : "") + c + "ct";
+}
+
 function knobToUs(pos, maxUs) {
     return Math.round(maxUs * pos * pos * pos);
 }
@@ -419,6 +454,7 @@ function readSettings() {
     decayUs = parseInt(p[2], 10) || 0;
     transpose = parseInt(p[3], 10) || 0;
     gated = p[4] === "1";
+    detune = parseInt(p[5], 10) || 0;
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
     holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
@@ -455,6 +491,7 @@ function knobReadout(i) {
     case 6:
         return ["Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
     default:
+        if (shiftHeld) return ["Detune " + formatDetune(detune), "Detune " + detune + " cents"];
         return ["Transpose " + formatTranspose(transpose), "Transpose " + transpose + " semitones"];
     }
 }
@@ -479,6 +516,7 @@ function onKnobTouch(i, touched) {
         activeSide = i;
         keepMarkerVisible();
     }
+    if (i === 2) centerOnStart();
     var r = knobReadout(i);
     overlayText = r[0];
     overlayTimer = OVERLAY_TICKS;
@@ -507,6 +545,12 @@ function changeSetting(cc, ticks) {
         decayUs = knobToUs(decayKnob, DECAY_MAX_US);
         pendingSettings.decay_us = decayUs;
         showKnob(6);
+    } else if (cc === CC_E8 && shiftHeld) {
+        detune += ticks;
+        if (detune < DETUNE_MIN) detune = DETUNE_MIN;
+        if (detune > DETUNE_MAX) detune = DETUNE_MAX;
+        pendingSettings.detune = detune;
+        showKnob(7);
     } else if (cc === CC_E8) {
         transpose += ticks;
         if (transpose < TRANSPOSE_MIN) transpose = TRANSPOSE_MIN;
@@ -583,7 +627,8 @@ function exportDrumPreset(base) {
         starts: sliceStarts,
         ends: sliceEnds,
         env: { attackUs: attackUs, holdUs: holdUs, decayUs: decayUs, gated: gated },
-        transpose: transpose
+        transpose: transpose,
+        detune: detune
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
     var ok = host_write_file(PRESET_DIR + "/" + name + ".ablpreset", JSON.stringify(preset, null, 2));
@@ -1003,7 +1048,7 @@ function drawEditor() {
         return;
     }
     var len = sliceEnds[selectedSlice] - sliceStarts[selectedSlice];
-    print(0, 54, (activeSide === 0 ? "S " : "E ") + formatSeconds(activeMarkerPos()) +
+    print(0, 54, "S " + formatSeconds(sliceStarts[selectedSlice]) +
           " L " + formatSeconds(len), 1);
 }
 
@@ -1125,10 +1170,12 @@ globalThis.tick = function() {
         editVersion++;
     }
     if (loadState === "ready" && sliceCount > 0) {
-        if (selectedSlice !== lastSelectedSlice) {
+        var started = playing && playingSlice >= 0 && playingSlice !== lastPlayingSlice;
+        lastPlayingSlice = playing ? playingSlice : -1;
+        if (selectedSlice !== lastSelectedSlice || started) {
             lastSelectedSlice = selectedSlice;
-            keepMarkerVisible();
-        } else if (announceTimer > 0) {
+            revealSlice();
+        } else if (announceTimer > 0 && followMarker) {
             keepMarkerVisible();
         }
         clampView();

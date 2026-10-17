@@ -14,7 +14,7 @@ Status: early development.
 | Knob 1 / 2 | Slice start / end |
 | Knob 3 / 4 | Zoom / waveform scale |
 | Knob 5 / 6 / 7 | Attack / hold / decay |
-| Knob 8 | Transpose |
+| Knob 8 / Shift+Knob 8 | Transpose / detune (±50 cents) |
 | Jog | Slice start |
 | Left / Right | Previous / next slice |
 | Shift | Fine adjust |
@@ -25,7 +25,7 @@ Status: early development.
 | Play | Play / stop Move's set |
 | Back | Keep for later / exit |
 
-Envelope and transpose apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
+Envelope, transpose and detune apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 

@@ -265,6 +265,22 @@ int main(void) {
     CHECK(out[2] == ramp(2, 0) && out[4] == ramp(4, 0), "transpose +12 reads every other frame (%d %d %d, want %d %d %d; %s)", out[0], out[2], out[4], ramp(0,0), ramp(2,0), ramp(4,0), slices(inst));
     param(inst, "transpose", "0");
 
+    /* ---- Detune: cents on top of transpose, clamped to +-50 ---- */
+    param(inst, "detune", "999");           /* clamps to +50: ratio 2^(50/1200) */
+    until_silent(inst);
+    note(inst, 68);
+    api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+    CHECK(abs(out[80] - 124) <= 1, "detune +50 cents reads 40 frames as 41.17 (%d, want ~124)", out[80]);
+    char det[64];
+    get(inst, "settings", det, sizeof det);
+    CHECK(strcmp(det + strlen(det) - 3, " 50") == 0, "detune clamped and reported: %s", det);
+    param(inst, "detune", "-50");
+    until_silent(inst);
+    note(inst, 68);
+    api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+    CHECK(abs(out[80] - 117) <= 1, "detune -50 cents reads 40 frames as 38.86 (%d, want ~117)", out[80]);
+    param(inst, "detune", "0");
+
     /* ---- Envelope: attack ramps, hold/decay end the voice ---- */
     param(inst, "nudge", "0 1 20000");      /* Pad 1 = 0-20064 */
     param(inst, "attack_us", "10000");      /* 441 frames */
@@ -283,7 +299,7 @@ int main(void) {
     /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
     char set[64];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 0") == 0, "one-shot by default: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 0 0") == 0, "one-shot by default: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
     CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
@@ -291,7 +307,7 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 1") == 0, "gated reported: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 1 0") == 0, "gated reported: %s", set);
     param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
     note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
     CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");

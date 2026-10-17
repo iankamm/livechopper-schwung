@@ -90,6 +90,8 @@
         "Knob 8: transpose",
         " (-24 to +24 semis,",
         " changes speed too)",
+        "Shift+Knob 8: detune",
+        " (-50 to +50 cents)",
         "Shift: fine steps",
         "",
         "Touch any knob to",
@@ -122,8 +124,9 @@
         "Load the preset on",
         "a drum track.",
         "Envelope, one-shot/",
-        "gated, transpose and",
-        "choke carry over.",
+        "gated, transpose,",
+        "detune and choke",
+        "carry over.",
         "Per-pad sound etc.",
         " are set there."
       ]

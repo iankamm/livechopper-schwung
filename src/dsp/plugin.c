@@ -42,7 +42,8 @@
  * get_param("wave ...") reads a bounded number of values per column.
  *
  * Sound: one global attack/hold/decay envelope and one global transpose
- * (repitch: changes speed and pitch together) apply to every slice. A
+ * plus detune (repitch: changes speed and pitch together) apply to every
+ * slice. A
  * chop does not retrigger the envelope, so playback stays seamless.
  * Gated mode (set_param("gate", "1")) is Move's A-S-R: full level while
  * the pad that started the voice is held, then Decay is the release, and
@@ -105,6 +106,8 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define MAX_ENV_US 10000000         /* 10 s */
 #define TRANSPOSE_MIN (-24)
 #define TRANSPOSE_MAX 24
+#define DETUNE_MIN (-50)            /* cents */
+#define DETUNE_MAX 50
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
 
 enum {
@@ -153,8 +156,9 @@ typedef struct {
     int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
     int attack_frames, hold_frames, decay_frames;
     int transpose;                              /* semitones */
+    int detune;                                 /* cents */
     int gated;                                  /* 1 = A-S-R, 0 = one-shot A-H-D */
-    double pitch_ratio;                         /* 2^(transpose/12) */
+    double pitch_ratio;                         /* 2^((transpose*100 + detune)/1200) */
 
     /* Slices, in time order. Pad i plays slice i. */
     int slice_start[MAX_SLICES];
@@ -654,11 +658,22 @@ static int clamp_us(int us) {
     return us;
 }
 
+static void update_pitch_ratio(live_chopper_t *inst) {
+    inst->pitch_ratio = pow(2.0, (inst->transpose * 100 + inst->detune) / 1200.0);
+}
+
 static void set_transpose(live_chopper_t *inst, int semis) {
     if (semis < TRANSPOSE_MIN) semis = TRANSPOSE_MIN;
     if (semis > TRANSPOSE_MAX) semis = TRANSPOSE_MAX;
     inst->transpose = semis;
-    inst->pitch_ratio = pow(2.0, semis / 12.0);
+    update_pitch_ratio(inst);
+}
+
+static void set_detune(live_chopper_t *inst, int cents) {
+    if (cents < DETUNE_MIN) cents = DETUNE_MIN;
+    if (cents > DETUNE_MAX) cents = DETUNE_MAX;
+    inst->detune = cents;
+    update_pitch_ratio(inst);
 }
 
 /* Linear-interpolated stereo frame at a fractional source position. */
@@ -1045,6 +1060,11 @@ static void set_param(void *instance, const char *key, const char *val) {
         set_transpose(inst, parse_int(&p));
         return;
     }
+    if (strcmp(key, "detune") == 0) {
+        const char *p = val;
+        set_detune(inst, parse_int(&p));
+        return;
+    }
     if (strcmp(key, "select") == 0) {
         const char *p = val;
         int idx = parse_int(&p);
@@ -1106,9 +1126,10 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         return n;
     }
     if (strcmp(key, "settings") == 0) {
-        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d",
-                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated);
+        /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d",
+                        inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
+                        inst->detune);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */

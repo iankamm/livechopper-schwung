@@ -49,12 +49,13 @@ const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends
   settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
   exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '' };
 const sets = [];
+let lastWave = null;   // [_, from, to, cols] of the last waveform request
 g.host_module_get_param = k => {
   if (k === 'status') return `ready ${dsp.frames} ${dsp.rate} ${dsp.playing} ${dsp.pos}`;
   if (k === 'slices') return [dsp.chop, dsp.undo, dsp.del, dsp.depth, dsp.redo, dsp.redoDepth, dsp.playing ? 0 : -1, dsp.sel, dsp.starts.length,
     ...dsp.starts.flatMap((s, i) => [s, dsp.ends[i]])].join(' ');
   if (k === 'settings') return dsp.settings;
-  if (k.startsWith('wave ')) { const c = +k.split(' ')[3]; return 'a0'.repeat(c); }
+  if (k.startsWith('wave ')) { lastWave = k.split(' ').map(Number); const c = lastWave[3]; return 'a0'.repeat(c); }
   if (k === 'error') return '';
   if (k === 'ui_state') return dsp.uiState;
   if (k === 'file_path') return dsp.filePath;
@@ -89,6 +90,37 @@ dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.chop 
 tick(2);
 check(lit(UNDO) && lit(DELETE) && lit(RECORD), 'three slices: Undo, Delete, Record lit');
 
+// Zoom centers on the selected slice's start, even with the end marker active
+midi(0x90, 1, 127); midi(0x90, 1, 0);           // touch knob 2: end marker active
+midi(0xB0, 73, 5); tick(1);                      // zoom in
+{
+  const [, from, to] = lastWave, mid = (from + to) / 2;
+  check(from <= 100000 && to > 100000 && Math.abs(mid - 100000) <= 2,
+        'zoom centers on the start marker, not the end: ' + from + '-' + to);
+}
+// Touching the zoom knob alone recenters on the start
+midi(0x90, 1, 127); midi(0xB0, 72, 120); midi(0x90, 1, 0); tick(1);   // move the end: view follows it
+check(lastWave[1] > 100000, 'moving the end scrolls the view to it: ' + lastWave[1] + '-' + lastWave[2]);
+midi(0x90, 2, 127); tick(1); midi(0x90, 2, 0);
+{
+  const [, from, to] = lastWave, mid = (from + to) / 2;
+  check(Math.abs(mid - 100000) <= 2, 'touching zoom recenters on the start: ' + from + '-' + to);
+}
+// Selecting a short slice with the end marker active still shows its start
+dsp.starts = [0, 100000, 130000]; dsp.ends = [100000, 130000, 441000]; dsp.sel = 0; tick(1);
+midi(0xB0, 73, 7); tick(1);                                         // zoom x8: view ~55k frames
+midi(0x90, 0, 127); midi(0x90, 0, 0); midi(0x90, 1, 127); midi(0x90, 1, 0); tick(1);   // end active
+check(lastWave[1] > 50000, 'end marker active and in view: ' + lastWave[1] + '-' + lastWave[2]);
+tick(70);
+check(printed.some(t => t.startsWith('S 0.000s ')), 'bottom line shows the start even with the end active: ' + JSON.stringify(printed));
+dsp.sel = 1; tick(1);                                               // play pad 2
+check(lastWave[1] <= 100000 && lastWave[2] >= 130000, 'selected slice start and end both shown: ' + lastWave[1] + '-' + lastWave[2]);
+dsp.sel = 2; tick(1);                                               // long slice: start wins
+check(lastWave[1] <= 130000 && lastWave[2] > 130000, 'long slice shows its start: ' + lastWave[1] + '-' + lastWave[2]);
+midi(0xB0, 73, 121); tick(1);
+dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.sel = 1; tick(1);
+midi(0xB0, 73, 123); midi(0x90, 0, 127); midi(0x90, 0, 0); tick(70);   // zoom back out, start active
+
 let mark;
 // Knob touch shows a readout, turning updates it
 for (let k = 0; k < 8; k++) {
@@ -100,6 +132,26 @@ for (let k = 0; k < 8; k++) {
   check(shown, `knob ${k + 1} touch shows a readout`);
   console.log(`knob ${k + 1}: touch="${shown}" turned="${after}"`);
 }
+
+// Shift + Knob 8 is detune in cents (-50 to +50), leaving transpose alone
+mark = sets.length;
+midi(0xB0, 49, 127); midi(0x90, 7, 127); tick(1);
+check(printed.includes('Detune 0ct'), 'Shift + touching Knob 8 shows detune: ' + JSON.stringify(printed));
+midi(0xB0, 78, 5); tick(1);
+check(printed.includes('Detune +5ct'), 'Shift + Knob 8 turns detune: ' + JSON.stringify(printed));
+check(sets.slice(mark).includes('detune=5') && !sets.slice(mark).some(s => s.startsWith('transpose=')),
+      'detune sent, transpose untouched: ' + JSON.stringify(sets.slice(mark)));
+midi(0xB0, 78, 63); tick(1);
+check(printed.includes('Detune +50ct') && sets.at(-1) === 'detune=50', 'detune clamps at +50');
+midi(0xB0, 78, 65); midi(0xB0, 78, 65); tick(1);
+check(printed.includes('Detune -50ct') && sets.at(-1) === 'detune=-50', 'detune clamps at -50');
+midi(0xB0, 78, 20); tick(1);
+check(sets.at(-1) === 'detune=-30', 'detune back to -30: ' + sets.at(-1));
+midi(0x90, 7, 0); midi(0xB0, 49, 0); tick(70);
+check(log.some(l => l === 'SAY: Detune -30 cents'), 'detune announced');
+midi(0x90, 7, 127); tick(1);
+check(printed.some(t => t.startsWith('Transpose')), 'without Shift, Knob 8 is transpose again');
+midi(0x90, 7, 0); tick(70);
 
 // Top bar is just the pad; zoom, transpose and Start/End stay off it
 tick(1);
@@ -117,7 +169,7 @@ check(sets.slice(mark).some(s => /^nudge=\d+ 0 \d+$/.test(s)) && !sets.slice(mar
 midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127); tick(30);
 
 // ---- Export ----
-const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose)=/.test(s)).map(s => s.split('=')));
+const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose|detune)=/.test(s)).map(s => s.split('=')));
 const presetDir = '/data/UserData/UserLibrary/Track Presets/';
 const exits = () => log.filter(l => l === 'EXIT').length;
 // Export menu (Record): row 0 name, then Slices, Drum Preset, Cancel
@@ -179,9 +231,10 @@ if (p1 in files) {
     check(p.Voice_Envelope_Hold === (+settingSets.hold_us < 0 ? 60 : +settingSets.hold_us / 1e6), 'hold seconds');
     check(Math.abs(p.Voice_Envelope_Decay - settingSets.decay_us / 1e6) < 1e-9, 'decay seconds');
     check(p.Voice_Transpose === +settingSets.transpose, 'transpose');
+    check(p.Voice_Detune === -30 && +settingSets.detune === -30, 'detune cents: ' + p.Voice_Detune);
   });
   const c0 = rack.chains[0].devices[0].parameters;
-  console.log(`export: attack=${c0.Voice_Envelope_Attack}s hold=${c0.Voice_Envelope_Hold}s decay=${c0.Voice_Envelope_Decay}s transpose=${c0.Voice_Transpose}`);
+  console.log(`export: attack=${c0.Voice_Envelope_Attack}s hold=${c0.Voice_Envelope_Hold}s decay=${c0.Voice_Envelope_Decay}s transpose=${c0.Voice_Transpose} detune=${c0.Voice_Detune}`);
 
   // Same drumCell parameter names as a real Move set
   const fixture = JSON.parse(fs.readFileSync(path.resolve(repo, '../schwung/tests/fixtures/song_abl_sample.json'), 'utf8'));

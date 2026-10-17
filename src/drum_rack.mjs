@@ -47,7 +47,7 @@ export function envelopeSeconds(env) {
     };
 }
 
-function buildDrumCellParams(playbackStart, playbackLength, envS, transpose) {
+function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune) {
     return {
         "Effect_EightBitFilterDecay": 5.0,
         "Effect_EightBitResamplingRate": 14080.0,
@@ -72,7 +72,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose) {
         "Enabled": true,
         "NotePitchBend": true,
         "Pan": 0.0,
-        "Voice_Detune": 0.0,
+        "Voice_Detune": detune || 0,
         "Voice_Envelope_Attack": envS.attack,
         "Voice_Envelope_Decay": envS.decay,
         "Voice_Envelope_Hold": envS.hold,
@@ -166,6 +166,7 @@ function reverbReturnChain() {
  *   starts, ends: slice boundaries in frames (1-16 slices, time order)
  *   env:        { attackUs, holdUs, decayUs, gated }
  *   transpose:  semitones
+ *   detune:     cents (-50 to +50)
  * }
  * Returns the preset object (JSON.stringify it to write).
  */
@@ -188,7 +189,7 @@ export function buildDrumRackPreset(opts) {
                 "presetUri": null,
                 "kind": "drumCell",
                 "name": "",
-                "parameters": buildDrumCellParams(start, len, envS, opts.transpose),
+                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune),
                 "deviceData": { "sampleUri": opts.sampleUri }
             }],
             "mixer": {
