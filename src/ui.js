@@ -79,7 +79,7 @@ var CC_E8 = MoveKnob8;
 var PAD_NOTE_MIN = MovePads[0];
 var MAX_PADS = 16;
 var COLOR_SLICE = BrightRed;    /* playable slice pad */
-var COLOR_PLAYING = White;      /* slice pad that is sounding */
+var COLOR_PLAYING = White;      /* slice pad that is selected or sounding */
 var COLOR_TARGET = PureBlue;    /* chop target */
 var COLOR_UNUSED = DarkGrey;
 
@@ -1043,7 +1043,7 @@ function updatePadLeds() {
     var ready = loadState === "ready";
     for (var i = 0; i < MAX_PADS; i++) {
         var color = COLOR_UNUSED;
-        if (ready && playing && i === playingSlice) color = COLOR_PLAYING;
+        if (ready && i < sliceCount && (i === selectedSlice || (playing && i === playingSlice))) color = COLOR_PLAYING;
         else if (ready && i < sliceCount) color = COLOR_SLICE;
         else if (ready && i === sliceCount) color = COLOR_TARGET;
         setPadColor(i, color);

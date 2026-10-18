@@ -36,7 +36,9 @@ let printed = [];
 g.print = (x, y, t) => { if (typeof t !== 'string') throw new Error('print non-string'); printed.push(t); };
 g.text_width = t => t.length * 5;
 const buttonLeds = {};
-g.move_midi_internal_send = m => { if (m[0] === 0x0b) buttonLeds[m[2]] = m[3]; return true; };
+const padLeds = {};
+g.move_midi_internal_send = m => { if (m[0] === 0x0b) buttonLeds[m[2]] = m[3]; if (m[0] === 0x09) padLeds[m[2]] = m[3]; return true; };
+const WHITE = 120, RED = 1, BLUE = 125;
 const lit = cc => buttonLeds[cc] > 0;
 const UNDO = 56, DELETE = 119, RECORD = 118, CAPTURE = 52, MUTE = 88;
 g.host_send_screenreader = t => log.push('SAY: ' + t);
@@ -96,6 +98,12 @@ check(!lit(UNDO) && !lit(DELETE) && lit(RECORD), 'one slice: only Record lit');
 dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.chop = 2; dsp.depth = 2; dsp.sel = 1;
 tick(2);
 check(lit(UNDO) && lit(DELETE) && lit(RECORD), 'three slices: Undo, Delete, Record lit');
+// The selected pad stays white while silent; the others are red, the target blue
+check(!dsp.playing && padLeds[69] === WHITE && padLeds[68] === RED && padLeds[70] === RED && padLeds[71] === BLUE,
+      'selected Pad 2 lit white while silent: ' + JSON.stringify([padLeds[68], padLeds[69], padLeds[70], padLeds[71]]));
+dsp.sel = 2; tick(1);
+check(padLeds[70] === WHITE && padLeds[69] === RED, 'white follows the selection');
+dsp.sel = 1; tick(1);
 
 // Zoom centers on the selected slice's start, even with the end marker active
 midi(0x90, 1, 127); midi(0x90, 1, 0);           // touch knob 2: end marker active

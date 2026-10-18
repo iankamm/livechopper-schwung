@@ -68,8 +68,9 @@ a Move drum rack preset or one WAV per slice.
   clip at full scale). The waveform is drawn at the gained level.
 - Choke: all pads choke each other by default, in chop mode and in the exported
   drum rack preset (supported: every pad gets the same chokeGroup).
-- Pad colors: playable slice pads are red, the pad that is currently playing
-  is white, the chop target is blue, unused slice pads are dim grey.
+- Pad colors: playable slice pads are red; the selected pad stays white
+  (and so does the one playing, if a chop moved playback elsewhere); the
+  chop target is blue, unused slice pads are dim grey.
 - Playback is one-shot by default: a pad plays its whole region and
   releasing it does not stop it. Pressing it again restarts the region.
   Mute toggles gated playback for all pads (Mute lit = one-shot, unlit =
