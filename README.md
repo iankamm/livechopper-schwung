@@ -1,6 +1,6 @@
 # LiveChopper for Schwung
 
-Chop a sample across your Ableton Move's pads by ear, while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, then export a Move drum rack
+Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, then export a Move drum rack
 preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 
 Status: early development.
@@ -12,19 +12,20 @@ Status: early development.
 | Red pad | Select and play slice |
 | Blue pad | Chop at the playhead |
 | Knob 1 / 2 | Slice start / end |
-| Knob 3 / 4 | Zoom / gain |
+| Knob 3 | Zoom |
+| Knob 4 | Gain |
 | Knob 5 / 6 / 7 | Attack / hold / decay |
-| Knob 8 / Shift+Knob 8 | Transpose / detune (±50 cents) |
-| Jog | Slice start |
+| Knob 8 / Shift+Knob 8 | Transpose / detune |
+| Jog wheel | Adjust slice start |
 | Left / Right | Previous / next slice |
 | Shift | Fine adjust |
-| Mute | One-shot (lit) / gated |
+| Mute | Toggle one-shot / gated |
 | Delete | Delete slice |
 | Undo / Shift+Undo | Undo / redo |
 | Record | Export menu |
-| Shift+Jog click | Tools menu (normalize: sets gain) |
+| Shift+Jog click | Tools menu |
 | Play | Play / stop Move's set |
-| Back | Keep for later / exit |
+| Back | Exit |
 
 Envelope, gain, transpose and detune apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
