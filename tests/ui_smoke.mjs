@@ -54,7 +54,7 @@ g.host_tool_file_path = '/data/UserData/UserLibrary/Samples/test loop.wav';
 const dsp = { frames: 441000, rate: 44100, playing: 0, pos: 0, starts: [0], ends: [441000], sel: 0,
   settings: '0 -1 50000 0', chop: 0, undo: 0, del: 0, depth: 0, redo: 0, redoDepth: 0,
   exportReq: 0, exportDone: 0, exportWritten: 0, uiState: '', filePath: '',
-  normGain: '0' };
+  normGain: '0', channels: '2', convReq: 0, convDone: 0, convStatus: 0 };
 const sets = [];
 let lastWave = null;
 let waveRequests = 0;   // [_, from, to, cols] of the last waveform request
@@ -68,6 +68,8 @@ g.host_module_get_param = k => {
   if (k === 'ui_state') return dsp.uiState;
   if (k === 'file_path') return dsp.filePath;
   if (k === 'normalize_gain') return dsp.normGain;
+  if (k === 'channels') return dsp.channels;
+  if (k === 'convert_result') return `${dsp.convReq} ${dsp.convDone} ${dsp.convStatus}`;
   if (k === 'export_result') return `${dsp.exportReq} ${dsp.exportDone} ${dsp.exportWritten}`;
   return null;
 };
@@ -75,6 +77,7 @@ const fakeSet = (k, v) => {
   sets.push(k + '=' + v);
   if (k === 'export_slices') dsp.exportReq++;
   if (k === 'ui_state') dsp.uiState = v;
+  if (k === 'convert_channels') dsp.convReq++;
   if (k === 'file_path') dsp.filePath = v;
   return true;
 };
@@ -460,17 +463,17 @@ g.init(); tick(1);
 check(sets.slice(mark).includes('file_path=' + g.host_tool_file_path), 'replaced DSP: file loaded again');
 delete g.host_tool_reconnect;
 
-// ---- Tools menu (Shift + jog click): Normalize audio / Back ----
+// ---- Tools menu (Shift + jog click): Normalize audio / Channels / Back ----
 tick(70);
 const tools = () => { midi(0xB0, 49, 127); click(); midi(0xB0, 49, 0); tick(1); };
 tools();
-check(printed.includes('Tools') && printed.includes('Normalize audio') && printed.includes('Back'), 'Shift + jog click opens Tools: ' + JSON.stringify(printed));
+check(printed.includes('Tools') && printed.includes('Normalize audio') && printed.includes('Channels') && printed.includes('Back'), 'Shift + jog click opens Tools: ' + JSON.stringify(printed));
 check(log.at(-1) === 'SAY: Tools, Normalize audio', 'Tools announced');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD), 'Tools: buttons dark');
 mark = sets.length;
 midi(0xB0, 71, 5); midi(0x90, 4, 127); midi(0xB0, 118, 127); tick(1);
 check(printed.includes('Tools') && !sets.slice(mark).some(s => !s.startsWith('ui_state=')), 'knobs and Record ignored in Tools');
-jog(1); click(); tick(1);
+jog(2); click(); tick(1);
 check(!printed.includes('Tools') && log.at(-1) === 'SAY: Closed', 'Back item closes Tools');
 tools(); midi(0xB0, 51, 127); tick(1);
 check(!printed.includes('Tools') && exits() === 2 && log.at(-1) === 'SAY: Closed', 'Back button closes Tools without the exit menu');
@@ -513,6 +516,71 @@ dsp.normGain = 'silent';
 tools(); click(); tick(1);
 check(printed.includes('Sample is silent') && gainSets().at(-1) === 'gain_db10=127' && log.at(-1) === 'SAY: Sample is silent, nothing to normalize',
       'silent sample: gain left alone');
+
+// ---- Tools > Channels: Mono (L+R) / Left only / Right only / Back ----
+tick(200);
+const channels = () => { tools(); jog(1); click(); tick(1); };
+channels();
+check(['Channels', 'Mono (L+R)', 'Left only', 'Right only', 'Back'].every(t => printed.includes(t)), 'Channels submenu: ' + JSON.stringify(printed));
+check(log.at(-1) === 'SAY: Channels, Mono (L+R)', 'Channels announced: ' + log.at(-1));
+check(!lit(RECORD), 'Channels: Record dark');
+midi(0xB0, 51, 127); tick(1);
+check(printed.includes('Tools') && printed.includes('Normalize audio') && log.at(-1) === 'SAY: Tools, Channels', 'Back goes up to Tools, on Channels');
+midi(0xB0, 51, 127); tick(1);
+check(!printed.includes('Tools') && exits() === 2, 'Back again closes Tools');
+channels(); jog(3); click(); tick(1);
+check(printed.includes('Tools'), 'the Back item goes up to Tools too');
+midi(0xB0, 51, 127); tick(1);
+
+// Each choice asks first, starting on No; No and Back cancel
+const sentConvert = () => sets.filter(x => x.startsWith('convert_channels='));
+for (const [steps, ask, mode] of [[0, 'Make mono?', 'mono'], [1, 'Keep left only?', 'left'], [2, 'Keep right only?', 'right']]) {
+  channels(); jog(steps); click(); tick(1);
+  check(printed.includes(ask) && printed.includes('Replaces the file') && printed.includes('Yes') && printed.includes('No'), `${mode}: asks "${ask}": ` + JSON.stringify(printed));
+  check(log.at(-1) === `SAY: ${ask} Replaces the file, No`, `${mode}: prompt announced on No: ` + log.at(-1));
+  click(); tick(1);
+  check(!printed.includes(ask) && sentConvert().length === 0 && log.at(-1) === 'SAY: Cancelled', `${mode}: No cancels`);
+}
+channels(); jog(1); click(); midi(0xB0, 51, 127); tick(1);
+check(sentConvert().length === 0 && exits() === 2 && log.at(-1) === 'SAY: Cancelled', 'Back in the prompt cancels');
+
+// Yes: the DSP rewrites the file; wait until it has swapped it in
+exportPreset();                                   // start from nothing unexported
+midi(0xB0, 51, 127); tick(1);
+check(!prompt(), 'nothing unexported before converting');
+midi(0xB0, 51, 127); tick(1);
+channels(); jog(1); click(); jog(-1); click(); tick(1);
+check(sentConvert().at(-1) === 'convert_channels=left', 'Yes sends left: ' + sentConvert().at(-1));
+check(printed.includes('Converting...') && !lit(RECORD), 'converting shown, Record dark');
+tools();
+check(log.at(-1) === 'SAY: Still converting' && !printed.includes('Tools'), 'Tools waits for the conversion');
+midi(0xB0, 118, 127); tick(1);
+check(!menu() && log.at(-1) === 'SAY: Still converting', 'Export waits for the conversion');
+const wavesBeforeConv = waveRequests;
+tick(5);
+check(printed.includes('Converting...'), 'still converting until the DSP is done');
+dsp.convDone = dsp.convReq; dsp.convStatus = 1; dsp.channels = '1'; tick(1);
+check(printed.includes('Left only') && log.at(-1) === 'SAY: Now left channel only', 'conversion done: ' + JSON.stringify(printed) + ' ' + log.at(-1));
+check(waveRequests > wavesBeforeConv, 'waveform re-read after converting');
+check(lit(RECORD), 'Record lit again');
+midi(0xB0, 51, 127); tick(1);
+check(prompt(), 'converting counts as unexported');
+midi(0xB0, 51, 127); tick(1);
+
+// Already 1 channel: says so without opening the submenu
+channels();
+check(!printed.includes('Mono (L+R)') && printed.includes('Already mono') && log.at(-1) === 'SAY: Sample is already mono', 'mono sample: Already mono');
+tick(200);
+
+// The other outcomes
+dsp.channels = '2';
+for (const [status, text] of [[2, 'Already mono'], [3, 'File is hard-linked'], [0, 'Convert failed']]) {
+  channels(); click(); jog(-1); click(); tick(1);
+  check(sentConvert().at(-1) === 'convert_channels=mono', 'Yes sends mono');
+  dsp.convDone = dsp.convReq; dsp.convStatus = status; tick(1);
+  check(printed.includes(text), `status ${status} shows "${text}": ` + JSON.stringify(printed));
+  tick(200);
+}
 
 // Gain is restored from the DSP's settings (resume); an old ui_state still restores zoom
 await freshUi('gainresume');

@@ -30,7 +30,7 @@ a Move drum rack preset or one WAV per slice.
 - Export menu on the Record button, like the waveform editor's: rename,
   export a Drum Preset, export Slices (one WAV per pad), or Cancel.
 - Undo the last chop or delete; Shift+Undo redoes it.
-- Tools menu on Shift + jog click: Normalize audio, Back.
+- Tools menu on Shift + jog click: Normalize audio, Channels, Back.
 - help.json and screen-reader announcements (chop made, pad selected, export
   done).
 
@@ -125,10 +125,28 @@ a Move drum rack preset or one WAV per slice.
   Voice_Gain (linear amplitude, 1.0 = 0 dB, -70 to +24 dB as on Move),
   all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).
-- Tools menu (Shift + jog click): Normalize audio / Back. Jog chooses, jog
-  click runs it, Back closes it. Not available while an export runs.
+- Tools menu (Shift + jog click): Normalize audio / Channels / Back. Jog
+  chooses, jog click runs it, Back closes it (from a submenu: back up to
+  Tools). Not available while an export or a conversion runs.
 - Normalize audio: sets Gain so the sample's peak is at 0 dBFS, at once (no
   prompt). The DSP finds the peak at the file's full precision when it loads
   it and reports the gain, rounded down to 0.1 dB so it never clips. Nothing
   is written; Knob 4 adjusts it from there. A silent file leaves Gain alone
   ("Sample is silent").
+- Channels: Mono (L+R) / Left only / Right only / Back, for a stereo (or
+  multichannel) sample; a 1-channel one just says "Already mono". Each asks
+  "Make mono?" / "Keep left only?" / "Keep right only?", "Replaces the
+  file", Yes / No starting on No (Back is No). Yes rewrites the sample in
+  place as a 1-channel WAV at its own format, bit depth and rate: the mean
+  of the channels, or the first or second channel. The DSP worker writes a
+  temp file next to it (keeping owner and permissions), loads it, and only
+  then renames it over the original, so a failure leaves the original and
+  the playing audio as they were; "Converting..." shows until the new audio
+  is playing. Other chunks (cue points, loops, LIST info) are kept;
+  per-channel ones (PEAK, chna) are dropped. A symlinked sample has its
+  target rewritten; one with other hard links is refused ("File is
+  hard-linked"). A file cut short (data chunk longer than the file)
+  converts the frames that are there, as it plays. Slices, undo history,
+  Gain and any voice playing are kept. It can't be undone, and presets
+  already exported from the sample play it converted too. It counts as
+  unexported work (exported slice WAVs no longer match).

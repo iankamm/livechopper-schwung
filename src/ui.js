@@ -34,7 +34,10 @@
  *   Back       - Menu: Keep for later (hide; resume from Tools) / Discard
  *                and exit / Cancel
  *   Shift+Jog click - Tools menu: Normalize audio (sets Gain so the
- *                sample's peak is at 0 dBFS; the file is not changed) / Back
+ *                sample's peak is at 0 dBFS; the file is not changed) /
+ *                Channels (Mono (L+R), Left only, Right only: asks first,
+ *                then rewrites the file as 1 channel, keeping the slices)
+ *                / Back
  */
 
 import {
@@ -190,10 +193,19 @@ var EXPORT_ACTIONS = ["Drum Preset", "Slices", "Cancel"];
 var sliceExport = null;     /* { seq, folder, version } while the DSP writes WAVs */
 var SLICE_EXPORT_TIMEOUT_TICKS = 3000;
 
-/* Tools menu (Shift + jog click) */
-var toolsMenu = false;
-var toolsIndex = 0;
-var TOOLS_ITEMS = ["Normalize audio", "Back"];
+/* List menus: Tools (Shift + jog click), its Channels submenu and the
+ * prompt before converting. { title, note, items, index, choose, back } */
+var menu = null;
+var TOOLS_ITEMS = ["Normalize audio", "Channels", "Back"];
+var CHANNEL_ITEMS = ["Mono (L+R)", "Left only", "Right only", "Back"];
+var CHANNEL_MODES = {
+    "Mono (L+R)": { mode: "mono", ask: "Make mono?", done: "Mono", say: "Now mono" },
+    "Left only": { mode: "left", ask: "Keep left only?", done: "Left only", say: "Now left channel only" },
+    "Right only": { mode: "right", ask: "Keep right only?", done: "Right only", say: "Now right channel only" }
+};
+var convertJob = null;      /* { seq, mode, ticks } while the DSP rewrites the file */
+var CONVERT_TIMEOUT_TICKS = 3000;
+var CONV_FAILED = 0, CONV_OK = 1, CONV_ALREADY_MONO = 2, CONV_LINKED = 3;   /* plugin.c */
 var lastSelectedSlice = -1;
 var lastPlayingSlice = -1;
 var buttonLedOn = {};        /* last on/off sent per button CC */
@@ -740,6 +752,10 @@ function openExportMenu() {
         announce("Still exporting");
         return;
     }
+    if (convertJob) {
+        announce("Still converting");
+        return;
+    }
     flushNudge();
     flushSettings();
     pollSlices();
@@ -807,42 +823,118 @@ function handleExportMenuCC(cc, value) {
 
 /* ============ Tools menu ============ */
 
-function openToolsMenu() {
+function openMenu(m) {
+    menu = m;
+    announce((m.say || m.title) + ", " + m.items[m.index]);
+}
+
+/* While a list menu is up: jog chooses, jog click confirms, Back closes it
+ * (or goes up a level). Everything else is ignored. */
+function handleMenuCC(cc, value) {
+    var m = menu;
+    if (cc === CC_JOG) {
+        var t = decodeDelta(value);
+        if (t === 0) return;
+        m.index = Math.max(0, Math.min(m.items.length - 1, m.index + (t > 0 ? 1 : -1)));
+        announce(m.items[m.index]);
+    } else if (cc === CC_JOG_CLICK && value > 0) {
+        menu = null;
+        m.choose(m.items[m.index]);
+    } else if (cc === CC_BACK && value > 0) {
+        menu = null;
+        if (m.back) m.back();
+        else announce("Closed");
+    }
+}
+
+function openToolsMenu(index) {
     if (loadState !== "ready" || sliceCount === 0) return;
     if (sliceExport) {
         announce("Still exporting");
         return;
     }
+    if (convertJob) {
+        announce("Still converting");
+        return;
+    }
     flushNudge();
     flushSettings();
     touchedKnob = -1;
-    toolsIndex = 0;
-    toolsMenu = true;
-    announce("Tools, " + TOOLS_ITEMS[toolsIndex]);
+    openMenu({ title: "Tools", items: TOOLS_ITEMS, index: index || 0, choose: toolsChoose });
 }
 
-function toolsChoose() {
-    toolsMenu = false;
-    if (TOOLS_ITEMS[toolsIndex] === "Normalize audio") {
-        normalizeGain();
-    } else {
-        announce("Closed");
+function toolsChoose(item) {
+    if (item === "Normalize audio") normalizeGain();
+    else if (item === "Channels") openChannelsMenu();
+    else announce("Closed");
+}
+
+function openChannelsMenu() {
+    if (host_module_get_param("channels") === "1") {
+        showMessage("Already mono", EXPORT_MSG_TICKS);
+        announce("Sample is already mono");
+        return;
     }
+    openMenu({ title: "Channels", items: CHANNEL_ITEMS, index: 0, choose: channelsChoose,
+               back: function() { openToolsMenu(TOOLS_ITEMS.indexOf("Channels")); } });
 }
 
-/* While the Tools menu is up: jog chooses, jog click confirms, Back
- * closes it. Everything else is ignored. */
-function handleToolsCC(cc, value) {
-    if (cc === CC_JOG) {
-        var t = decodeDelta(value);
-        if (t === 0) return;
-        toolsIndex = Math.max(0, Math.min(TOOLS_ITEMS.length - 1, toolsIndex + (t > 0 ? 1 : -1)));
-        announce(TOOLS_ITEMS[toolsIndex]);
-    } else if (cc === CC_JOG_CLICK && value > 0) {
-        toolsChoose();
-    } else if (cc === CC_BACK && value > 0) {
-        toolsMenu = false;
-        announce("Closed");
+/* Ask first: it replaces the file. Starts on No. */
+function channelsChoose(item) {
+    var c = CHANNEL_MODES[item];
+    if (!c) {
+        openToolsMenu(TOOLS_ITEMS.indexOf("Channels"));
+        return;
+    }
+    openMenu({ title: c.ask, note: "Replaces the file", say: c.ask + " Replaces the file",
+               items: ["Yes", "No"], index: 1,
+               choose: function(answer) {
+                   if (answer === "Yes") startConvert(c);
+                   else announce("Cancelled");
+               },
+               back: function() { announce("Cancelled"); } });
+}
+
+function readConvertResult() {
+    var p = (host_module_get_param("convert_result") || "").split(" ");
+    return { req: parseInt(p[0], 10) || 0, done: parseInt(p[1], 10) || 0, status: parseInt(p[2], 10) || 0 };
+}
+
+/* Ask the DSP to rewrite the sample as 1 channel. It swaps the new audio
+ * in under the same slices; pollConvert reports the result. */
+function startConvert(c) {
+    var before = readConvertResult().req;
+    setParamNow("convert_channels", c.mode);
+    convertJob = { seq: before + 1, c: c, ticks: 0 };
+    showMessage("Converting...", CONVERT_TIMEOUT_TICKS);
+    announce("Converting");
+}
+
+function pollConvert() {
+    if (!convertJob) return;
+    var job = convertJob;
+    var r = readConvertResult();
+    /* The DSP marks it done once the new audio is playing. */
+    if (r.done < job.seq) {
+        if (++job.ticks > CONVERT_TIMEOUT_TICKS) {
+            convertJob = null;
+            exportFailed("Convert failed", "Convert failed, timed out");
+        }
+        return;
+    }
+    convertJob = null;
+    debugLog("convert " + job.c.mode + " " + filePath + " status=" + r.status);
+    if (r.status === CONV_OK) {
+        waveKey = "";           /* redraw the new waveform */
+        editVersion++;          /* exported slices no longer match the file */
+        showMessage(job.c.done, EXPORT_MSG_TICKS);
+        announce(job.c.say);
+    } else if (r.status === CONV_ALREADY_MONO) {
+        exportFailed("Already mono", "Sample is already mono");
+    } else if (r.status === CONV_LINKED) {
+        exportFailed("File is hard-linked", "Convert failed, the file has other hard links");
+    } else {
+        exportFailed("Convert failed");
     }
 }
 
@@ -1025,10 +1117,10 @@ function setButtonLit(cc, on) {
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
-    var editing = !confirmExit && !exportMenu && !toolsMenu;
+    var editing = !confirmExit && !exportMenu && !menu;
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
-    setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport);
+    setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport && !convertJob);
     setButtonLit(CC_MUTE, ready && editing && !gated);
 }
 
@@ -1178,11 +1270,17 @@ function drawExportMenu() {
     }
 }
 
-/* Title, a rule, then the rows with the chosen one highlighted. */
-function drawMenu(title, rows, index) {
+/* Title, a rule, an optional note line, then the rows with the chosen one
+ * highlighted. */
+function drawMenu(m) {
+    var title = m.title, rows = m.items, index = m.index;
     print(Math.floor((SCREEN_W - text_width(title)) / 2), 2, title, 1);
     draw_line(0, 12, SCREEN_W - 1, 12, 1);
     var top = 15;
+    if (m.note) {
+        print(2, top + 1, m.note, 1);
+        top += 14;
+    }
     for (var i = 0; i < rows.length; i++) {
         var y = top + i * 12;
         if (i === index) {
@@ -1204,8 +1302,8 @@ function draw() {
         drawExportMenu();
         return;
     }
-    if (toolsMenu) {
-        drawMenu("Tools", TOOLS_ITEMS, toolsIndex);
+    if (menu) {
+        drawMenu(menu);
         return;
     }
     if (loadState === "ready" && sliceCount > 0) {
@@ -1250,6 +1348,7 @@ globalThis.tick = function() {
     pollStatus();
     pollSlices();
     pollSliceExport();
+    pollConvert();
     if (!countsSynced) {
         /* A resumed DSP has counted edits already: adopt the counts without
          * announcing them or marking them unexported. */
@@ -1326,7 +1425,7 @@ globalThis.onMidiMessageInternal = function(data) {
     /* Knob touch: notes 0-7, on = velocity 64+, off = lower or note-off.
      * Pads are handled by the DSP on the audio thread; nothing to do here. */
     if (status === 0x90 || status === 0x80) {
-        if (d1 <= 7 && !confirmExit && !exportMenu && !toolsMenu) onKnobTouch(d1, status === 0x90 && d2 >= 64);
+        if (d1 <= 7 && !confirmExit && !exportMenu && !menu) onKnobTouch(d1, status === 0x90 && d2 >= 64);
         return;
     }
     if (status !== 0xB0) return;
@@ -1337,8 +1436,8 @@ globalThis.onMidiMessageInternal = function(data) {
         handleConfirmCC(d1, d2);
     } else if (exportMenu) {
         handleExportMenuCC(d1, d2);
-    } else if (toolsMenu) {
-        handleToolsCC(d1, d2);
+    } else if (menu) {
+        handleMenuCC(d1, d2);
     } else if (d1 === CC_JOG_CLICK && d2 > 0 && shiftHeld) {
         openToolsMenu();
     } else if (d1 === CC_BACK && d2 > 0) {

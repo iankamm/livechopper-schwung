@@ -68,6 +68,18 @@
  * click. The loader also finds the file's peak at full precision, and
  * get_param("normalize_gain") is the gain that puts it at 0 dBFS, so
  * Normalize is just a gain setting. Slice export applies the gain.
+ *
+ * Channels: set_param("convert_channels", "mono" | "left" | "right") asks
+ * the worker to rewrite the playing file as a 1-channel WAV (the mean of
+ * the channels, or just the first or second) in its own format and bit
+ * depth, keeping its other chunks. It writes "<file>.convert-tmp" next to
+ * it with the original's owner and permissions, loads that, and only then
+ * renames it over the original, so a failure leaves the sample and the
+ * playing audio as they were. The buffer is published with conv_seq set:
+ * the frame count is the same, so the audio thread swaps it in without
+ * touching slices, undo or the voice (and status never says "loading"),
+ * and only then marks the request done. A conversion of a file that was
+ * replaced meanwhile is dropped. get_param("convert_result") reports it.
  */
 
 #define _GNU_SOURCE
@@ -82,6 +94,8 @@
 #include <math.h>
 #include <pwd.h>
 #include <unistd.h>
+#include <limits.h>
+#include <sys/stat.h>
 
 #include "plugin_api_v1.h"
 
@@ -120,6 +134,15 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define NORM_GAIN_SILENT (-32768)   /* normalize_gain of an all-zero file */
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
 
+/* convert_channels modes, and convert_result status */
+enum { CONV_MONO_MIX = 0, CONV_LEFT = 1, CONV_RIGHT = 2 };
+enum {
+    CONV_FAILED = 0,
+    CONV_OK = 1,
+    CONV_ALREADY_MONO = 2,  /* 1-channel file: nothing written */
+    CONV_LINKED = 3         /* the file has other hard links: nothing written */
+};
+
 enum {
     LOAD_NONE = 0,
     LOAD_BUSY = 1,
@@ -134,6 +157,8 @@ typedef struct {
     uint8_t *peaks[PEAK_LEVELS];  /* 0-255, max of |L| and |R| per block */
     int peak_len[PEAK_LEVELS];
     int norm_gain_db10; /* gain putting the peak at 0 dBFS, or NORM_GAIN_SILENT */
+    int channels;       /* in the file */
+    unsigned conv_seq;  /* nonzero: the converted current file, for request conv_seq */
 } sample_buf_t;
 
 /* Everything a chop changes, so undo can restore it whole. */
@@ -210,6 +235,13 @@ typedef struct {
     atomic_uint export_req_seq;
     atomic_uint export_done_seq;
     atomic_int export_written;  /* slices written by the last finished export */
+
+    /* --- channel conversion: audio thread requests, worker writes and loads --- */
+    char conv_src[PATH_MAX_LEN];
+    int conv_mode;
+    atomic_uint conv_req_seq;
+    atomic_uint conv_done_seq;
+    atomic_int conv_status;
 
     /* --- worker --- */
     pthread_t worker;
@@ -432,6 +464,7 @@ static sample_buf_t *load_wav(const char *path, char *err, size_t err_len) {
     s->data = out;
     s->frames = (int)done;
     s->sample_rate = rate;
+    s->channels = channels;
     s->norm_gain_db10 = normalize_gain_db10(peak, fmt, bits);
     return s;
 }
@@ -603,6 +636,202 @@ static int write_slices(const char *src, const char *prefix,
     return written;
 }
 
+/* Chunks with an entry per channel: dropped from a 1-channel copy, where
+ * they would be wrong. */
+static int per_channel_chunk(const uint8_t *id) {
+    return memcmp(id, "PEAK", 4) == 0 || memcmp(id, "chna", 4) == 0;
+}
+
+/* Copy n bytes from f to o. Returns 1 on success. Worker only. */
+static int copy_bytes(FILE *f, FILE *o, uint8_t *buf, uint32_t n) {
+    while (n > 0) {
+        size_t want = n < READ_CHUNK_BYTES ? n : READ_CHUNK_BYTES;
+        if (fread(buf, 1, want, f) != want || fwrite(buf, 1, want, o) != want) return 0;
+        n -= (uint32_t)want;
+    }
+    return 1;
+}
+
+/* Write src as a 1-channel WAV dest in the same format: the mean of all
+ * channels (CONV_MONO_MIX), or channel 0 or 1. Every other chunk (cue
+ * points, loops, LIST and so on) is copied as it is, except per-channel
+ * ones. A data chunk that runs past the end of the file is cut to the
+ * frames there, as load_wav does. Returns a CONV_* status. Fails rather
+ * than overwrite dest. Worker only. */
+static int write_channels(const char *src, const char *dest, int mode) {
+    FILE *f = fopen(src, "rb");
+    if (!f) return CONV_FAILED;
+    struct stat fst;
+    long size = fstat(fileno(f), &fst) == 0 ? (long)fst.st_size : 0;
+    uint8_t fmt[FMT_MAX_BYTES];
+    uint32_t fmt_len = 0, data_bytes = 0;
+    long data_off = -1;
+    read_wav_layout(f, fmt, &fmt_len, &data_off, &data_bytes);
+    int tag = fmt_len ? rd_u16(fmt) : 0;
+    int ext = tag == 0xFFFE;
+    int channels = fmt_len ? rd_u16(fmt + 2) : 0;
+    int bits = fmt_len ? rd_u16(fmt + 14) : 0;
+    if (ext && fmt_len >= 26) tag = rd_u16(fmt + 24);   /* EXTENSIBLE subformat */
+    int ok_fmt = (tag == 1 && (bits == 8 || bits == 16 || bits == 24 || bits == 32)) ||
+                 (tag == 3 && (bits == 32 || bits == 64));
+    int bps = bits / 8;
+    int block_align = fmt_len ? rd_u16(fmt + 12) : 0;
+    if (ok_fmt && data_off >= 0 && channels == 1) {
+        fclose(f);
+        return CONV_ALREADY_MONO;
+    }
+    uint8_t *in = (uint8_t *)malloc(READ_CHUNK_BYTES);
+    uint8_t *out = (uint8_t *)malloc(READ_CHUNK_BYTES);
+    if (!ok_fmt || data_off < 0 || channels < 2 || block_align != channels * bps || !in || !out) {
+        free(in); free(out);
+        fclose(f);
+        return CONV_FAILED;
+    }
+    long frames = (long)(data_bytes / (uint32_t)block_align);
+    long in_file = (size - data_off) / block_align;
+    int truncated = frames > in_file;
+    if (truncated) frames = in_file;
+    if (frames <= 0) {
+        free(in); free(out);
+        fclose(f);
+        return CONV_FAILED;
+    }
+    uint32_t bytes = (uint32_t)(frames * bps);
+
+    /* Same fmt chunk, one channel. */
+    uint32_t rate = rd_u32(fmt + 4);
+    wr_u16(fmt + 2, 1);
+    wr_u32(fmt + 8, rate * (uint32_t)bps);
+    wr_u16(fmt + 12, (uint32_t)bps);
+    if (ext && fmt_len >= 24) wr_u32(fmt + 20, 0x4);     /* SPEAKER_FRONT_CENTER */
+
+    FILE *o = fopen(dest, "wbx");
+    if (!o) {
+        free(in); free(out);
+        fclose(f);
+        return CONV_FAILED;
+    }
+    /* RIFF size is filled in at the end. */
+    uint8_t h[12];
+    memcpy(h, "RIFF", 4);
+    wr_u32(h + 4, 0);
+    memcpy(h + 8, "WAVE", 4);
+    int ok = fwrite(h, 1, 12, o) == 12;
+    int wrote_fmt = 0, wrote_data = 0;
+    long pos = 12;
+    while (ok && (!wrote_data || !truncated)) {
+        uint8_t ch[8];
+        if (fseek(f, pos, SEEK_SET) != 0 || fread(ch, 1, 8, f) != 8) break;
+        uint32_t len = rd_u32(ch + 4);
+        long body = pos + 8;
+        pos = body + (long)len + (long)(len & 1);
+        if (body == data_off) {
+            uint8_t dh[8];
+            memcpy(dh, "data", 4);
+            wr_u32(dh + 4, bytes);
+            ok = wrote_fmt && fwrite(dh, 1, 8, o) == 8;
+            int pick = mode == CONV_RIGHT ? 1 : 0;
+            long per_chunk = READ_CHUNK_BYTES / block_align;
+            long left = frames;
+            while (ok && left > 0) {
+                long n = left < per_chunk ? left : per_chunk;
+                ok = fread(in, (size_t)block_align, (size_t)n, f) == (size_t)n;
+                for (long i = 0; ok && i < n; i++) {
+                    const uint8_t *fp = in + i * block_align;
+                    double v;
+                    if (mode == CONV_MONO_MIX) {
+                        v = 0.0;
+                        for (int c = 0; c < channels; c++) v += read_native(fp + c * bps, tag, bits);
+                        v /= channels;
+                    } else {
+                        v = read_native(fp + pick * bps, tag, bits);
+                    }
+                    write_native(out + i * bps, v, tag, bits);
+                }
+                ok = ok && fwrite(out, (size_t)bps, (size_t)n, o) == (size_t)n;
+                left -= n;
+            }
+            if (ok && (bytes & 1)) ok = fputc(0, o) != EOF;
+            wrote_data = 1;
+        } else if (memcmp(ch, "fmt ", 4) == 0) {
+            if (wrote_fmt) continue;
+            uint8_t fh[8];
+            memcpy(fh, "fmt ", 4);
+            wr_u32(fh + 4, fmt_len);
+            ok = fwrite(fh, 1, 8, o) == 8 && fwrite(fmt, 1, fmt_len, o) == fmt_len &&
+                 (!(fmt_len & 1) || fputc(0, o) != EOF);
+            wrote_fmt = 1;
+        } else if (body + (long)len > size) {
+            break;                  /* runs past the end of the file: drop it */
+        } else if (!per_channel_chunk(ch)) {
+            ok = fwrite(ch, 1, 8, o) == 8 && copy_bytes(f, o, in, len) &&
+                 (!(len & 1) || fputc(0, o) != EOF);
+        }
+    }
+    long total = ftell(o);
+    ok = ok && wrote_data && total > 8 && total - 8 <= (long)UINT32_MAX;
+    if (ok) {
+        wr_u32(h + 4, (uint32_t)(total - 8));
+        ok = fseek(o, 4, SEEK_SET) == 0 && fwrite(h + 4, 1, 4, o) == 4;
+    }
+    if (fclose(o) != 0) ok = 0;
+    free(in); free(out);
+    fclose(f);
+    if (!ok) {
+        remove(dest);
+        return CONV_FAILED;
+    }
+    return CONV_OK;
+}
+
+#ifdef LIVE_CHOPPER_TEST
+static int test_fail_convert_load;  /* tests: the converted file won't load */
+#endif
+
+/* Rewrite the WAV at src as 1 channel (see write_channels) and load it
+ * into *out. A symlink's target is rewritten, keeping the link. The new
+ * file is written next to the original as "<file>.convert-tmp", given its
+ * owner and permissions, and loaded before it is renamed over the
+ * original, so on any failure the original is left as it was and *out is
+ * NULL. A file with other hard links is refused: renaming would split it
+ * from them. Returns a CONV_* status. Worker only. */
+static int convert_file(const char *src, int mode, sample_buf_t **out) {
+    *out = NULL;
+    char real[PATH_MAX], tmp[PATH_MAX];
+    struct stat st;
+    if (!realpath(src, real) || stat(real, &st) != 0) return CONV_FAILED;
+    if (snprintf(tmp, sizeof(tmp), "%s.convert-tmp", real) >= (int)sizeof(tmp)) return CONV_FAILED;
+    remove(tmp);                    /* left over from a crash */
+    int status = write_channels(real, tmp, mode);
+    if (status != CONV_OK) return status;
+    if (st.st_nlink > 1) {
+        remove(tmp);
+        return CONV_LINKED;
+    }
+    if (chown(tmp, st.st_uid, st.st_gid) != 0) { /* best effort */ }
+    chmod(tmp, st.st_mode & 07777);
+    char err[ERROR_MAX_LEN] = "";
+    sample_buf_t *s = load_wav(tmp, err, sizeof(err));
+#ifdef LIVE_CHOPPER_TEST
+    if (test_fail_convert_load) {
+        free_sample(s);
+        s = NULL;
+    }
+#endif
+    if (s && !build_peaks(s)) {
+        free_sample(s);
+        s = NULL;
+    }
+    if (!s || rename(tmp, real) != 0) {
+        free_sample(s);
+        remove(tmp);
+        return CONV_FAILED;
+    }
+    memcpy(s->path, src, PATH_MAX_LEN);
+    *out = s;
+    return CONV_OK;
+}
+
 static void worker_demote(void) {
     struct sched_param sp = { .sched_priority = 0 };
     sched_setscheduler(0, SCHED_OTHER, &sp);
@@ -679,6 +908,29 @@ static void *worker_main(void *arg) {
             }
         }
 
+        /* Converting waits for any loaded buffer to be taken first, since it
+         * publishes one of its own. */
+        unsigned cseq = atomic_load_explicit(&inst->conv_req_seq, memory_order_acquire);
+        if (cseq != atomic_load(&inst->conv_done_seq) && atomic_load(&inst->incoming) == NULL) {
+            char src[PATH_MAX_LEN];
+            memcpy(src, inst->conv_src, PATH_MAX_LEN);
+            int mode = inst->conv_mode;
+            /* A newer request landed mid-copy: take it next time round. */
+            if (atomic_load_explicit(&inst->conv_req_seq, memory_order_acquire) == cseq) {
+                src[PATH_MAX_LEN - 1] = '\0';
+                sample_buf_t *s = NULL;
+                int status = convert_file(src, mode, &s);
+                atomic_store(&inst->conv_status, status);
+                if (s) {
+                    s->conv_seq = cseq;     /* done once the audio thread takes it */
+                    atomic_store(&inst->incoming, s);
+                } else {
+                    atomic_store_explicit(&inst->conv_done_seq, cseq, memory_order_release);
+                }
+                continue;
+            }
+        }
+
         struct timespec ts = { 0, WORKER_POLL_NS };
         nanosleep(&ts, NULL);
     }
@@ -689,14 +941,39 @@ static void *worker_main(void *arg) {
  * Playback (audio thread)
  * ============================================================================ */
 
+enum { ADOPT_LOAD, ADOPT_SWAP, ADOPT_DROP };
+
+/* What taking s does: a converted copy of the current file normally has
+ * the same frames and goes in under the slices, undo and the voice
+ * (SWAP); one of a file that has since been replaced is thrown away
+ * (DROP); anything else starts over (LOAD). Audio thread only. */
+static int adopt_kind(const live_chopper_t *inst, const sample_buf_t *s) {
+    const sample_buf_t *c = inst->current;
+    if (!s->conv_seq) return ADOPT_LOAD;
+    if (!c || strcmp(s->path, c->path) != 0) return ADOPT_DROP;
+    return s->frames == c->frames ? ADOPT_SWAP : ADOPT_LOAD;
+}
+
 /* Take a newly loaded buffer if the worker has published one and the
  * previous retired buffer has been collected. */
 static void adopt_incoming(live_chopper_t *inst) {
-    if (atomic_load(&inst->incoming) == NULL || atomic_load(&inst->retired) != NULL) return;
-    sample_buf_t *s = atomic_exchange(&inst->incoming, NULL);
-    if (!s) return;
+    sample_buf_t *s = atomic_load(&inst->incoming);
+    if (!s || atomic_load(&inst->retired) != NULL) return;
+    int kind = adopt_kind(inst, s);
+    /* Mark a conversion done before the worker can see the slot free, or
+     * it would run the same request again. */
+    if (s->conv_seq) atomic_store_explicit(&inst->conv_done_seq, s->conv_seq, memory_order_release);
+    atomic_store(&inst->incoming, NULL);
+    if (kind == ADOPT_DROP) {
+        atomic_store(&inst->retired, s);
+        return;
+    }
     sample_buf_t *old = inst->current;
     inst->current = s;
+    if (kind == ADOPT_SWAP) {
+        atomic_store(&inst->retired, old);
+        return;
+    }
     inst->playing = 0;
     inst->tail_active = 0;
     inst->playing_slice = -1;
@@ -1046,6 +1323,9 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     atomic_init(&inst->export_req_seq, 0);
     atomic_init(&inst->export_done_seq, 0);
     atomic_init(&inst->export_written, 0);
+    atomic_init(&inst->conv_req_seq, 0);
+    atomic_init(&inst->conv_done_seq, 0);
+    atomic_init(&inst->conv_status, CONV_FAILED);
     inst->playing_slice = -1;
     inst->gate_note = -1;
     inst->release_pos = -1;
@@ -1203,6 +1483,17 @@ static void set_param(void *instance, const char *key, const char *val) {
         atomic_fetch_add_explicit(&inst->export_req_seq, 1, memory_order_release);
         return;
     }
+    if (strcmp(key, "convert_channels") == 0) {
+        /* "mono" | "left" | "right": the worker rewrites the file as 1 channel */
+        if (!inst->current) return;
+        int mode = strcmp(val, "left") == 0 ? CONV_LEFT : strcmp(val, "right") == 0 ? CONV_RIGHT :
+                   strcmp(val, "mono") == 0 ? CONV_MONO_MIX : -1;
+        if (mode < 0) return;
+        memcpy(inst->conv_src, inst->current->path, PATH_MAX_LEN);
+        inst->conv_mode = mode;
+        atomic_fetch_add_explicit(&inst->conv_req_seq, 1, memory_order_release);
+        return;
+    }
     if (strcmp(key, "gain_db10") == 0) {
         const char *p = val;
         set_gain(inst, parse_int(&p));
@@ -1223,6 +1514,16 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
     if (strcmp(key, "file_path") == 0) {
         return snprintf(buf, (size_t)buf_len, "%s", inst->req_path);
     }
+    if (strcmp(key, "channels") == 0) {
+        if (!inst->current) return -1;
+        return snprintf(buf, (size_t)buf_len, "%d", inst->current->channels);
+    }
+    if (strcmp(key, "convert_result") == 0) {
+        /* "<requested seq> <finished seq> <status>" */
+        return snprintf(buf, (size_t)buf_len, "%u %u %d",
+                        atomic_load(&inst->conv_req_seq), atomic_load(&inst->conv_done_seq),
+                        atomic_load(&inst->conv_status));
+    }
     if (strcmp(key, "normalize_gain") == 0) {
         /* Gain (tenths of a dB) that puts the peak at 0 dBFS, or "silent" */
         if (!inst->current) return -1;
@@ -1235,7 +1536,9 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
         int ls = atomic_load(&inst->load_state);
         sample_buf_t *s = inst->current;
         const char *state = "none";
-        if (ls == LOAD_BUSY || atomic_load(&inst->incoming)) state = "loading";
+        sample_buf_t *in = atomic_load(&inst->incoming);
+        /* A converted copy swapped in under the slices is not a load. */
+        if (ls == LOAD_BUSY || (in && adopt_kind(inst, in) == ADOPT_LOAD)) state = "loading";
         else if (ls == LOAD_FAILED) state = "error";
         else if (s) state = "ready";
         return snprintf(buf, (size_t)buf_len, "%s %d %d %d %d", state,

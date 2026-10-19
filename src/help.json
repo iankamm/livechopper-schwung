@@ -152,6 +152,15 @@
         " is not changed;",
         " Knob 4 adjusts it",
         " from there.",
+        "Channels: make a",
+        " stereo sample",
+        " Mono (L+R), Left",
+        " only or Right",
+        " only. Asks first,",
+        " then replaces the",
+        " file with a",
+        " 1-channel one.",
+        " Slices are kept.",
         "Back: close"
       ]
     }

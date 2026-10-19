@@ -5,6 +5,7 @@
  *   gcc -std=c11 -g -fsanitize=address,undefined -Isrc/dsp \
  *       tests/dsp_test.c -o build/dsp_test -lm -lpthread && build/dsp_test
  */
+#define LIVE_CHOPPER_TEST
 #include "../src/dsp/plugin.c"
 
 #include <math.h>
@@ -119,6 +120,27 @@ static void *load(const char *path) {
     }
     return inst;
 }
+
+/* Ask for a channel conversion and wait until it is done (swapped in, when
+ * it worked). Returns the status. */
+static int convert(void *inst, const char *mode) {
+    char res[64];
+    unsigned req = 0, r = 0, d = 0;
+    int status = -1;
+    get(inst, "convert_result", res, sizeof res);
+    sscanf(res, "%u", &req);
+    param(inst, "convert_channels", mode);
+    for (int t = 0; t < 400; t++) {
+        render(inst, 1);
+        get(inst, "convert_result", res, sizeof res);
+        sscanf(res, "%u %u %d", &r, &d, &status);
+        if (d == req + 1) return status;
+        usleep(5000);
+    }
+    return -1;
+}
+
+static int exists(const char *path) { return access(path, F_OK) == 0; }
 
 /* Slices as "count:s-e,s-e,..." */
 static const char *slices(void *inst) {
@@ -579,6 +601,275 @@ int main(void) {
             double lsb = fmt == 3 ? 1e-9 : 1.0 / (1 << (bits - 1));
             CHECK(db && dl == sl && fabs(low - 0.25 * pow(10, -3.5)) <= lsb, "%s: -70 dB export peaks at %g", cases[k].src, low);
             free(db);
+            api->destroy_instance(inst);
+        }
+    }
+
+    /* ---- Channels: rewrite as 1 channel (mean, left or right) in place ---- */
+    {
+        struct { const char *path; int bits, fmt; } fmts[] = {
+            { "build/c16.wav", 16, 1 }, { "build/c24.wav", 24, 1 }, { "build/cf32.wav", 32, 3 },
+        };
+        const char *modes[] = { "mono", "left", "right" };
+        for (int k = 0; k < 3; k++) {
+            for (int m = 0; m < 3; m++) {
+                const char *path = fmts[k].path;
+                int bits = fmts[k].bits, fmt = fmts[k].fmt, bps = bits / 8;
+                write_sine(path, 20000, 2, bits, fmt, 0.5);  /* L = sin(x), R = sin(x + 1) */
+                chmod(path, 0640);
+                long ol = 0;
+                uint8_t *ob = read_file(path, &ol);
+                inst = load(path);
+                note(inst, 68); render(inst, 40); note(inst, 69);     /* chop: 2 slices */
+                char before[128];
+                snprintf(before, sizeof before, "%s", slices(inst));
+                int depth = field(inst, F_UNDO_DEPTH);
+                note(inst, 68); render(inst, 2);                      /* playing through the swap */
+                int status = convert(inst, modes[m]);
+                CHECK(status == CONV_OK, "%s %s: converted (status %d)", path, modes[m], status);
+                long nl = 0;
+                uint8_t *nb = read_file(path, &nl);
+                CHECK(nb && nl == 44 + 20000L * bps, "%s %s: 1-channel size %ld", path, modes[m], nl);
+                if (ob && nb && nl == 44 + 20000L * bps) {
+                    CHECK(rd_u16(nb + 22) == 1 && rd_u16(nb + 32) == bps && rd_u32(nb + 28) == 44100u * (uint32_t)bps &&
+                          rd_u32(nb + 40) == 20000u * (uint32_t)bps && rd_u32(nb + 4) == (uint32_t)(nl - 8),
+                          "%s %s: header says 1 channel", path, modes[m]);
+                    CHECK(rd_u16(nb + 20) == fmt && rd_u16(nb + 34) == bits && rd_u32(nb + 24) == 44100, "%s %s: format kept", path, modes[m]);
+                    double worst = 0, lsb = fmt == 3 ? 1e-6 : 1.0 / (1 << (bits - 1));
+                    for (long i = 0; i < 20000; i++) {
+                        double l = read_native(ob + 44 + i * 2 * bps, fmt, bits);
+                        double r = read_native(ob + 44 + i * 2 * bps + bps, fmt, bits);
+                        double want = m == 0 ? (l + r) / 2 : m == 1 ? l : r;
+                        double e = fabs(read_native(nb + 44 + i * bps, fmt, bits) - want);
+                        if (e > worst) worst = e;
+                    }
+                    CHECK(worst <= lsb, "%s %s: samples are the %s (worst error %g)", path, modes[m], modes[m], worst);
+                }
+                free(ob); free(nb);
+                struct stat st;
+                CHECK(stat(path, &st) == 0 && (st.st_mode & 0777) == 0640, "%s %s: permissions kept", path, modes[m]);
+                char tmp[600], ch[16];
+                snprintf(tmp, sizeof tmp, "%s.convert-tmp", path);
+                CHECK(!exists(tmp), "%s %s: no temp file left", path, modes[m]);
+                CHECK(strcmp(before, slices(inst)) == 0, "%s %s: slices kept (%s -> %s)", path, modes[m], before, slices(inst));
+                CHECK(field(inst, F_UNDO_DEPTH) == depth, "%s %s: undo history kept", path, modes[m]);
+                CHECK(field(inst, F_PLAYING) == 0, "%s %s: the voice keeps playing", path, modes[m]);
+                get(inst, "channels", ch, sizeof ch);
+                CHECK(strcmp(ch, "1") == 0, "%s %s: now 1 channel (%s)", path, modes[m], ch);
+                if (k == 0) {
+                    /* Both outputs now play the one channel */
+                    until_silent(inst);
+                    note(inst, 68);
+                    api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                    double x = 20 * 0.05, l = 0.5 * sin(x), r = 0.5 * sin(x + 1);
+                    int16_t want = (int16_t)lrint(32768 * (m == 0 ? (l + r) / 2 : m == 1 ? l : r));
+                    CHECK(out[40] == out[41] && abs(out[40] - want) <= 1, "%s: playback is the %s on both sides (%d %d, want %d)", path, modes[m], out[40], out[41], want);
+                }
+                /* Already 1 channel: nothing written */
+                struct stat st2;
+                stat(path, &st);
+                CHECK(convert(inst, "left") == CONV_ALREADY_MONO, "%s %s: then already mono", path, modes[m]);
+                CHECK(stat(path, &st2) == 0 && st2.st_ino == st.st_ino, "%s %s: mono file left alone", path, modes[m]);
+                api->destroy_instance(inst);
+            }
+        }
+
+        /* WAVE_FORMAT_EXTENSIBLE stereo: the copy says centre */
+        FILE *ef = fopen("build/cext.wav", "wb");
+        int frames = 1000, data = frames * 4;
+        fwrite("RIFF", 1, 4, ef); wr32(ef, 4 + 8 + 40 + 8 + data); fwrite("WAVE", 1, 4, ef);
+        fwrite("fmt ", 1, 4, ef); wr32(ef, 40); wr16(ef, 0xFFFE); wr16(ef, 2);
+        wr32(ef, 44100); wr32(ef, 44100 * 4); wr16(ef, 4); wr16(ef, 16);
+        wr16(ef, 22); wr16(ef, 16); wr32(ef, 0x3);                 /* cbSize, valid bits, FL|FR */
+        wr16(ef, 1); wr16(ef, 0); wr32(ef, 0x00100000); wr32(ef, 0xAA000080); wr32(ef, 0x719B3800); /* PCM GUID */
+        fwrite("data", 1, 4, ef); wr32(ef, data);
+        for (int i = 0; i < frames; i++) { wr16(ef, 1000); wr16(ef, 3000); }
+        fclose(ef);
+        inst = load("build/cext.wav");
+        CHECK(convert(inst, "mono") == CONV_OK, "extensible stereo converts");
+        long el = 0;
+        uint8_t *eb = read_file("build/cext.wav", &el);
+        CHECK(eb && el == 12 + 8 + 40 + 8 + frames * 2 && rd_u16(eb + 20) == 0xFFFE && rd_u16(eb + 22) == 1 &&
+              rd_u16(eb + 32) == 2 && rd_u32(eb + 40) == 0x4 && (int16_t)rd_u16(eb + 68) == 2000,
+              "extensible: 1 channel, centre mask, mean sample (%ld bytes)", el);
+        free(eb);
+        api->destroy_instance(inst);
+
+        /* A mono source is left alone */
+        write_sine("build/cmono.wav", 1000, 1, 16, 1, 0.5);
+        inst = load("build/cmono.wav");
+        char ch[16];
+        get(inst, "channels", ch, sizeof ch);
+        CHECK(strcmp(ch, "1") == 0, "mono file reports 1 channel (%s)", ch);
+        CHECK(convert(inst, "mono") == CONV_ALREADY_MONO, "mono source: already mono");
+        api->destroy_instance(inst);
+
+        /* Can't write next to it: the original is left as it was */
+        if (geteuid() != 0) {
+            mkdir("build/cro", 0755);
+            write_sine("build/cro/q.wav", 2000, 2, 16, 1, 0.5);
+            inst = load("build/cro/q.wav");
+            chmod("build/cro", 0555);
+            CHECK(convert(inst, "left") == CONV_FAILED, "unwritable folder fails");
+            long ql = 0;
+            free(read_file("build/cro/q.wav", &ql));
+            CHECK(ql == 44 + 2000 * 4, "failed convert leaves the stereo original (%ld bytes)", ql);
+            get(inst, "channels", ch, sizeof ch);
+            CHECK(strcmp(ch, "2") == 0, "failed convert keeps playing stereo");
+            chmod("build/cro", 0755);
+            api->destroy_instance(inst);
+        }
+
+        /* No "loading" while the converted copy waits to be swapped in */
+        {
+            write_sine("build/cst.wav", 4000, 2, 16, 1, 0.5);
+            inst = load("build/cst.wav");
+            note(inst, 68); render(inst, 20); note(inst, 69);
+            param(inst, "convert_channels", "mono");
+            live_chopper_t *lc = inst;
+            for (int t = 0; t < 400 && !atomic_load(&lc->incoming); t++) usleep(5000);
+            char st[64];
+            get(inst, "status", st, sizeof st);
+            CHECK(atomic_load(&lc->incoming) && strncmp(st, "ready", 5) == 0, "status while the copy waits: %s", st);
+            render(inst, 1);
+            get(inst, "status", st, sizeof st);
+            CHECK(strncmp(st, "ready", 5) == 0, "status after the swap: %s", st);
+            api->destroy_instance(inst);
+        }
+
+        /* A conversion of a file that was replaced meanwhile is dropped */
+        {
+            write_sine("build/csa.wav", 2000, 2, 16, 1, 0.5);
+            write_sine("build/csb.wav", 2000, 2, 16, 1, 0.3);
+            inst = load("build/csa.wav");
+            live_chopper_t *lc = inst;
+            param(inst, "file_path", "build/csb.wav");
+            for (int t = 0; t < 400 && !atomic_load(&lc->incoming); t++) usleep(5000);
+            param(inst, "convert_channels", "mono");      /* still of A: B isn't taken yet */
+            for (int t = 0; t < 400 && atomic_load(&lc->conv_done_seq) != 1; t++) { render(inst, 1); usleep(5000); }
+            render(inst, 4);
+            char ch[16], st[64];
+            get(inst, "channels", ch, sizeof ch);
+            get(inst, "status", st, sizeof st);
+            CHECK(lc->current && strcmp(lc->current->path, "build/csb.wav") == 0 && strcmp(ch, "2") == 0 &&
+                  strncmp(st, "ready 2000", 10) == 0,
+                  "stale conversion dropped: playing %s, %s channels, %s", lc->current ? lc->current->path : "-", ch, st);
+            long al = 0;
+            uint8_t *ab = read_file("build/csa.wav", &al);
+            CHECK(ab && al == 44 + 2000 * 2 && rd_u16(ab + 22) == 1, "stale conversion still rewrote A (%ld bytes)", al);
+            free(ab);
+            api->destroy_instance(inst);
+        }
+
+        /* The converted file won't load: the original and the audio stay */
+        {
+            write_sine("build/clf.wav", 2000, 2, 16, 1, 0.5);
+            long ol = 0, nl = 0;
+            uint8_t *ob = read_file("build/clf.wav", &ol);
+            inst = load("build/clf.wav");
+            test_fail_convert_load = 1;
+            CHECK(convert(inst, "mono") == CONV_FAILED, "load failure reports failed");
+            test_fail_convert_load = 0;
+            uint8_t *nb = read_file("build/clf.wav", &nl);
+            CHECK(ob && nb && nl == ol && memcmp(ob, nb, (size_t)ol) == 0, "load failure leaves the original");
+            CHECK(!exists("build/clf.wav.convert-tmp"), "load failure leaves no temp file");
+            char ch[16];
+            get(inst, "channels", ch, sizeof ch);
+            CHECK(strcmp(ch, "2") == 0, "load failure keeps playing stereo (%s)", ch);
+            free(ob); free(nb);
+            api->destroy_instance(inst);
+        }
+
+        /* Data chunk longer than the file: converts the frames that are there */
+        {
+            write_sine("build/ctr.wav", 3000, 2, 16, 1, 0.5);
+            FILE *tf = fopen("build/ctr.wav", "r+b");
+            fseek(tf, 4, SEEK_SET); wr32(tf, 36 + 3000 * 4 + 4000);
+            fseek(tf, 40, SEEK_SET); wr32(tf, 3000 * 4 + 4000);
+            fclose(tf);
+            inst = load("build/ctr.wav");
+            note(inst, 68); render(inst, 20); note(inst, 69);
+            char before[128];
+            snprintf(before, sizeof before, "%s", slices(inst));
+            CHECK(convert(inst, "left") == CONV_OK, "truncated file converts");
+            long tl = 0;
+            uint8_t *tb = read_file("build/ctr.wav", &tl);
+            CHECK(tb && tl == 44 + 3000 * 2 && rd_u32(tb + 40) == 3000 * 2 && rd_u32(tb + 4) == (uint32_t)(tl - 8),
+                  "truncated: 3000 frames written, header fixed (%ld bytes)", tl);
+            CHECK(strcmp(before, slices(inst)) == 0, "truncated: slices kept (%s -> %s)", before, slices(inst));
+            free(tb);
+            api->destroy_instance(inst);
+        }
+
+        /* Other chunks are kept, per-channel ones dropped */
+        {
+            int frames = 500;
+            FILE *cf = fopen("build/cchunks.wav", "wb");
+            fwrite("RIFF", 1, 4, cf); wr32(cf, 4 + 24 + 16 + 32 + 8 + frames * 4 + 36); fwrite("WAVE", 1, 4, cf);
+            fwrite("fmt ", 1, 4, cf); wr32(cf, 16); wr16(cf, 1); wr16(cf, 2);
+            wr32(cf, 44100); wr32(cf, 44100 * 4); wr16(cf, 4); wr16(cf, 16);
+            fwrite("LIST", 1, 4, cf); wr32(cf, 7); fwrite("INFOabc", 1, 7, cf); fputc(0, cf);  /* odd: padded */
+            fwrite("PEAK", 1, 4, cf); wr32(cf, 24); for (int i = 0; i < 24; i++) fputc(i, cf);
+            fwrite("data", 1, 4, cf); wr32(cf, frames * 4);
+            for (int i = 0; i < frames; i++) { wr16(cf, 1000); wr16(cf, 3000); }
+            fwrite("cue ", 1, 4, cf); wr32(cf, 28); for (int i = 0; i < 28; i++) fputc(100 + i, cf);
+            fclose(cf);
+            inst = load("build/cchunks.wav");
+            CHECK(convert(inst, "mono") == CONV_OK, "file with extra chunks converts");
+            long cl = 0;
+            uint8_t *cb = read_file("build/cchunks.wav", &cl);
+            long want = 12 + 24 + 16 + 8 + frames * 2 + 36;
+            int ok = cb && cl == want && rd_u32(cb + 4) == (uint32_t)(cl - 8) &&
+                     memcmp(cb + 36, "LIST", 4) == 0 && rd_u32(cb + 40) == 7 && memcmp(cb + 44, "INFOabc", 7) == 0 &&
+                     memcmp(cb + 52, "data", 4) == 0 && rd_u32(cb + 56) == (uint32_t)frames * 2 &&
+                     (int16_t)rd_u16(cb + 60) == 2000 && memcmp(cb + 60 + frames * 2, "cue ", 4) == 0 &&
+                     rd_u32(cb + 64 + frames * 2) == 28 && cb[68 + frames * 2] == 100 && cb[cl - 1] == 127;
+            CHECK(ok, "chunks: LIST and cue kept, PEAK dropped (%ld bytes, want %ld)", cl, want);
+            free(cb);
+            char ch[16];
+            get(inst, "channels", ch, sizeof ch);
+            CHECK(strcmp(ch, "1") == 0, "chunks: playing the 1-channel copy (%s)", ch);
+            api->destroy_instance(inst);
+        }
+
+        /* A symlink stays a link; its target is converted */
+        {
+            write_sine("build/ctarget.wav", 1000, 2, 16, 1, 0.5);
+            remove("build/clink.wav");
+            CHECK(symlink("ctarget.wav", "build/clink.wav") == 0, "make symlink");
+            inst = load("build/clink.wav");
+            CHECK(convert(inst, "right") == CONV_OK, "symlinked sample converts");
+            struct stat lst;
+            CHECK(lstat("build/clink.wav", &lst) == 0 && S_ISLNK(lst.st_mode), "symlink still a link");
+            long sl = 0;
+            uint8_t *sb = read_file("build/ctarget.wav", &sl);
+            CHECK(sb && sl == 44 + 1000 * 2 && rd_u16(sb + 22) == 1, "symlink target converted (%ld bytes)", sl);
+            CHECK(!exists("build/ctarget.wav.convert-tmp") && !exists("build/clink.wav.convert-tmp"), "symlink: no temp file left");
+            char fp[600];
+            get(inst, "file_path", fp, sizeof fp);
+            CHECK(strcmp(fp, "build/clink.wav") == 0 && strcmp(((live_chopper_t *)inst)->current->path, "build/clink.wav") == 0,
+                  "symlink: still playing the link's path (%s)", fp);
+            free(sb);
+            api->destroy_instance(inst);
+        }
+
+        /* Hard links: refused, nothing written */
+        {
+            write_sine("build/chard.wav", 1000, 2, 16, 1, 0.5);
+            remove("build/chard2.wav");
+            CHECK(link("build/chard.wav", "build/chard2.wav") == 0, "make hard link");
+            struct stat h1, h2;
+            stat("build/chard.wav", &h1);
+            inst = load("build/chard.wav");
+            CHECK(convert(inst, "mono") == CONV_LINKED, "hard-linked sample refused");
+            long hl = 0;
+            free(read_file("build/chard2.wav", &hl));
+            CHECK(stat("build/chard.wav", &h2) == 0 && h2.st_ino == h1.st_ino && h2.st_nlink == 2 && hl == 44 + 1000 * 4,
+                  "hard links left alone (%ld bytes)", hl);
+            CHECK(!exists("build/chard.wav.convert-tmp"), "hard link: no temp file left");
+            char ch[16];
+            get(inst, "channels", ch, sizeof ch);
+            CHECK(strcmp(ch, "2") == 0, "hard link: still stereo (%s)", ch);
             api->destroy_instance(inst);
         }
     }
