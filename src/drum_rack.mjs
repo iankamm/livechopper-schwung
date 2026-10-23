@@ -7,6 +7,7 @@
  * Every pad points at the same WAV with Voice_PlaybackStart/Length set to
  * its slice as fractions of the file. All 16 pads share choke group 1.
  * Envelope times are in seconds (A-H-D mode), as in Move's own sets.
+ * Crush switches every pad's effect slot to 8-Bit at that rate.
  */
 
 export var USER_LIBRARY = "/data/UserData/UserLibrary/";
@@ -23,6 +24,9 @@ var DECAY_MIN_S = 0.001;
 var DECAY_MAX_S = 10.0;
 var GAIN_MIN_DB10 = -700;    /* Move's drum sampler Gain: -70 to +24 dB */
 var GAIN_MAX_DB10 = 240;
+var CRUSH_MIN_HZ = 1000;     /* 8-Bit Resampling Rate: 1.00 to 30.0 kHz */
+var CRUSH_MAX_HZ = 30000;
+var EIGHT_BIT_RATE_DEFAULT = 14080.0;
 
 /* "ableton:/user-library/<path>" for a file inside the User Library, with
  * each path segment percent-encoded. null if the file is elsewhere. */
@@ -58,10 +62,12 @@ function voiceGain(db10) {
     return Math.pow(10, db10 / 200);
 }
 
-function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10) {
+function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10, crushHz) {
+    /* Crush off keeps Move's default: Stretch at 1.0, a no-op. */
+    var crush = crushHz > 0;
     return {
         "Effect_EightBitFilterDecay": 5.0,
-        "Effect_EightBitResamplingRate": 14080.0,
+        "Effect_EightBitResamplingRate": crush ? clamp(crushHz, CRUSH_MIN_HZ, CRUSH_MAX_HZ) : EIGHT_BIT_RATE_DEFAULT,
         "Effect_FmAmount": 0.0,
         "Effect_FmFrequency": 1000.0,
         "Effect_LoopLength": 0.30000001192092896,
@@ -79,7 +85,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, det
         "Effect_StretchGrainSize": 0.10000000149011612,
         "Effect_SubOscAmount": 0.0,
         "Effect_SubOscFrequency": 60.0,
-        "Effect_Type": "Stretch",
+        "Effect_Type": crush ? "8-bit" : "Stretch",
         "Enabled": true,
         "NotePitchBend": true,
         "Pan": 0.0,
@@ -179,6 +185,7 @@ function reverbReturnChain() {
  *   transpose:  semitones
  *   detune:     cents (-50 to +50)
  *   gainDb10:   gain in tenths of a dB, -700 to 240
+ *   crushHz:    8-Bit resampling rate in Hz, 1000 to 30000; 0 = off
  * }
  * Returns the preset object (JSON.stringify it to write).
  */
@@ -201,7 +208,7 @@ export function buildDrumRackPreset(opts) {
                 "presetUri": null,
                 "kind": "drumCell",
                 "name": "",
-                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10),
+                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10, opts.crushHz),
                 "deviceData": { "sampleUri": opts.sampleUri }
             }],
             "mixer": {

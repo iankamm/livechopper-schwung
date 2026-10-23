@@ -17,13 +17,16 @@
  *   Knob 1     - Move the selected slice's start
  *   Knob 2     - Move the selected slice's end
  *   Knob 3     - Zoom
+ *                Shift+Knob 3: crush, the drum sampler's 8-Bit effect:
+ *                Off (fully clockwise), then 30.0 kHz down to 1.00 kHz
  *   Knob 4     - Gain, -70 to +24 dB (global; the waveform follows it)
  *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
  *   Knob 8     - Transpose in semitones (global, repitch)
  *                Shift+Knob 8: detune, -50 to +50 cents
  *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
- *   Shift      - Fine steps for knobs and jog (detune on Knob 8)
+ *   Shift      - Fine steps for knobs and jog (crush on Knob 3, detune
+ *                on Knob 8)
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
@@ -125,6 +128,23 @@ var TRANSPOSE_MIN = -24;
 var TRANSPOSE_MAX = 24;
 var DETUNE_MIN = -50;            /* cents */
 var DETUNE_MAX = 50;
+/* Crush rates, as the drum sampler's 8-Bit Resampling Rate (1-30 kHz): log
+ * steps of 1/24 octave, rounded as Move shows them (10 Hz below 10 kHz,
+ * 100 Hz above). One step past the top is Off. */
+var CRUSH_MIN_HZ = 1000;
+var CRUSH_MAX_HZ = 30000;
+var CRUSH_STEPS_PER_OCTAVE = 24;
+var CRUSH_STEPS = (function() {
+    var steps = [];
+    for (var i = 0; ; i++) {
+        var hz = CRUSH_MIN_HZ * Math.pow(2, i / CRUSH_STEPS_PER_OCTAVE);
+        if (hz >= CRUSH_MAX_HZ) break;
+        var unit = hz < 10000 ? 10 : 100;
+        steps.push(Math.round(hz / unit) * unit);
+    }
+    steps.push(CRUSH_MAX_HZ);
+    return steps;
+})();
 var EDIT_TIMEOUT_MS = 100;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
@@ -228,6 +248,7 @@ var decayUs = 50000;
 var transpose = 0;
 var detune = 0;             /* cents */
 var gainDb10 = 0;           /* tenths of a dB, GAIN_MIN to GAIN_MAX */
+var crushHz = 0;            /* 0 = off, else CRUSH_MIN_HZ to CRUSH_MAX_HZ */
 var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var attackKnob = 0;
 var holdKnob = 1;
@@ -456,6 +477,25 @@ function formatDetune(c) {
     return (c > 0 ? "+" : "") + c + "ct";
 }
 
+function formatCrush(hz) {
+    if (hz <= 0) return "Off";
+    return (hz / 1000).toFixed(hz < 10000 ? 2 : 1) + "kHz";
+}
+
+function spokenCrush(hz) {
+    return hz <= 0 ? "off" : (hz / 1000) + " kilohertz";
+}
+
+/* Index into CRUSH_STEPS of the step nearest hz; CRUSH_STEPS.length is Off. */
+function crushIndex(hz) {
+    if (hz <= 0) return CRUSH_STEPS.length;
+    var best = 0;
+    for (var i = 1; i < CRUSH_STEPS.length; i++) {
+        if (Math.abs(CRUSH_STEPS[i] - hz) < Math.abs(CRUSH_STEPS[best] - hz)) best = i;
+    }
+    return best;
+}
+
 function knobToUs(pos, maxUs) {
     return Math.round(maxUs * pos * pos * pos);
 }
@@ -477,6 +517,7 @@ function readSettings() {
     gated = p[4] === "1";
     detune = parseInt(p[5], 10) || 0;
     gainDb10 = Math.max(GAIN_MIN, Math.min(GAIN_MAX, parseInt(p[6], 10) || 0));
+    crushHz = parseInt(p[7], 10) || 0;
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
     holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
@@ -502,6 +543,7 @@ function knobReadout(i) {
         return [name + " " + formatSeconds(pos),
                 "Pad " + (selectedSlice + 1) + " " + name.toLowerCase() + " " + spokenSeconds(pos)];
     case 2:
+        if (shiftHeld) return ["Crush " + formatCrush(crushHz), "Crush " + spokenCrush(crushHz)];
         var z = Math.round(Math.pow(2, zoom));
         return ["Zoom x" + z, "Zoom " + z];
     case 3:
@@ -538,7 +580,7 @@ function onKnobTouch(i, touched) {
         activeSide = i;
         keepMarkerVisible();
     }
-    if (i === 2) centerOnStart();
+    if (i === 2 && !shiftHeld) centerOnStart();
     var r = knobReadout(i);
     overlayText = r[0];
     overlayTimer = OVERLAY_TICKS;
@@ -611,6 +653,18 @@ function gainStep(db10, dir) {
     return v;
 }
 
+/* Shift + Knob 3: clockwise raises the rate, and past 30 kHz is Off. */
+function changeCrush(ticks) {
+    if (loadState !== "ready" || ticks === 0) return;
+    var i = Math.max(0, Math.min(CRUSH_STEPS.length, crushIndex(crushHz) + ticks));
+    var hz = i === CRUSH_STEPS.length ? 0 : CRUSH_STEPS[i];
+    if (hz !== crushHz) {
+        crushHz = hz;
+        pendingSettings.crush_hz = crushHz;
+    }
+    showKnob(2);
+}
+
 function setGain(db10) {
     gainDb10 = db10;
     pendingSettings.gain_db10 = gainDb10;
@@ -676,7 +730,8 @@ function exportDrumPreset(base) {
         env: { attackUs: attackUs, holdUs: holdUs, decayUs: decayUs, gated: gated },
         transpose: transpose,
         detune: detune,
-        gainDb10: gainDb10
+        gainDb10: gainDb10,
+        crushHz: crushHz
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
     var ok = host_write_file(PRESET_DIR + "/" + name + ".ablpreset", JSON.stringify(preset, null, 2));
@@ -1462,6 +1517,8 @@ globalThis.onMidiMessageInternal = function(data) {
         queueNudge(0, decodeDelta(d2));
     } else if (d1 === CC_E2) {
         queueNudge(1, decodeDelta(d2));
+    } else if (d1 === CC_E3 && shiftHeld) {
+        changeCrush(decodeDelta(d2));
     } else if (d1 === CC_E3) {
         changeZoom(decodeDelta(d2));
     } else if (d1 === CC_E4) {

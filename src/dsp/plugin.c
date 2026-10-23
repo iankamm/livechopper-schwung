@@ -80,6 +80,12 @@
  * touching slices, undo or the voice (and status never says "loading"),
  * and only then marks the request done. A conversion of a file that was
  * replaced meanwhile is dropped. get_param("convert_result") reports it.
+ *
+ * Crush: set_param("crush_hz"), 0 = off or 1000-30000 Hz, the range of the
+ * drum sampler's 8-Bit effect, which the exported preset sets. Playback
+ * gets a stand-in for it: each voice is sampled and held at that rate (in
+ * output frames, after repitching) and cut to 8 bits, before the envelope.
+ * Slice export leaves it out, like the envelope and transpose.
  */
 
 #define _GNU_SOURCE
@@ -133,6 +139,8 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define GAIN_DB10_MAX 240           /* +24 dB */
 #define NORM_GAIN_SILENT (-32768)   /* normalize_gain of an all-zero file */
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
+#define CRUSH_HZ_MIN 1000           /* the drum sampler's 8-Bit Resampling Rate range */
+#define CRUSH_HZ_MAX 30000
 
 /* convert_channels modes, and convert_result status */
 enum { CONV_MONO_MIX = 0, CONV_LEFT = 1, CONV_RIGHT = 2 };
@@ -170,6 +178,13 @@ typedef struct {
 
 #define UNDO_DEPTH 32
 
+/* Per-voice crush state: phase counts up by crush_hz each output frame and
+ * a new held frame is taken each time it reaches MOVE_SAMPLE_RATE. */
+typedef struct {
+    int phase;
+    float l, r;
+} crush_state_t;
+
 typedef struct {
     /* --- audio thread only --- */
     sample_buf_t *current;
@@ -180,6 +195,7 @@ typedef struct {
     int gate_note;      /* pad note that started the voice; -1 once released */
     int release_pos;    /* gated: frames since release, -1 while held */
     float release_gain; /* gated: level when the release began */
+    crush_state_t crush;
 
     /* Choke tail: the voice that was cut off, fading out */
     int tail_active;
@@ -187,6 +203,7 @@ typedef struct {
     int tail_end;
     float tail_gain;
     int tail_left;
+    crush_state_t tail_crush;
 
     /* Global sound settings */
     int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
@@ -198,6 +215,7 @@ typedef struct {
     int gain_db10;                              /* tenths of a dB, -700 to 240 */
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
+    int crush_hz;                               /* 0 = off, else CRUSH_HZ_MIN-MAX */
 
     /* Slices, in time order. Pad i plays slice i. */
     int slice_start[MAX_SLICES];
@@ -1070,6 +1088,36 @@ static void set_detune(live_chopper_t *inst, int cents) {
     update_pitch_ratio(inst);
 }
 
+/* 0 is off; anything else is clamped to the 8-Bit effect's range. */
+static void set_crush(live_chopper_t *inst, int hz) {
+    if (hz <= 0) hz = 0;
+    else if (hz < CRUSH_HZ_MIN) hz = CRUSH_HZ_MIN;
+    else if (hz > CRUSH_HZ_MAX) hz = CRUSH_HZ_MAX;
+    inst->crush_hz = hz;
+}
+
+/* Truncate to 8 bits, as dropping the low byte of a 16-bit sample does. */
+static float quantize8(float v) {
+    return floorf(v / 256.0f) * 256.0f;
+}
+
+/* Sample-and-hold one voice's frame at hz. Off keeps the phase full, so
+ * turning crush on takes a fresh frame at once. */
+static void crush_frame(int hz, crush_state_t *c, float *l, float *r) {
+    if (hz <= 0) {
+        c->phase = MOVE_SAMPLE_RATE;
+        return;
+    }
+    if (c->phase >= MOVE_SAMPLE_RATE) {
+        c->phase -= MOVE_SAMPLE_RATE;
+        c->l = quantize8(*l);
+        c->r = quantize8(*r);
+    }
+    c->phase += hz;
+    *l = c->l;
+    *r = c->r;
+}
+
 /* Linear-interpolated stereo frame at a fractional source position. */
 static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
     int idx = (int)pos;
@@ -1087,6 +1135,7 @@ static void fade_out_voice(live_chopper_t *inst) {
     inst->tail_end = inst->play_end;
     inst->tail_gain = env_gain(inst);
     inst->tail_left = DECLICK_FRAMES;
+    inst->tail_crush = inst->crush;
 }
 
 static void play_slice(live_chopper_t *inst, int idx, int note) {
@@ -1098,6 +1147,7 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     inst->env_pos = 0;
     inst->gate_note = note;
     inst->release_pos = -1;
+    inst->crush.phase = MOVE_SAMPLE_RATE;   /* hold the slice's first frame */
     inst->playing_slice = idx;
     inst->selected_slice = idx;
     inst->playing = 1;
@@ -1499,6 +1549,11 @@ static void set_param(void *instance, const char *key, const char *val) {
         set_gain(inst, parse_int(&p));
         return;
     }
+    if (strcmp(key, "crush_hz") == 0) {
+        const char *p = val;
+        set_crush(inst, parse_int(&p));
+        return;
+    }
     if (strcmp(key, "file_path") == 0) {
         strncpy(inst->req_path, val, PATH_MAX_LEN - 1);
         inst->req_path[PATH_MAX_LEN - 1] = '\0';
@@ -1561,10 +1616,10 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
     }
     if (strcmp(key, "settings") == 0) {
         /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>
-         *  <gain_db10>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d",
+         *  <gain_db10> <crush_hz>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d %d",
                         inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
-                        inst->detune, inst->gain_db10);
+                        inst->detune, inst->gain_db10, inst->crush_hz);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
@@ -1610,6 +1665,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
     if (!s || (!inst->playing && !inst->tail_active)) return;
 
     double step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE * inst->pitch_ratio;
+    int crush_hz = inst->crush_hz;
     for (int i = 0; i < frames; i++) {
         float l = 0.0f, r = 0.0f, vl, vr;
 
@@ -1620,6 +1676,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
             } else {
                 float g = env_gain(inst);
                 read_frame(s, inst->play_pos, &vl, &vr);
+                crush_frame(crush_hz, &inst->crush, &vl, &vr);
                 l += vl * g;
                 r += vr * g;
                 inst->play_pos += step;
@@ -1634,6 +1691,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
             } else {
                 float g = inst->tail_gain * (float)inst->tail_left / (float)DECLICK_FRAMES;
                 read_frame(s, inst->tail_pos, &vl, &vr);
+                crush_frame(crush_hz, &inst->tail_crush, &vl, &vr);
                 l += vl * g;
                 r += vr * g;
                 inst->tail_pos += step;

@@ -1,6 +1,6 @@
 # LiveChopper for Schwung
 
-Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, then export a Move drum rack
+Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, add a lo-fi crush with the drum sampler's 8-Bit effect, then export a Move drum rack
 preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 
 ## Controls
@@ -10,7 +10,7 @@ preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 | Red pad | Select and play slice | — |
 | Blue pad | Chop at the playhead | — |
 | Knob 1 / 2 | Slice start / end | Fine adjust |
-| Knob 3 | Zoom | — |
+| Knob 3 | Zoom | Crush |
 | Knob 4 | Gain | Fine adjust |
 | Knob 5 / 6 / 7 | Attack / hold / decay | Fine adjust |
 | Knob 8 | Transpose | Detune |
@@ -24,7 +24,7 @@ preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 | Play | Play / stop Move set | — |
 | Back | Exit | — |
 
-Envelope, gain, transpose and detune apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
+Envelope, gain, transpose, detune and crush apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 
@@ -59,7 +59,7 @@ This produces `dist/live-chopper-module.tar.gz`. To install:
 
 ## AI Disclosure
 
-This was created with Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with C, JavaScript, and microcontrollers. I understand some of the source code logic and general development/testing process, but I did not write any of this code by hand.
+This was created with Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with C, JavaScript, and embedded development. I understand some of the source code logic and general development/testing process, but I did not write any of this code by hand.
 
 ## License
 

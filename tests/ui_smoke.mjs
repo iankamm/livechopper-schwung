@@ -204,6 +204,36 @@ midi(0x90, 7, 127); tick(1);
 check(printed.some(t => t.startsWith('Transpose')), 'without Shift, Knob 8 is transpose again');
 midi(0x90, 7, 0); tick(70);
 
+// Shift + Knob 3 is crush: Off fully clockwise, then 30.0 kHz down to 1.00 kHz
+const crushSets = () => sets.filter(x => x.startsWith('crush_hz='));
+const shift = on => midi(0xB0, 49, on ? 127 : 0);
+mark = sets.length;
+const waveBefore = lastWave.join(' ');
+shift(true); midi(0x90, 2, 127); tick(1);
+check(printed.includes('Crush Off') && log.at(-1) === 'SAY: Crush off', 'Shift + touching Knob 3 shows crush: ' + JSON.stringify(printed));
+check(lastWave.join(' ') === waveBefore, 'Shift + touching Knob 3 leaves the view alone');
+midi(0xB0, 73, 1); tick(1);
+check(printed.includes('Crush Off') && crushSets().length === 0, 'clockwise from Off stays Off, sends nothing');
+midi(0xB0, 73, 127); tick(1);
+check(printed.includes('Crush 30.0kHz') && crushSets().at(-1) === 'crush_hz=30000', 'one step left of Off is 30.0 kHz: ' + JSON.stringify(printed));
+midi(0xB0, 73, 1); tick(1);
+check(printed.includes('Crush Off') && crushSets().at(-1) === 'crush_hz=0', 'clockwise from 30.0 kHz is Off again');
+midi(0xB0, 73, 127); midi(0xB0, 73, 127); tick(1);
+check(printed.includes('Crush 29.3kHz'), '1/24 octave steps, 100 Hz precision above 10 kHz: ' + JSON.stringify(printed));
+midi(0xB0, 73, 65); midi(0xB0, 73, 65); tick(1);   // 126 steps left
+check(printed.includes('Crush 1.00kHz') && crushSets().at(-1) === 'crush_hz=1000', 'bottoms out at 1.00 kHz: ' + JSON.stringify(printed));
+midi(0xB0, 73, 1); tick(1);
+check(printed.includes('Crush 1.03kHz'), '10 Hz precision below 10 kHz: ' + JSON.stringify(printed));
+midi(0xB0, 73, 63); midi(0xB0, 73, 8); tick(1);    // 72 steps: 3 octaves up from 1 kHz
+check(printed.includes('Crush 8.00kHz') && crushSets().at(-1) === 'crush_hz=8000', 'crush at 8.00 kHz: ' + JSON.stringify(printed));
+check(lastWave.join(' ') === waveBefore && !sets.slice(mark).some(s => !/^(crush_hz|ui_state)=/.test(s)),
+      'Shift + Knob 3 sends only crush, zoom untouched: ' + JSON.stringify(sets.slice(mark)));
+midi(0x90, 2, 0); shift(false); tick(70);
+check(log.includes('SAY: Crush 8 kilohertz'), 'crush announced: ' + log.slice(-3));
+midi(0x90, 2, 127); tick(1);
+check(printed.some(t => t.startsWith('Zoom')), 'without Shift, Knob 3 is zoom again');
+midi(0x90, 2, 0); tick(70);
+
 // Top bar is just the pad; zoom, transpose and Start/End stay off it
 tick(1);
 check(printed[0] === 'Pad 2/3', `top bar shows only the pad (got "${printed[0]}")`);
@@ -259,6 +289,14 @@ const p1 = presetDir + 'test loop Chop.ablpreset';
 const p2 = presetDir + 'test loop Chop 2.ablpreset';
 check(p1 in files, 'first export written to ' + p1);
 check(p2 in files, 'second export gets a new name ' + p2);
+// A crush change after exporting counts as unexported work
+midi(0xB0, 51, 127); tick(1);
+check(!printed.includes('Not exported'), 'just exported: no warning');
+midi(0xB0, 51, 127); tick(1);
+shift(true); midi(0xB0, 73, 127); midi(0xB0, 73, 1); shift(false); tick(1);
+midi(0xB0, 51, 127); tick(1);
+check(printed.includes('Not exported'), 'a crush change counts as unexported');
+midi(0xB0, 51, 127); tick(1);
 
 if (p1 in files) {
   const preset = JSON.parse(files[p1]);
@@ -284,6 +322,8 @@ if (p1 in files) {
     check(p.Voice_Transpose === +settingSets.transpose, 'transpose');
     // Move's Song.abl stores detune in semitones: -0.25 st was saved as -0.2522932291030884
     check(Math.abs(p.Voice_Detune - -0.3) < 1e-12 && +settingSets.detune === -30, 'detune -30 cents exported as -0.3 semitones: ' + p.Voice_Detune);
+    check(p.Effect_Type === '8-bit' && p.Effect_EightBitResamplingRate === 8000 && p.Effect_EightBitFilterDecay === 5 && p.Effect_On === true,
+          'crush exported as the 8-Bit effect at 8000 Hz: ' + [p.Effect_Type, p.Effect_EightBitResamplingRate]);
   });
   const c0 = rack.chains[0].devices[0].parameters;
   console.log(`export: attack=${c0.Voice_Envelope_Attack}s hold=${c0.Voice_Envelope_Hold}s decay=${c0.Voice_Envelope_Decay}s transpose=${c0.Voice_Transpose} detune=${c0.Voice_Detune}`);
@@ -512,6 +552,16 @@ const presetGain = db10 => buildDrumRackPreset({ name: 'g', sampleUri: 'u', fram
 check(Math.abs(presetGain(240) / 15.848933219909668 - 1) < 1e-6, 'Voice_Gain +24 dB matches Move: ' + presetGain(240));
 check(Math.abs(presetGain(-700) / 0.0003162277571391314 - 1) < 1e-6, 'Voice_Gain -70 dB matches Move: ' + presetGain(-700));
 check(presetGain(0) === 1, '0 dB is 1.0');
+const presetCell = extra => buildDrumRackPreset(Object.assign({ name: 'c', sampleUri: 'u', frames: 10, starts: [0], ends: [10],
+  env: { attackUs: 0, holdUs: -1, decayUs: 0, gated: false }, transpose: 0, detune: 0, gainDb10: 0 }, extra))
+  .chains[0].devices[0].chains[0].devices[0].parameters;
+for (const [extra, what] of [[{}, 'no crushHz'], [{ crushHz: 0 }, 'crush 0']]) {
+  const c = presetCell(extra);
+  check(c.Effect_Type === 'Stretch' && c.Effect_StretchFactor === 1 && c.Effect_EightBitResamplingRate === 14080,
+        `${what}: effect left at Move's default (Stretch at 1.0)`);
+}
+check(presetCell({ crushHz: 99999 }).Effect_EightBitResamplingRate === 30000 &&
+      presetCell({ crushHz: 5 }).Effect_EightBitResamplingRate === 1000, 'exported rate clamped to 1-30 kHz');
 dsp.normGain = 'silent';
 tools(); click(); tick(1);
 check(printed.includes('Sample is silent') && gainSets().at(-1) === 'gain_db10=127' && log.at(-1) === 'SAY: Sample is silent, nothing to normalize',
@@ -585,7 +635,7 @@ for (const [status, text] of [[2, 'Already mono'], [3, 'File is hard-linked'], [
 // Gain is restored from the DSP's settings (resume); an old ui_state still restores zoom
 await freshUi('gainresume');
 g.host_tool_reconnect = true;
-dsp.settings = '0 -1 50000 0 0 0 -1000';    // an old -inf session: clamped to -70 dB
+dsp.settings = '0 -1 50000 0 0 0 -1000 8410';   // an old -inf session: clamped to -70 dB
 dsp.uiState = '1 0 2 4';
 g.init(); tick(2);
 midi(0x90, 3, 127); tick(1);
@@ -594,6 +644,11 @@ midi(0x90, 3, 0); midi(0x90, 2, 127); tick(1);
 check(printed.includes('Zoom x4'), 'version-1 ui_state still restores zoom: ' + JSON.stringify(printed));
 midi(0x90, 2, 0); tick(70);
 check(Math.max(0, ...waveCols()) === 0, 'waveform flat at -70 dB');
+shift(true); midi(0x90, 2, 127); tick(1);
+check(printed.includes('Crush 8.41kHz'), 'crush restored from settings: ' + JSON.stringify(printed));
+midi(0xB0, 73, 1); tick(1);
+check(printed.includes('Crush 8.72kHz'), 'a restored off-grid 8410 Hz snaps to 8.48 kHz, then steps: ' + JSON.stringify(printed));
+midi(0x90, 2, 0); shift(false); tick(70);
 delete g.host_tool_reconnect;
 
 console.log(log.filter(l => /Export|Saved/.test(l)).join('\n'));

@@ -66,6 +66,13 @@ a Move drum rack preset or one WAV per slice.
   Move's drum sampler: -70 to +24 dB, default 0 dB. 0.5 dB steps (Shift: 0.1 dB) from -24 dB up, 2 dB
   steps below. Applied to playback (ramped over a block, so no clicks; boosts
   clip at full scale). The waveform is drawn at the gained level.
+- Crush: Shift + Knob 3, one global setting that sets the drum sampler's
+  built-in 8-Bit effect on every pad. Off (fully clockwise, the default),
+  then 30.0 kHz down to 1.00 kHz (the effect's Resampling Rate range) in
+  1/24-octave steps, rounded as Move shows them (10 Hz below 10 kHz, 100 Hz
+  above). Chop mode plays a stand-in, not an emulation: each voice is
+  sampled and held at the rate (after repitching) and cut to 8 bits, before
+  the envelope. The waveform is drawn uncrushed.
 - Choke: all pads choke each other by default, in chop mode and in the exported
   drum rack preset (supported: every pad gets the same chokeGroup).
 - Pad colors: playable slice pads are red; the selected pad stays white
@@ -97,7 +104,8 @@ a Move drum rack preset or one WAV per slice.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
   Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,
-  envelope, gate, gain, transpose, detune; zoom doesn't count); with
+  envelope, gate, gain, transpose, detune, and any effect such as crush,
+  even one only the Drum Preset carries; zoom doesn't count); with
   nothing unexported the middle item is just "Exit".
 - Keep for later (resume): stops any voice and hides the tool with
   host_hide_module(), leaving the DSP loaded. Schwung's Tools browser then
@@ -116,6 +124,7 @@ a Move drum rack preset or one WAV per slice.
   DSP worker copies each slice's frames from the source file, so format, bit
   depth and channel count are kept; at a gain other than 0 dB each sample is
   scaled (PCM clips at full scale), at 0 dB they are copied as they are.
+  Crush is left out, like the envelope and transpose.
 - Export Drum Preset: one .ablpreset in UserLibrary/Track Presets,
   named "<name>" (then "<name> 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
@@ -123,6 +132,8 @@ a Move drum rack preset or one WAV per slice.
   is exported in seconds in A-H-D mode, or A-S-R when gated (hold Full =
   60 s), transpose as Voice_Transpose, detune as Voice_Detune (in semitones, so -30 cents is -0.3), gain as
   Voice_Gain (linear amplitude, 1.0 = 0 dB, -70 to +24 dB as on Move),
+  crush as Effect_Type "8-bit" with Effect_EightBitResamplingRate in Hz
+  (Filter Decay left at 5.0; crush off leaves Stretch at 1.0, a no-op),
   all pads in choke group 1. The sample must be inside the
   User Library (the tool's file browser only offers files there).
 - Tools menu (Shift + jog click): Normalize audio / Channels / Back. Jog

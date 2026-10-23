@@ -358,7 +358,7 @@ int main(void) {
     /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
     char set[64];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 0 0 0") == 0, "one-shot by default: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 0 0 0 0") == 0, "one-shot by default: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
     CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
@@ -366,7 +366,7 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 1 0 0") == 0, "gated reported: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 1 0 0 0") == 0, "gated reported: %s", set);
     param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
     note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
     CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");
@@ -432,7 +432,9 @@ int main(void) {
     remove("build/exp/t24 01.wav"); remove("build/exp/t24 02.wav");
     get(inst, "export_result", st, sizeof st);
     CHECK(strcmp(st, "0 0 0") == 0, "no export yet: %s", st);
+    param(inst, "crush_hz", "4000");        /* slices leave the crush out */
     param(inst, "export_slices", "build/exp/t24");
+    param(inst, "crush_hz", "0");
     for (int t = 0; t < 400; t++) {
         get(inst, "export_result", st, sizeof st);
         if (strcmp(st, "1 1 2") == 0) break;
@@ -482,7 +484,7 @@ int main(void) {
         CHECK(worst <= 2, "+6 dB scales playback (worst error %d)", worst);
         char set[64];
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 3, " 60") == 0, "gain is settings field 7: %s", set);
+        CHECK(strcmp(set + strlen(set) - 5, " 60 0") == 0, "gain is settings field 7: %s", set);
 
         /* A change mid-note ramps over one block, never past either end */
         param(inst, "gain_db10", "0");
@@ -499,7 +501,7 @@ int main(void) {
 
         param(inst, "gain_db10", "-1000");                  /* clamps to -70 dB, Move's floor */
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 5, " -700") == 0, "gain clamps at -70 dB: %s", set);
+        CHECK(strcmp(set + strlen(set) - 7, " -700 0") == 0, "gain clamps at -70 dB: %s", set);
         render(inst, 1);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
         int peak = 0;
@@ -507,8 +509,78 @@ int main(void) {
         CHECK(peak <= 3, "-70 dB is all but silent (peak %d of 8192)", peak);
         param(inst, "gain_db10", "999");
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 4, " 240") == 0, "gain clamps at +24 dB: %s", set);
+        CHECK(strcmp(set + strlen(set) - 6, " 240 0") == 0, "gain clamps at +24 dB: %s", set);
         param(inst, "gain_db10", "0");
+        api->destroy_instance(inst);
+    }
+
+    /* ---- Crush: sample-and-hold at crush_hz, cut to 8 bits ---- */
+    {
+        inst = load("build/t16.wav");          /* frame i = 3i */
+        char set[64];
+        int crush = -1;
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
+        memcpy(ref, out, sizeof ref);
+        until_silent(inst);
+        param(inst, "crush_hz", "0");
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(memcmp(out, ref, sizeof ref) == 0, "crush 0 is off: playback unchanged");
+
+        param(inst, "crush_hz", "4410");       /* a new frame every 10 */
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
+        CHECK(crush == 4410, "crush is settings field 8: %s", set);
+        until_silent(inst);
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int bad = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            if (out[i * 2] != ramp(i / 10 * 10, 0) / 256 * 256) bad++;
+        }
+        CHECK(bad == 0, "4410 Hz holds 10 frames at 8 bits (%d wrong, out[15] = %d)", bad, out[30]);
+
+        /* A choke: the new voice holds from its first frame, and the old one
+         * fades out as the tail, still held where it left off (frame 384). */
+        render(inst, 2);
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        bad = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            float tail = i < DECLICK_FRAMES ? (float)(ramp((384 + i) / 10 * 10, 0) / 256 * 256) *
+                                              (float)(DECLICK_FRAMES - i) / DECLICK_FRAMES : 0.0f;
+            if (abs(out[i * 2] - (int)lrintf(ramp(i / 10 * 10, 0) / 256 * 256 + tail)) > 1) bad++;
+        }
+        CHECK(bad == 0, "a choke restarts the hold, and the tail is crushed too (%d wrong)", bad);
+
+        until_silent(inst);
+        param(inst, "crush_hz", "1000");        /* 44.1 frames a hold: no drift */
+        note(inst, 68);
+        render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        bad = 0;
+        for (int f = 0, phase = MOVE_SAMPLE_RATE, held = 0; f < 2 * MOVE_FRAMES_PER_BLOCK; f++) {
+            if (phase >= MOVE_SAMPLE_RATE) { phase -= MOVE_SAMPLE_RATE; held = f; }
+            phase += 1000;
+            int i = f - MOVE_FRAMES_PER_BLOCK;
+            if (i >= 0 && out[i * 2] != ramp(held, 0) / 256 * 256) bad++;
+        }
+        CHECK(bad == 0, "1 kHz takes a frame each time 44100 is passed (%d wrong)", bad);
+
+        param(inst, "crush_hz", "5");
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
+        CHECK(crush == 1000, "crush clamps up to 1 kHz: %s", set);
+        param(inst, "crush_hz", "99999");
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
+        CHECK(crush == 30000, "crush clamps down to 30 kHz: %s", set);
+        param(inst, "crush_hz", "-5");
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
+        CHECK(crush == 0, "a negative crush is off: %s", set);
         api->destroy_instance(inst);
     }
 
