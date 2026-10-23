@@ -3,29 +3,26 @@
 Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, then export a Move drum rack
 preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 
-Status: early development.
-
 ## Controls
 
-| Control | Function |
-|---------|----------|
-| Red pad | Select and play slice |
-| Blue pad | Chop at the playhead |
-| Knob 1 / 2 | Slice start / end |
-| Knob 3 | Zoom |
-| Knob 4 | Gain |
-| Knob 5 / 6 / 7 | Attack / hold / decay |
-| Knob 8 / Shift+Knob 8 | Transpose / detune |
-| Jog wheel | Adjust slice start |
-| Left / Right | Previous / next slice |
-| Shift | Fine adjust |
-| Mute | Toggle one-shot / gated |
-| Delete | Delete slice |
-| Undo / Shift+Undo | Undo / redo |
-| Record | Export menu |
-| Shift+Jog click | Tools menu |
-| Play | Play / stop Move's set |
-| Back | Exit |
+| Control | Function | Shift |
+|---------|----------|-------|
+| Red pad | Select and play slice | — |
+| Blue pad | Chop at the playhead | — |
+| Knob 1 / 2 | Slice start / end | Fine adjust |
+| Knob 3 | Zoom | — |
+| Knob 4 | Gain | Fine adjust |
+| Knob 5 / 6 / 7 | Attack / hold / decay | Fine adjust |
+| Knob 8 | Transpose | Detune |
+| Jog wheel | Adjust slice start | Fine adjust |
+| Jog click | — | Tools menu |
+| Left / Right | Previous / next slice | — |
+| Mute | Toggle one-shot / gated | — |
+| Delete | Delete slice | — |
+| Undo | Undo | Redo |
+| Record | Export menu | — |
+| Play | Play / stop Move set | — |
+| Back | Exit | — |
 
 Envelope, gain, transpose and detune apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
@@ -62,8 +59,7 @@ This produces `dist/live-chopper-module.tar.gz`. To install:
 
 ## AI Disclosure
 
-This module was written with AI assistance: the code, tests and docs were
-developed with Claude Code, directed, reviewed and tested on an Ableton Move by the author.
+This was created with Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with C, JavaScript, and microcontrollers. I understand some of the source code logic and general development/testing process, but I did not write any of this code by hand.
 
 ## License
 

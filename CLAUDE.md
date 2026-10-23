@@ -47,8 +47,6 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
   host (gcc + ASan/UBSan, real worker thread and WAV files) and
   tests/ui_smoke.mjs runs ui.js under node with a fake host and DSP, checking
   the exported preset too. Add checks there for each new feature.
-- Small steps. After each working step, stop and tell me what to test on the
-  device and what to look for.
 - Do not deploy to the device or run ssh commands without asking first.
 - Logs on device: /data/UserData/schwung/debug.log (see ../schwung/CLAUDE.md
   "Testing" for how to enable).
