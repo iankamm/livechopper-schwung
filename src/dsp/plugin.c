@@ -143,8 +143,8 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define HOLD_FULL (-1)              /* hold until the slice ends */
 #define DEFAULT_DECAY_US 50000
 #define MAX_ENV_US 10000000         /* 10 s */
-#define TRANSPOSE_MIN (-24)
-#define TRANSPOSE_MAX 24
+#define TRANSPOSE_MIN (-48)        /* semitones, as on Move's drum sampler */
+#define TRANSPOSE_MAX 48
 #define DETUNE_MIN (-50)            /* cents */
 #define DETUNE_MAX 50
 #define GAIN_DB10_MIN (-700)        /* -70 dB, as on Move's drum sampler */

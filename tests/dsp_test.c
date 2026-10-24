@@ -372,6 +372,22 @@ int main(void) {
     note(inst, 68);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
     CHECK(out[2] == ramp(2, 0) && out[4] == ramp(4, 0), "transpose +12 reads every other frame (%d %d %d, want %d %d %d; %s)", out[0], out[2], out[4], ramp(0,0), ramp(2,0), ramp(4,0), slices(inst));
+
+    /* ---- Transpose clamps to +-48, Move's range; +48 reads every 16th frame ---- */
+    param(inst, "transpose", "99");
+    until_silent(inst);
+    note(inst, 68);
+    api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+    CHECK(out[2] == ramp(16, 0) && out[4] == ramp(32, 0), "transpose +48 reads every 16th frame (%d %d, want %d %d)", out[2], out[4], ramp(16,0), ramp(32,0));
+    char tr[128];
+    int t4 = 0;
+    get(inst, "settings", tr, sizeof tr);
+    sscanf(tr, "%*d %*d %*d %d", &t4);
+    CHECK(t4 == 48, "transpose clamped to +48 and reported: %s", tr);
+    param(inst, "transpose", "-99");
+    get(inst, "settings", tr, sizeof tr);
+    sscanf(tr, "%*d %*d %*d %d", &t4);
+    CHECK(t4 == -48, "transpose clamped to -48: %s", tr);
     param(inst, "transpose", "0");
 
     /* ---- Detune: cents on top of transpose, clamped to +-50 ---- */

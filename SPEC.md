@@ -72,7 +72,7 @@ a Move drum rack preset or one WAV per slice.
   it switches it to its second function, as on Move. Only Main Knob 5 has
   one: Decay / Length.
 - Transpose: repitch only (changes length and pitch together), one global
-  setting (Main Knob 1, -24 to +24 semitones).
+  setting (Main Knob 1, -48 to +48 semitones, Move's drum sampler range).
 - Detune: fine repitch on top of transpose, one global setting (Shift +
   Main Knob 1, -50 to +50 cents, default 0). Exported as Voice_Detune.
 - Envelope: one global attack, hold and decay (AHD, matching the Move drum

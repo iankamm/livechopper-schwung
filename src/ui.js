@@ -129,8 +129,8 @@ var DECAY_MAX_US = 10000000;
 var HOLD_FULL = -1;
 var ENV_KNOB_STEP = 0.01;
 var ENV_KNOB_FINE = 0.002;
-var TRANSPOSE_MIN = -24;
-var TRANSPOSE_MAX = 24;
+var TRANSPOSE_MIN = -48;         /* semitones, as on Move's drum sampler */
+var TRANSPOSE_MAX = 48;
 var DETUNE_MIN = -50;            /* cents */
 var DETUNE_MAX = 50;
 /* Log steps from lo up to hi, perOctave to the octave, each rounded by

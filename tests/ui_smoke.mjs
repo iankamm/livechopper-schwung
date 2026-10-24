@@ -261,6 +261,14 @@ touch(1, false); shift(false); tick(70);
 check(log.some(l => l === 'SAY: Detune -30 cents'), 'detune announced');
 touch(1, true); tick(1);
 check(printed.some(t => t.startsWith('Transpose')), 'without Shift, Knob 1 is transpose again');
+// Transpose: -48 to +48 semitones, Move's drum sampler range
+mark = sets.length;
+turn(1, 63); tick(1);
+check(printed.includes('Transpose +48st') && sets.at(-1) === 'transpose=48', 'transpose tops out at +48: ' + JSON.stringify(printed));
+turn(1, 65); turn(1, 65); tick(1);
+check(printed.includes('Transpose -48st') && sets.at(-1) === 'transpose=-48', 'transpose bottoms out at -48: ' + JSON.stringify(printed));
+turn(1, 48); tick(1);
+check(printed.includes('Transpose 0st') && sets.at(-1) === 'transpose=0', 'transpose back to 0: ' + JSON.stringify(printed));
 touch(1, false); tick(70);
 
 // Knob 6 is the effect: Off / 8-Bit. Knob 7 is the 8-Bit rate, kept while
