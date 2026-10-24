@@ -99,7 +99,7 @@ g.host_open_text_entry = o => {
 await import(pathToFileURL(path.join(dir, 'ui_under_test.mjs')).href);
 const tick = n => { for (let i = 0; i < n; i++) { printed = []; vlines = []; g.tick(); } };
 const midi = (s, d1, d2) => g.onMidiMessageInternal([s, d1, d2]);
-const READOUT = /^(Start|Length|Zoom|Gain|Attack|Hold|Decay|Transpose|Detune|Effect|Rate|Frequency|Resonance|Peak Gain|Type|Mode) |^-$/;
+const READOUT = /^(Start|Length|Zoom|Gain|Attack|Hold|Decay|Transpose|Detune|Effect|Rate|Freq|Resonance|Peak Gain|Type|Mode): |^-$/;
 // Knobs by number (1-8): touch notes 0-7, CCs 71-78
 const shift = on => midi(0xB0, 49, on ? 127 : 0);
 const touch = (k, on) => midi(0x90, k - 1, on ? 127 : 0);
@@ -127,7 +127,7 @@ dsp.sel = 1; tick(1);
 // Shift+tap Knob 5 switches it to Length (the end marker), as on Move
 mark = sets.length;
 shiftTap(5); tick(1);
-check(printed.includes('Length 23%') && log.at(-1) === 'SAY: Pad 2 length 23 percent',
+check(printed.includes('Length: 23 %') && log.at(-1) === 'SAY: Pad 2 length 23 percent',
       'Shift+tap Knob 5: Length, as a percentage of the sample: ' + JSON.stringify(printed) + ' ' + log.at(-1));
 check(sets.slice(mark).every(s => s.startsWith('ui_state=')), 'the tap itself changes nothing');
 // Zoom (Shift + Knob 2) centers on the selected slice's start, even with the end marker active
@@ -151,14 +151,14 @@ shift(true); touch(2, true); tick(1); touch(2, false); shift(false);
 // A Shift+turn of Knob 5 is fine steps, not a tap: it stays Length
 shift(true); touch(5, true); turn(5, 1); touch(5, false); shift(false); tick(1);
 touch(5, true); tick(1); touch(5, false);
-check(printed.some(t => t.startsWith('Length ')), 'Shift + turning Knob 5 does not switch it: ' + JSON.stringify(printed));
+check(printed.some(t => t.startsWith('Length: ')), 'Shift + turning Knob 5 does not switch it: ' + JSON.stringify(printed));
 // Selecting a short slice with the end marker active still shows its start
 dsp.starts = [0, 100000, 130000]; dsp.ends = [100000, 130000, 441000]; dsp.sel = 0; tick(1);
 shift(true); turn(2, 7); shift(false); tick(1);                            // zoom x8: view ~55k frames
 touch(2, true); touch(2, false); touch(5, true); touch(5, false); tick(1);   // end active
 check(lastWave[1] > 50000, 'end marker active and in view: ' + lastWave[1] + '-' + lastWave[2]);
 tick(70);
-check(printed.some(t => t.startsWith('S 0.000s ')), 'bottom line shows the start even with the end active: ' + JSON.stringify(printed));
+check(printed.some(t => t.startsWith('S 0.000s L ')), 'bottom line shows the start even with the end active: ' + JSON.stringify(printed));
 dsp.sel = 1; tick(1);                                               // play pad 2
 check(lastWave[1] <= 100000 && lastWave[2] >= 130000, 'selected slice start and end both shown: ' + lastWave[1] + '-' + lastWave[2]);
 dsp.sel = 2; tick(1);                                               // long slice: start wins
@@ -209,21 +209,21 @@ check(lit(UP) && log.at(-1) === 'SAY: Filter and Setup page', 'Down again stays 
 const gainSets = () => sets.filter(x => x.startsWith('gain_db10='));
 touch(8, true); tick(1);
 turn(8, 127); tick(1);                       // knob loop left it at +1.5 dB
-check(printed.includes('Gain +1.0dB') && gainSets().at(-1) === 'gain_db10=10', 'one step down is 0.5 dB: ' + JSON.stringify(printed));
+check(printed.includes('Gain: +1.0 dB') && gainSets().at(-1) === 'gain_db10=10', 'one step down is 0.5 dB: ' + JSON.stringify(printed));
 shift(true); turn(8, 1); shift(false); tick(1);
-check(printed.includes('Gain +1.1dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(printed));
+check(printed.includes('Gain: +1.1 dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(printed));
 turn(8, 63); tick(1);
-check(printed.includes('Gain +24.0dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
+check(printed.includes('Gain: +24.0 dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
 check(knobLed(8) === AMBER_LEVELS.at(-1), 'Knob 8 LED full amber at +24 dB: ' + knobLed(8));
 turn(8, 65); turn(8, 65); tick(1);   // 126 steps down
-check(printed.includes('Gain -70.0dB') && gainSets().at(-1) === 'gain_db10=-700', 'bottoms out at -70 dB: ' + JSON.stringify(printed));
+check(printed.includes('Gain: -70.0 dB') && gainSets().at(-1) === 'gain_db10=-700', 'bottoms out at -70 dB: ' + JSON.stringify(printed));
 check(knobLed(8) === AMBER_LEVELS[0], 'Knob 8 LED dimmest amber at -70 dB, still lit: ' + knobLed(8));
 turn(8, 23); tick(1);                       // 23 x 2 dB = -24 dB
-check(printed.includes('Gain -24.0dB'), '2 dB steps below -24 dB: ' + JSON.stringify(printed));
+check(printed.includes('Gain: -24.0 dB'), '2 dB steps below -24 dB: ' + JSON.stringify(printed));
 turn(8, 2); tick(1);
-check(printed.includes('Gain -23.0dB'), '0.5 dB steps from -24 dB up: ' + JSON.stringify(printed));
+check(printed.includes('Gain: -23.0 dB'), '0.5 dB steps from -24 dB up: ' + JSON.stringify(printed));
 turn(8, 46); tick(1);
-check(printed.includes('Gain 0.0dB'), 'back to 0 dB: ' + JSON.stringify(printed));
+check(printed.includes('Gain: 0.0 dB'), 'back to 0 dB: ' + JSON.stringify(printed));
 touch(8, false); tick(70);
 check(log.includes('SAY: Gain 0.0 decibels'), 'gain spoken: ' + log.slice(-3));
 
@@ -246,15 +246,15 @@ tick(70);
 // Shift + Knob 1 is detune in cents (-50 to +50), leaving transpose alone
 mark = sets.length;
 shift(true); touch(1, true); tick(1);
-check(printed.includes('Detune 0ct'), 'Shift + touching Knob 1 shows detune: ' + JSON.stringify(printed));
+check(printed.includes('Detune: 0 ct'), 'Shift + touching Knob 1 shows detune: ' + JSON.stringify(printed));
 turn(1, 5); tick(1);
-check(printed.includes('Detune +5ct'), 'Shift + Knob 1 turns detune: ' + JSON.stringify(printed));
+check(printed.includes('Detune: +5 ct'), 'Shift + Knob 1 turns detune: ' + JSON.stringify(printed));
 check(sets.slice(mark).includes('detune=5') && !sets.slice(mark).some(s => s.startsWith('transpose=')),
       'detune sent, transpose untouched: ' + JSON.stringify(sets.slice(mark)));
 turn(1, 63); tick(1);
-check(printed.includes('Detune +50ct') && sets.at(-1) === 'detune=50', 'detune clamps at +50');
+check(printed.includes('Detune: +50 ct') && sets.at(-1) === 'detune=50', 'detune clamps at +50');
 turn(1, 65); turn(1, 65); tick(1);
-check(printed.includes('Detune -50ct') && sets.at(-1) === 'detune=-50', 'detune clamps at -50');
+check(printed.includes('Detune: -50 ct') && sets.at(-1) === 'detune=-50', 'detune clamps at -50');
 turn(1, 20); tick(1);
 check(sets.at(-1) === 'detune=-30', 'detune back to -30: ' + sets.at(-1));
 touch(1, false); shift(false); tick(70);
@@ -264,11 +264,11 @@ check(printed.some(t => t.startsWith('Transpose')), 'without Shift, Knob 1 is tr
 // Transpose: -48 to +48 semitones, Move's drum sampler range
 mark = sets.length;
 turn(1, 63); tick(1);
-check(printed.includes('Transpose +48st') && sets.at(-1) === 'transpose=48', 'transpose tops out at +48: ' + JSON.stringify(printed));
+check(printed.includes('Transpose: +48 st') && sets.at(-1) === 'transpose=48', 'transpose tops out at +48: ' + JSON.stringify(printed));
 turn(1, 65); turn(1, 65); tick(1);
-check(printed.includes('Transpose -48st') && sets.at(-1) === 'transpose=-48', 'transpose bottoms out at -48: ' + JSON.stringify(printed));
+check(printed.includes('Transpose: -48 st') && sets.at(-1) === 'transpose=-48', 'transpose bottoms out at -48: ' + JSON.stringify(printed));
 turn(1, 48); tick(1);
-check(printed.includes('Transpose 0st') && sets.at(-1) === 'transpose=0', 'transpose back to 0: ' + JSON.stringify(printed));
+check(printed.includes('Transpose: 0 st') && sets.at(-1) === 'transpose=0', 'transpose back to 0: ' + JSON.stringify(printed));
 touch(1, false); tick(70);
 
 // Knob 6 is the effect: Off / 8-Bit. Knob 7 is the 8-Bit rate, kept while
@@ -276,33 +276,33 @@ touch(1, false); tick(70);
 const crushSets = () => sets.filter(x => x.startsWith('crush_hz='));
 mark = sets.length;
 touch(6, true); tick(1);
-check(printed.includes('Effect Off') && log.at(-1) === 'SAY: Effect off', 'Knob 6 shows the effect: ' + JSON.stringify(printed));
+check(printed.includes('Effect: Off') && log.at(-1) === 'SAY: Effect off', 'Knob 6 shows the effect: ' + JSON.stringify(printed));
 turn(6, 127); tick(1);
-check(printed.includes('Effect Off') && !sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'left of Off stays Off, sends nothing');
+check(printed.includes('Effect: Off') && !sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'left of Off stays Off, sends nothing');
 touch(6, false); touch(7, true); tick(1);
 check(printed.includes('-') && log.at(-1) === 'SAY: 8-Bit rate, the effect is off', 'Knob 7 shows "-" while the effect is off');
 check(litKnobs() === '123456', 'Knob 7 dark while the effect is off: ' + litKnobs());
 turn(7, 5); tick(1);
 check(!sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'Knob 7 does nothing while the effect is off');
 touch(7, false); touch(6, true); turn(6, 1); tick(1);
-check(printed.includes('Effect 8-Bit') && crushSets().at(-1) === 'crush_hz=15100', 'on again at the rate it had: ' + crushSets().at(-1));
+check(printed.includes('Effect: 8-Bit') && crushSets().at(-1) === 'crush_hz=15100', 'on again at the rate it had: ' + crushSets().at(-1));
 const onSets = crushSets().length;
 turn(6, 1); tick(1);
-check(crushSets().length === onSets && printed.includes('Effect 8-Bit'), 'right of 8-Bit stays 8-Bit, sends nothing');
+check(crushSets().length === onSets && printed.includes('Effect: 8-Bit'), 'right of 8-Bit stays 8-Bit, sends nothing');
 touch(6, false); touch(7, true); tick(1);
-check(printed.includes('Rate 15.1 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 15.1 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
 turn(7, 63); tick(1);
-check(printed.includes('Rate 30.0 kHz') && crushSets().at(-1) === 'crush_hz=30000', 'tops out at 30.0 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 30.0 kHz') && crushSets().at(-1) === 'crush_hz=30000', 'tops out at 30.0 kHz: ' + JSON.stringify(printed));
 turn(7, 127); tick(1);
-check(printed.includes('Rate 29.3 kHz'), '1/24 octave steps, 100 Hz precision above 10 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 29.3 kHz'), '1/24 octave steps, 100 Hz precision above 10 kHz: ' + JSON.stringify(printed));
 turn(7, 65); turn(7, 65); tick(1);   // 126 steps down
-check(printed.includes('Rate 1.00 kHz') && crushSets().at(-1) === 'crush_hz=1000', 'bottoms out at 1.00 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.00 kHz') && crushSets().at(-1) === 'crush_hz=1000', 'bottoms out at 1.00 kHz: ' + JSON.stringify(printed));
 turn(7, 1); tick(1);
-check(printed.includes('Rate 1.03 kHz'), '10 Hz precision below 10 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.03 kHz'), '10 Hz precision below 10 kHz: ' + JSON.stringify(printed));
 shift(true); turn(7, 1); shift(false); tick(1);
-check(printed.includes('Rate 1.04 kHz') && crushSets().at(-1) === 'crush_hz=1040', 'Shift: 1/96 octave steps: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.04 kHz') && crushSets().at(-1) === 'crush_hz=1040', 'Shift: 1/96 octave steps: ' + JSON.stringify(printed));
 turn(7, 63); turn(7, 8); tick(1);    // 71 steps: the first reaches 1.06 kHz, then up to 8 kHz
-check(printed.includes('Rate 8.00 kHz') && crushSets().at(-1) === 'crush_hz=8000', 'rate at 8.00 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 8.00 kHz') && crushSets().at(-1) === 'crush_hz=8000', 'rate at 8.00 kHz: ' + JSON.stringify(printed));
 check(!sets.slice(mark).some(s => !/^(crush_hz|ui_state)=/.test(s)), 'Knobs 6 and 7 send only crush: ' + JSON.stringify(sets.slice(mark)));
 touch(7, false); tick(70);
 check(log.includes('SAY: 8-Bit rate 8 kilohertz'), 'rate announced: ' + log.slice(-3));
@@ -569,9 +569,9 @@ check(!log.slice(logMark).some(l => /SAY: (Chop|Undo|Redo|Deleted)/.test(l)), 'r
 check(dsp.uiState === keptState, 'zoom, page, Length and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
 check(lit(RECORD) && lit(UP) && !lit(DOWN), 'buttons lit again after resuming, Up back to Main from the Filter & Setup page');
 touch(1, true); tick(1); touch(1, false);
-check(printed.some(t => t.startsWith('Frequency ')), 'resumed on the Filter & Setup page: ' + JSON.stringify(printed));
+check(printed.some(t => t.startsWith('Freq: ')), 'resumed on the Filter & Setup page: ' + JSON.stringify(printed));
 mainPage(); touch(5, true); tick(1); touch(5, false);
-check(printed.some(t => t.startsWith('Length ')), 'resumed with Knob 5 on Length: ' + JSON.stringify(printed));
+check(printed.some(t => t.startsWith('Length: ')), 'resumed with Knob 5 on Length: ' + JSON.stringify(printed));
 shiftTap(5); tick(70);
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'unexported work is still unexported after resuming');
@@ -610,16 +610,16 @@ const fileCount2 = Object.keys(files).length;
 dsp.normGain = '127';
 tools(); click(); tick(1);
 check(gainSets().at(-1) === 'gain_db10=127', 'Normalize sets the gain: ' + gainSets().at(-1));
-check(printed.includes('Gain +12.7dB'), 'new gain shown: ' + JSON.stringify(printed));
+check(printed.includes('Gain: +12.7 dB'), 'new gain shown: ' + JSON.stringify(printed));
 check(log.at(-1) === 'SAY: Normalized, gain plus 12.7 decibels', 'normalize announced: ' + log.at(-1));
 check(Object.keys(files).length === fileCount2, 'no file written');
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'normalizing counts as unexported');
 midi(0xB0, 51, 127); tick(1);
 filterPage(); touch(8, true); tick(1);
-check(printed.includes('Gain +12.7dB'), 'the Gain knob shows the normalized gain');
+check(printed.includes('Gain: +12.7 dB'), 'the Gain knob shows the normalized gain');
 turn(8, 1); tick(1);
-check(printed.includes('Gain +13.2dB'), 'and turns on from it');
+check(printed.includes('Gain: +13.2 dB'), 'and turns on from it');
 turn(8, 127); touch(8, false); mainPage(); tick(70);
 exportPreset();
 const newestPreset = () => JSON.parse(files[Object.keys(files).filter(f => f.startsWith(presetDir)).at(-1)] || '{}');
@@ -722,21 +722,21 @@ dsp.uiState = '1 0 2 4';
 g.init(); tick(2);
 check(lit(DOWN) && !lit(UP), 'an old ui_state resumes on the Main page');
 filterPage(); touch(8, true); tick(1);
-check(printed.includes('Gain -70.0dB'), 'gain restored from settings, clamped: ' + JSON.stringify(printed));
+check(printed.includes('Gain: -70.0 dB'), 'gain restored from settings, clamped: ' + JSON.stringify(printed));
 touch(8, false); touch(3, true); tick(1); touch(3, false);
-check(printed.includes('Type Low-Pass 24'), 'settings without filter fields: Low-Pass 24: ' + JSON.stringify(printed));
+check(printed.includes('Type: Low-Pass 24'), 'settings without filter fields: Low-Pass 24: ' + JSON.stringify(printed));
 touch(1, true); tick(1); touch(1, false);
-check(printed.includes('Frequency 22.0 kHz'), 'settings without filter fields: fully open: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 22.0 kHz'), 'settings without filter fields: fully open: ' + JSON.stringify(printed));
 mainPage(); shift(true); touch(2, true); tick(1);
-check(printed.includes('Zoom x4'), 'version-1 ui_state still restores zoom: ' + JSON.stringify(printed));
+check(printed.includes('Zoom: x4'), 'version-1 ui_state still restores zoom: ' + JSON.stringify(printed));
 touch(2, false); shift(false); tick(70);
 check(Math.max(0, ...waveCols()) === 0, 'waveform flat at -70 dB');
 touch(6, true); tick(1); touch(6, false);
-check(printed.includes('Effect 8-Bit'), 'effect restored from settings: ' + JSON.stringify(printed));
+check(printed.includes('Effect: 8-Bit'), 'effect restored from settings: ' + JSON.stringify(printed));
 touch(7, true); tick(1);
-check(printed.includes('Rate 8.41 kHz'), 'rate restored from settings: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 8.41 kHz'), 'rate restored from settings: ' + JSON.stringify(printed));
 turn(7, 1); tick(1);
-check(printed.includes('Rate 8.48 kHz'), 'a restored off-grid 8410 Hz steps to the next step, 8.48 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 8.48 kHz'), 'a restored off-grid 8410 Hz steps to the next step, 8.48 kHz: ' + JSON.stringify(printed));
 touch(7, false); tick(70);
 
 // The filter is restored from the DSP's settings too
@@ -744,12 +744,12 @@ await freshUi('filterresume');
 dsp.settings = '0 -1 50000 0 0 0 0 0 3 12000 450 -60';
 dsp.uiState = '3 0 0 1 0';
 g.init(); tick(2);
-for (const [k, want] of [[1, 'Frequency 1.20 kHz'], [2, 'Peak Gain -6.0dB'], [3, 'Type Peak']]) {
+for (const [k, want] of [[1, 'Freq: 1.20 kHz'], [2, 'Peak Gain: -6.0 dB'], [3, 'Type: Peak']]) {
   touch(k, true); tick(1); touch(k, false);
   check(printed.includes(want), `restored: ${want}: ` + JSON.stringify(printed));
 }
 turn(3, 127); touch(2, true); tick(1); touch(2, false);
-check(printed.includes('Resonance 45%'), 'restored resonance, under High-Pass 24: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 45 %'), 'restored resonance, under High-Pass 24: ' + JSON.stringify(printed));
 delete g.host_tool_reconnect;
 
 // ---- Filter & Setup page: frequency, resonance / Peak gain, type, mode ----
@@ -766,77 +766,77 @@ filterPage(); tick(70);
 // Frequency: 30 Hz to 22 kHz, 1/24 octave (Shift 1/96), rounded as Move shows it
 mark = sets.length;
 touch(1, true); tick(1);
-check(printed.includes('Frequency 22.0 kHz') && log.at(-1) === 'SAY: Frequency 22 kilohertz', 'frequency starts fully open: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 22.0 kHz') && log.at(-1) === 'SAY: Frequency 22 kilohertz', 'frequency starts fully open: ' + JSON.stringify(printed));
 check(knobLed(1) === WHITE_LEVELS.at(-1), 'Knob 1 LED full white at 22 kHz: ' + knobLed(1));
 turn(1, 1); tick(1);
-check(printed.includes('Frequency 22.0 kHz') && filterSets('filter_hz10').length === 0, 'stops at 22 kHz, sends nothing');
+check(printed.includes('Freq: 22.0 kHz') && filterSets('filter_hz10').length === 0, 'stops at 22 kHz, sends nothing');
 turn(1, 127); tick(1);
-check(printed.includes('Frequency 21.7 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=217000', 'one step down: 21.7 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 21.7 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=217000', 'one step down: 21.7 kHz: ' + JSON.stringify(printed));
 turn(1, 65); turn(1, 65); turn(1, 65); turn(1, 65); tick(1);
-check(printed.includes('Frequency 30.0 Hz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=300', 'bottoms out at 30.0 Hz: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 30.0 Hz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=300', 'bottoms out at 30.0 Hz: ' + JSON.stringify(printed));
 check(knobLed(1) === WHITE_LEVELS[0], 'Knob 1 LED dimmest white at 30 Hz, still lit: ' + knobLed(1));
 turn(1, 1); tick(1);
-check(printed.includes('Frequency 30.9 Hz'), 'one decimal below 100 Hz: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 30.9 Hz'), 'one decimal below 100 Hz: ' + JSON.stringify(printed));
 for (const [ticks, want] of [[40, '98.0 Hz'], [1, '101 Hz'], [79, '988 Hz'], [1, '1.02 kHz'], [79, '9.96 kHz'], [1, '10.3 kHz']]) {
   turnBy(1, ticks); tick(1);
-  check(printed.includes('Frequency ' + want), `frequency rounding: ${want}: ` + JSON.stringify(printed));
+  check(printed.includes('Freq: ' + want), `frequency rounding: ${want}: ` + JSON.stringify(printed));
 }
 turnBy(1, -80); tick(1);                 // 80 steps down: 1.02 kHz
-check(printed.includes('Frequency 1.02 kHz'), 'back at 1.02 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 1.02 kHz'), 'back at 1.02 kHz: ' + JSON.stringify(printed));
 shift(true); turn(1, 1); shift(false); tick(1);
-check(printed.includes('Frequency 1.03 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=10300', 'Shift: 1/96 octave: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 1.03 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=10300', 'Shift: 1/96 octave: ' + JSON.stringify(printed));
 touch(1, false); tick(70);
 check(log.includes('SAY: Frequency 1.03 kilohertz'), 'frequency announced: ' + log.slice(-2));
 // Resonance: 0-90%, 1% steps (Shift 0.1%), one decimal below 10
 touch(2, true); tick(1);
-check(printed.includes('Resonance 0.0%') && log.at(-1) === 'SAY: Resonance 0.0 percent', 'resonance starts at 0.0%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 0.0 %') && log.at(-1) === 'SAY: Resonance 0.0 percent', 'resonance starts at 0.0%: ' + JSON.stringify(printed));
 turn(2, 5); tick(1);
-check(printed.includes('Resonance 5.0%') && filterSets('filter_res').at(-1) === 'filter_res=50', 'resonance 5.0%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 5.0 %') && filterSets('filter_res').at(-1) === 'filter_res=50', 'resonance 5.0%: ' + JSON.stringify(printed));
 turn(2, 5); tick(1);
-check(printed.includes('Resonance 10%'), 'no decimal from 10%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 10 %'), 'no decimal from 10%: ' + JSON.stringify(printed));
 shift(true); turn(2, 127); shift(false); tick(1);
-check(printed.includes('Resonance 9.9%') && filterSets('filter_res').at(-1) === 'filter_res=99', 'Shift: 0.1%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 9.9 %') && filterSets('filter_res').at(-1) === 'filter_res=99', 'Shift: 0.1%: ' + JSON.stringify(printed));
 turn(2, 63); turn(2, 63); tick(1);
-check(printed.includes('Resonance 90%') && filterSets('filter_res').at(-1) === 'filter_res=900', 'tops out at 90%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 90 %') && filterSets('filter_res').at(-1) === 'filter_res=900', 'tops out at 90%: ' + JSON.stringify(printed));
 turn(2, 65); tick(1);                    // 63 down: 27%
 turn(2, 110); tick(1);                   // 18 more: 9.0%? no: 27 - 18 = 9
-check(printed.includes('Resonance 9.0%') && filterSets('filter_res').at(-1) === 'filter_res=90', 'resonance 9.0%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 9.0 %') && filterSets('filter_res').at(-1) === 'filter_res=90', 'resonance 9.0%: ' + JSON.stringify(printed));
 touch(2, false); tick(70);
 // Type: Low-Pass 12, Low-Pass 24, High-Pass 24, Peak; stops at both ends
 touch(3, true); tick(1);
-check(printed.includes('Type Low-Pass 24') && log.at(-1) === 'SAY: Filter low-pass 24', 'type starts at Low-Pass 24: ' + JSON.stringify(printed));
+check(printed.includes('Type: Low-Pass 24') && log.at(-1) === 'SAY: Filter low-pass 24', 'type starts at Low-Pass 24: ' + JSON.stringify(printed));
 turn(3, 127); tick(1);
-check(printed.includes('Type Low-Pass 12') && filterSets('filter_type').at(-1) === 'filter_type=0', 'Low-Pass 12: ' + JSON.stringify(printed));
+check(printed.includes('Type: Low-Pass 12') && filterSets('filter_type').at(-1) === 'filter_type=0', 'Low-Pass 12: ' + JSON.stringify(printed));
 const typeSets = filterSets('filter_type').length;
 turn(3, 127); tick(1);
-check(printed.includes('Type Low-Pass 12') && filterSets('filter_type').length === typeSets, 'stops at Low-Pass 12, sends nothing');
+check(printed.includes('Type: Low-Pass 12') && filterSets('filter_type').length === typeSets, 'stops at Low-Pass 12, sends nothing');
 turn(3, 2); tick(1);
-check(printed.includes('Type High-Pass 24') && filterSets('filter_type').at(-1) === 'filter_type=2', 'High-Pass 24: ' + JSON.stringify(printed));
+check(printed.includes('Type: High-Pass 24') && filterSets('filter_type').at(-1) === 'filter_type=2', 'High-Pass 24: ' + JSON.stringify(printed));
 turn(3, 5); tick(1);
-check(printed.includes('Type Peak') && filterSets('filter_type').at(-1) === 'filter_type=3', 'stops at Peak: ' + JSON.stringify(printed));
+check(printed.includes('Type: Peak') && filterSets('filter_type').at(-1) === 'filter_type=3', 'stops at Peak: ' + JSON.stringify(printed));
 touch(3, false); tick(70);
 check(log.includes('SAY: Filter peak'), 'type announced');
 // Peak: Knob 2 is Peak Gain, -12 to +12 dB, 0.5 dB steps (Shift 0.1); resonance is kept
 touch(2, true); tick(1);
-check(printed.includes('Peak Gain 0.0dB') && log.at(-1) === 'SAY: Peak gain 0.0 decibels', 'on Peak, Knob 2 is Peak Gain: ' + JSON.stringify(printed));
+check(printed.includes('Peak Gain: 0.0 dB') && log.at(-1) === 'SAY: Peak gain 0.0 decibels', 'on Peak, Knob 2 is Peak Gain: ' + JSON.stringify(printed));
 turn(2, 6); tick(1);
-check(printed.includes('Peak Gain +3.0dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=30', 'Peak Gain +3.0dB: ' + JSON.stringify(printed));
+check(printed.includes('Peak Gain: +3.0 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=30', 'Peak Gain +3.0dB: ' + JSON.stringify(printed));
 shift(true); turn(2, 1); shift(false); tick(1);
-check(printed.includes('Peak Gain +3.1dB'), 'Shift: 0.1 dB: ' + JSON.stringify(printed));
+check(printed.includes('Peak Gain: +3.1 dB'), 'Shift: 0.1 dB: ' + JSON.stringify(printed));
 turn(2, 63); tick(1);
-check(printed.includes('Peak Gain +12.0dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=120', 'tops out at +12 dB');
+check(printed.includes('Peak Gain: +12.0 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=120', 'tops out at +12 dB');
 turn(2, 65); tick(1);
-check(printed.includes('Peak Gain -12.0dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=-120', 'bottoms out at -12 dB');
+check(printed.includes('Peak Gain: -12.0 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=-120', 'bottoms out at -12 dB');
 turn(2, 30); tick(1);
-check(printed.includes('Peak Gain +3.0dB'), 'back to +3.0 dB: ' + JSON.stringify(printed));
+check(printed.includes('Peak Gain: +3.0 dB'), 'back to +3.0 dB: ' + JSON.stringify(printed));
 check(filterSets('filter_res').at(-1) === 'filter_res=90', 'Peak Gain leaves the resonance alone');
 touch(2, false); turn(3, 126); touch(2, true); tick(1); touch(2, false);
-check(printed.includes('Resonance 9.0%'), 'Low-Pass 24 again: resonance kept: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 9.0 %'), 'Low-Pass 24 again: resonance kept: ' + JSON.stringify(printed));
 // Mode: Trigger / Gate; Mute stays dark either way
 touch(4, true); tick(1);
-check(printed.includes('Mode Trigger') && !lit(MUTE), 'Mode starts on Trigger: ' + JSON.stringify(printed));
+check(printed.includes('Mode: Trigger') && !lit(MUTE), 'Mode starts on Trigger: ' + JSON.stringify(printed));
 turn(4, 1); tick(1);
-check(printed.includes('Mode Gate') && sets.at(-1) === 'gate=1' && !lit(MUTE), 'Mode Gate: gated');
+check(printed.includes('Mode: Gate') && sets.at(-1) === 'gate=1' && !lit(MUTE), 'Mode Gate: gated');
 touch(4, false); tick(70);
 check(log.includes('SAY: Mode gate'), 'Mode Gate announced: ' + log.slice(-2));
 touch(4, true); tick(1);
@@ -844,7 +844,7 @@ const gateSets = sets.filter(x => x.startsWith('gate=')).length;
 turn(4, 1); tick(1);
 check(sets.filter(x => x.startsWith('gate=')).length === gateSets, 'right of Gate stays Gate, sends nothing');
 turn(4, 127); tick(1);
-check(printed.includes('Mode Trigger') && sets.at(-1) === 'gate=0', 'Mode Trigger: one-shot again');
+check(printed.includes('Mode: Trigger') && sets.at(-1) === 'gate=0', 'Mode Trigger: one-shot again');
 touch(4, false); tick(70);
 // Knobs 5-7 are not used on this page
 mark = sets.length;

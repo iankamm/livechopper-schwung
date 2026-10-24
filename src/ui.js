@@ -316,9 +316,11 @@ function baseName(path) {
     return i >= 0 ? path.substring(i + 1) : path;
 }
 
-function formatSeconds(f) {
-    if (!sampleRate) return "0.000s";
-    return (f / sampleRate).toFixed(3) + "s";
+/* "1.234 s", or "1.234s" with attached set (the bottom line's S / L). */
+function formatSeconds(f, attached) {
+    var unit = attached ? "s" : " s";
+    if (!sampleRate) return "0.000" + unit;
+    return (f / sampleRate).toFixed(3) + unit;
 }
 
 function spokenSeconds(f) {
@@ -505,9 +507,9 @@ function selectSlice(idx) {
 
 function formatUs(us) {
     if (us === HOLD_FULL) return "Full";
-    if (us < 10000) return (us / 1000).toFixed(1) + "ms";
-    if (us < 1000000) return Math.round(us / 1000) + "ms";
-    return (us / 1000000).toFixed(2) + "s";
+    if (us < 10000) return (us / 1000).toFixed(1) + " ms";
+    if (us < 1000000) return Math.round(us / 1000) + " ms";
+    return (us / 1000000).toFixed(2) + " s";
 }
 
 function spokenUs(us) {
@@ -517,11 +519,11 @@ function spokenUs(us) {
 }
 
 function formatTranspose(t) {
-    return (t > 0 ? "+" : "") + t + "st";
+    return (t > 0 ? "+" : "") + t + " st";
 }
 
 function formatDetune(c) {
-    return (c > 0 ? "+" : "") + c + "ct";
+    return (c > 0 ? "+" : "") + c + " ct";
 }
 
 /* Hz as Move shows it: "30.0 Hz", "250 Hz", "1.20 kHz", "12.5 kHz". */
@@ -661,42 +663,42 @@ function knobReadout(i) {
     var pad = "Pad " + (selectedSlice + 1);
     switch (knobRole(i)) {
     case "transpose":
-        return ["Transpose " + formatTranspose(transpose), "Transpose " + transpose + " semitones"];
+        return ["Transpose: " + formatTranspose(transpose), "Transpose " + transpose + " semitones"];
     case "detune":
-        return ["Detune " + formatDetune(detune), "Detune " + detune + " cents"];
+        return ["Detune: " + formatDetune(detune), "Detune " + detune + " cents"];
     case "start":
         var pos = sliceCount > 0 ? sliceStarts[selectedSlice] : 0;
-        return ["Start " + formatSeconds(pos), pad + " start " + spokenSeconds(pos)];
+        return ["Start: " + formatSeconds(pos), pad + " start " + spokenSeconds(pos)];
     case "zoom":
         var z = Math.round(Math.pow(2, zoom));
-        return ["Zoom x" + z, "Zoom " + z];
+        return ["Zoom: x" + z, "Zoom " + z];
     case "attack":
-        return ["Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
+        return ["Attack: " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
     case "hold":
-        return ["Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs)];
+        return ["Hold: " + formatUs(holdUs), "Hold " + spokenUs(holdUs)];
     case "decay":
-        return ["Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
+        return ["Decay: " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
     case "length":
         var len = formatPercent(lengthPercent());
-        return ["Length " + len + "%", pad + " length " + len + " percent"];
+        return ["Length: " + len + " %", pad + " length " + len + " percent"];
     case "effect":
-        return crushHz > 0 ? ["Effect 8-Bit", "Effect 8-Bit"] : ["Effect Off", "Effect off"];
+        return crushHz > 0 ? ["Effect: 8-Bit", "Effect 8-Bit"] : ["Effect: Off", "Effect off"];
     case "rate":
         if (crushHz <= 0) return ["-", "8-Bit rate, the effect is off"];
-        return ["Rate " + formatHz(crushHz), "8-Bit rate " + spokenHz(crushHz)];
+        return ["Rate: " + formatHz(crushHz), "8-Bit rate " + spokenHz(crushHz)];
     case "frequency":
-        return ["Frequency " + formatHz(filterHz10 / 10), "Frequency " + spokenHz(filterHz10 / 10)];
+        return ["Freq: " + formatHz(filterHz10 / 10), "Frequency " + spokenHz(filterHz10 / 10)];
     case "resonance":
         var res = formatPercent(filterRes / 10);
-        return ["Resonance " + res + "%", "Resonance " + res + " percent"];
+        return ["Resonance: " + res + " %", "Resonance " + res + " percent"];
     case "peak":
-        return ["Peak Gain " + formatGain(filterPeakDb10), "Peak gain " + spokenGain(filterPeakDb10)];
+        return ["Peak Gain: " + formatGain(filterPeakDb10), "Peak gain " + spokenGain(filterPeakDb10)];
     case "type":
-        return ["Type " + FILTER_TYPE_NAMES[filterType], "Filter " + FILTER_TYPE_NAMES[filterType].toLowerCase()];
+        return ["Type: " + FILTER_TYPE_NAMES[filterType], "Filter " + FILTER_TYPE_NAMES[filterType].toLowerCase()];
     case "mode":
-        return gated ? ["Mode Gate", "Mode gate"] : ["Mode Trigger", "Mode trigger"];
+        return gated ? ["Mode: Gate", "Mode gate"] : ["Mode: Trigger", "Mode trigger"];
     case "gain":
-        return ["Gain " + formatGain(gainDb10), "Gain " + spokenGain(gainDb10)];
+        return ["Gain: " + formatGain(gainDb10), "Gain " + spokenGain(gainDb10)];
     default:
         return ["-", "Not used"];
     }
@@ -867,7 +869,7 @@ function gainLinear(db10) {
 }
 
 function formatGain(db10) {
-    return (db10 > 0 ? "+" : db10 < 0 ? "-" : "") + (Math.abs(db10) / 10).toFixed(1) + "dB";
+    return (db10 > 0 ? "+" : db10 < 0 ? "-" : "") + (Math.abs(db10) / 10).toFixed(1) + " dB";
 }
 
 function spokenGain(db10) {
@@ -1218,7 +1220,7 @@ function normalizeGain() {
         return;
     }
     setGain(Math.max(GAIN_MIN, Math.min(GAIN_MAX, v)));
-    showMessage("Gain " + formatGain(gainDb10), EXPORT_MSG_TICKS);
+    showMessage("Gain: " + formatGain(gainDb10), EXPORT_MSG_TICKS);
     announce("Normalized, gain " + spokenGain(gainDb10));
 }
 
@@ -1518,8 +1520,8 @@ function drawEditor() {
         return;
     }
     var len = sliceEnds[selectedSlice] - sliceStarts[selectedSlice];
-    print(0, 54, "S " + formatSeconds(sliceStarts[selectedSlice]) +
-          " L " + formatSeconds(len), 1);
+    print(0, 54, "S " + formatSeconds(sliceStarts[selectedSlice], true) +
+          " L " + formatSeconds(len, true), 1);
 }
 
 function drawConfirmExit() {
