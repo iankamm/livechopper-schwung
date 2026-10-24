@@ -86,6 +86,18 @@
  * gets a stand-in for it: each voice is sampled and held at that rate (in
  * output frames, after repitching) and cut to 8 bits, before the envelope.
  * Slice export leaves it out, like the envelope and transpose.
+ *
+ * Filter: the drum sampler's filter, which the exported preset sets.
+ * set_param("filter_type") 0-3 = Low-Pass 12, Low-Pass 24 (the default),
+ * High-Pass 24, Peak; "filter_hz10" the cutoff in tenths of a Hz (30 Hz to
+ * 22 kHz), "filter_res" the resonance in thousandths (0-900, Move's 0-0.9)
+ * and "filter_peak_db10" the Peak type's gain in tenths of a dB (+-12 dB).
+ * Playback runs each voice through a stand-in after the crush: a TPT
+ * state-variable filter (Simper's SVF), two stages for the 24 dB types, and
+ * a bell of fixed width for Peak, which ignores the resonance. The cutoff
+ * glides (~10 ms, in octaves) and the coefficients are recomputed every
+ * FILTER_COEF_FRAMES. A low-pass type fully open (22 kHz, Move's default)
+ * skips the filter, so playback is bit-identical to no filter at all.
  */
 
 #define _GNU_SOURCE
@@ -142,6 +154,19 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define CRUSH_HZ_MIN 1000           /* the drum sampler's 8-Bit Resampling Rate range */
 #define CRUSH_HZ_MAX 30000
 
+/* Filter, in the drum sampler's ranges */
+enum { FILTER_LP12 = 0, FILTER_LP24 = 1, FILTER_HP24 = 2, FILTER_PEAK = 3 };
+#define FILTER_HZ10_MIN 300         /* 30 Hz */
+#define FILTER_HZ10_MAX 220000      /* 22 kHz: fully open */
+#define FILTER_RES_MAX 900          /* thousandths: Move's 0.9 */
+#define FILTER_PEAK_DB10_MAX 120    /* +-12 dB */
+#define FILTER_COEF_FRAMES 16       /* coefficients recomputed this often */
+#define FILTER_GLIDE 0.0356f        /* per update: ~10 ms one-pole glide */
+#define FILTER_NYQUIST_FRAC 0.45f   /* cutoff clamp, as a fraction of the rate */
+#define FILTER_K_OPEN 1.41421356f   /* Butterworth: no resonance */
+#define FILTER_K_MAX_RES 0.1f       /* at resonance 0.9: strong, never oscillates */
+#define FILTER_PEAK_Q 1.0f          /* bell width, about 1.4 octaves */
+
 /* convert_channels modes, and convert_result status */
 enum { CONV_MONO_MIX = 0, CONV_LEFT = 1, CONV_RIGHT = 2 };
 enum {
@@ -185,6 +210,20 @@ typedef struct {
     float l, r;
 } crush_state_t;
 
+/* Per-voice filter state: two SVF stages, two integrators per channel. */
+typedef struct {
+    float ic1[2][2];    /* [stage][L/R] */
+    float ic2[2][2];
+} filter_state_t;
+
+/* Filter coefficients for each stage: out = m0 * in + m1 * band + m2 * low.
+ * stages = 0 is bypass. */
+typedef struct {
+    int stages;
+    float a1[2], a2[2], a3[2];
+    float m0[2], m1[2], m2[2];
+} filter_coef_t;
+
 typedef struct {
     /* --- audio thread only --- */
     sample_buf_t *current;
@@ -196,6 +235,7 @@ typedef struct {
     int release_pos;    /* gated: frames since release, -1 while held */
     float release_gain; /* gated: level when the release began */
     crush_state_t crush;
+    filter_state_t filter;
 
     /* Choke tail: the voice that was cut off, fading out */
     int tail_active;
@@ -204,6 +244,7 @@ typedef struct {
     float tail_gain;
     int tail_left;
     crush_state_t tail_crush;
+    filter_state_t tail_filter;
 
     /* Global sound settings */
     int attack_us, hold_us, decay_us;           /* as set; hold may be HOLD_FULL */
@@ -216,6 +257,15 @@ typedef struct {
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
     int crush_hz;                               /* 0 = off, else CRUSH_HZ_MIN-MAX */
+    int filter_type;                            /* FILTER_LP12 .. FILTER_PEAK */
+    int filter_hz10;                            /* cutoff, tenths of a Hz */
+    int filter_res;                             /* thousandths, 0 to FILTER_RES_MAX */
+    int filter_peak_db10;                       /* Peak gain, tenths of a dB */
+    float filter_k;                             /* SVF damping from the resonance */
+    float filter_peak_a;                        /* bell amplitude, 10^(dB/40) */
+    float filter_oct_target;                    /* log2 of the cutoff in Hz */
+    float filter_oct;                           /* glides to filter_oct_target */
+    filter_coef_t filter_coef;
 
     /* Slices, in time order. Pad i plays slice i. */
     int slice_start[MAX_SLICES];
@@ -1118,6 +1168,102 @@ static void crush_frame(int hz, crush_state_t *c, float *l, float *r) {
     *r = c->r;
 }
 
+static int clamp_int(int v, int lo, int hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static void set_filter_type(live_chopper_t *inst, int type) {
+    inst->filter_type = clamp_int(type, FILTER_LP12, FILTER_PEAK);
+}
+
+/* The cutoff glides there from wherever it is. */
+static void set_filter_hz10(live_chopper_t *inst, int hz10) {
+    inst->filter_hz10 = clamp_int(hz10, FILTER_HZ10_MIN, FILTER_HZ10_MAX);
+    inst->filter_oct_target = log2f(inst->filter_hz10 / 10.0f);
+}
+
+/* Resonance 0 is a flat Butterworth (k = sqrt 2); 0.9 brings k down to
+ * FILTER_K_MAX_RES, exponentially, so the peak grows evenly. */
+static void set_filter_res(live_chopper_t *inst, int res) {
+    inst->filter_res = clamp_int(res, 0, FILTER_RES_MAX);
+    inst->filter_k = FILTER_K_OPEN * powf(FILTER_K_MAX_RES / FILTER_K_OPEN, inst->filter_res / (float)FILTER_RES_MAX);
+}
+
+static void set_filter_peak(live_chopper_t *inst, int db10) {
+    inst->filter_peak_db10 = clamp_int(db10, -FILTER_PEAK_DB10_MAX, FILTER_PEAK_DB10_MAX);
+    inst->filter_peak_a = powf(10.0f, inst->filter_peak_db10 / 400.0f);
+}
+
+/* One SVF stage's coefficients for a given g = tan(pi * fc / rate). */
+static void svf_stage(filter_coef_t *c, int s, float g, float k, float m0, float m1, float m2) {
+    c->a1[s] = 1.0f / (1.0f + g * (g + k));
+    c->a2[s] = g * c->a1[s];
+    c->a3[s] = g * c->a2[s];
+    c->m0[s] = m0;
+    c->m1[s] = m1;
+    c->m2[s] = m2;
+}
+
+/* Glide the cutoff one step and recompute the coefficients. The 24 dB types
+ * add a Butterworth stage after the resonant one. A low-pass type that has
+ * reached the top is bypassed, with its state cleared for when it comes
+ * back. Bounded: one tan per call. */
+static void filter_update(live_chopper_t *inst) {
+    filter_coef_t *c = &inst->filter_coef;
+    float d = inst->filter_oct_target - inst->filter_oct;
+    inst->filter_oct = fabsf(d) < 1e-4f ? inst->filter_oct_target : inst->filter_oct + d * FILTER_GLIDE;
+    int type = inst->filter_type;
+    if (type != FILTER_HP24 && type != FILTER_PEAK && inst->filter_hz10 == FILTER_HZ10_MAX &&
+        inst->filter_oct == inst->filter_oct_target) {
+        c->stages = 0;
+        memset(&inst->filter, 0, sizeof inst->filter);
+        memset(&inst->tail_filter, 0, sizeof inst->tail_filter);
+        return;
+    }
+    float hz = exp2f(inst->filter_oct);
+    if (hz > FILTER_NYQUIST_FRAC * MOVE_SAMPLE_RATE) hz = FILTER_NYQUIST_FRAC * MOVE_SAMPLE_RATE;
+    float g = tanf((float)M_PI * hz / MOVE_SAMPLE_RATE);
+    float k = inst->filter_k;
+    if (type == FILTER_PEAK) {
+        float a = inst->filter_peak_a;
+        float kp = 1.0f / (FILTER_PEAK_Q * a);
+        svf_stage(c, 0, g, kp, 1.0f, kp * (a * a - 1.0f), 0.0f);
+        c->stages = 1;
+    } else if (type == FILTER_HP24) {
+        svf_stage(c, 0, g, k, 1.0f, -k, -1.0f);
+        svf_stage(c, 1, g, FILTER_K_OPEN, 1.0f, -FILTER_K_OPEN, -1.0f);
+        c->stages = 2;
+    } else {
+        svf_stage(c, 0, g, k, 0.0f, 0.0f, 1.0f);
+        svf_stage(c, 1, g, FILTER_K_OPEN, 0.0f, 0.0f, 1.0f);
+        c->stages = type == FILTER_LP24 ? 2 : 1;
+    }
+    if (c->stages < 2) {
+        /* Clear the unused stage so a later 24 dB type starts it clean. */
+        for (int ch = 0; ch < 2; ch++) {
+            inst->filter.ic1[1][ch] = inst->filter.ic2[1][ch] = 0.0f;
+            inst->tail_filter.ic1[1][ch] = inst->tail_filter.ic2[1][ch] = 0.0f;
+        }
+    }
+}
+
+static float svf_tick(const filter_coef_t *c, int s, float *ic1, float *ic2, float v0) {
+    float v3 = v0 - *ic2;
+    float v1 = c->a1[s] * *ic1 + c->a2[s] * v3;
+    float v2 = *ic2 + c->a2[s] * *ic1 + c->a3[s] * v3;
+    *ic1 = 2.0f * v1 - *ic1;
+    *ic2 = 2.0f * v2 - *ic2;
+    return c->m0[s] * v0 + c->m1[s] * v1 + c->m2[s] * v2;
+}
+
+/* Run one voice's frame through the filter (nothing when bypassed). */
+static void filter_frame(const filter_coef_t *c, filter_state_t *f, float *l, float *r) {
+    for (int s = 0; s < c->stages; s++) {
+        *l = svf_tick(c, s, &f->ic1[s][0], &f->ic2[s][0], *l);
+        *r = svf_tick(c, s, &f->ic1[s][1], &f->ic2[s][1], *r);
+    }
+}
+
 /* Linear-interpolated stereo frame at a fractional source position. */
 static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
     int idx = (int)pos;
@@ -1136,6 +1282,7 @@ static void fade_out_voice(live_chopper_t *inst) {
     inst->tail_gain = env_gain(inst);
     inst->tail_left = DECLICK_FRAMES;
     inst->tail_crush = inst->crush;
+    inst->tail_filter = inst->filter;
 }
 
 static void play_slice(live_chopper_t *inst, int idx, int note) {
@@ -1148,6 +1295,7 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     inst->gate_note = note;
     inst->release_pos = -1;
     inst->crush.phase = MOVE_SAMPLE_RATE;   /* hold the slice's first frame */
+    memset(&inst->filter, 0, sizeof inst->filter);
     inst->playing_slice = idx;
     inst->selected_slice = idx;
     inst->playing = 1;
@@ -1387,6 +1535,11 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     set_transpose(inst, 0);
     set_gain(inst, 0);
     inst->gain_cur = inst->gain_target;
+    set_filter_type(inst, FILTER_LP24);
+    set_filter_hz10(inst, FILTER_HZ10_MAX);
+    set_filter_res(inst, 0);
+    set_filter_peak(inst, 0);
+    inst->filter_oct = inst->filter_oct_target;
     if (pthread_create(&inst->worker, NULL, worker_main, inst) == 0) {
         inst->worker_started = 1;
     }
@@ -1554,6 +1707,26 @@ static void set_param(void *instance, const char *key, const char *val) {
         set_crush(inst, parse_int(&p));
         return;
     }
+    if (strcmp(key, "filter_type") == 0) {
+        const char *p = val;
+        set_filter_type(inst, parse_int(&p));
+        return;
+    }
+    if (strcmp(key, "filter_hz10") == 0) {
+        const char *p = val;
+        set_filter_hz10(inst, parse_int(&p));
+        return;
+    }
+    if (strcmp(key, "filter_res") == 0) {
+        const char *p = val;
+        set_filter_res(inst, parse_int(&p));
+        return;
+    }
+    if (strcmp(key, "filter_peak_db10") == 0) {
+        const char *p = val;
+        set_filter_peak(inst, parse_int(&p));
+        return;
+    }
     if (strcmp(key, "file_path") == 0) {
         strncpy(inst->req_path, val, PATH_MAX_LEN - 1);
         inst->req_path[PATH_MAX_LEN - 1] = '\0';
@@ -1616,10 +1789,12 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
     }
     if (strcmp(key, "settings") == 0) {
         /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>
-         *  <gain_db10> <crush_hz>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d %d",
+         *  <gain_db10> <crush_hz> <filter_type> <filter_hz10> <filter_res>
+         *  <filter_peak_db10>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d %d %d %d %d %d",
                         inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
-                        inst->detune, inst->gain_db10, inst->crush_hz);
+                        inst->detune, inst->gain_db10, inst->crush_hz, inst->filter_type,
+                        inst->filter_hz10, inst->filter_res, inst->filter_peak_db10);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
@@ -1662,12 +1837,18 @@ static void render_block(void *instance, int16_t *out, int frames) {
     /* Gain ramps linearly to its target across the block. */
     float g0 = inst->gain_cur, g1 = inst->gain_target;
     inst->gain_cur = g1;
-    if (!s || (!inst->playing && !inst->tail_active)) return;
+    if (!s || (!inst->playing && !inst->tail_active)) {
+        /* Nothing to hear the cutoff glide: the next note starts on it. */
+        inst->filter_oct = inst->filter_oct_target;
+        return;
+    }
 
     double step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE * inst->pitch_ratio;
     int crush_hz = inst->crush_hz;
+    const filter_coef_t *fc = &inst->filter_coef;
     for (int i = 0; i < frames; i++) {
         float l = 0.0f, r = 0.0f, vl, vr;
+        if (i % FILTER_COEF_FRAMES == 0) filter_update(inst);
 
         if (inst->playing) {
             if ((int)inst->play_pos >= inst->play_end || env_finished(inst)) {
@@ -1677,6 +1858,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 float g = env_gain(inst);
                 read_frame(s, inst->play_pos, &vl, &vr);
                 crush_frame(crush_hz, &inst->crush, &vl, &vr);
+                filter_frame(fc, &inst->filter, &vl, &vr);
                 l += vl * g;
                 r += vr * g;
                 inst->play_pos += step;
@@ -1692,6 +1874,7 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 float g = inst->tail_gain * (float)inst->tail_left / (float)DECLICK_FRAMES;
                 read_frame(s, inst->tail_pos, &vl, &vr);
                 crush_frame(crush_hz, &inst->tail_crush, &vl, &vr);
+                filter_frame(fc, &inst->tail_filter, &vl, &vr);
                 l += vl * g;
                 r += vr * g;
                 inst->tail_pos += step;

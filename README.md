@@ -1,6 +1,6 @@
 # LiveChopper for Schwung
 
-Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, add a lo-fi crush with the drum sampler's 8-Bit effect, then export a Move drum rack
+Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, shape them with the drum sampler's 8-Bit effect and filter, then export a Move drum rack
 preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 
 ## Controls
@@ -9,22 +9,40 @@ preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 |---------|----------|-------|
 | Red pad | Select and play slice | — |
 | Blue pad | Chop at the playhead | — |
-| Knob 1 / 2 | Slice start / end | Fine adjust |
-| Knob 3 | Zoom | Crush |
-| Knob 4 | Gain | Fine adjust |
-| Knob 5 / 6 / 7 | Attack / hold / decay | Fine adjust |
-| Knob 8 | Transpose | Detune |
 | Jog wheel | Adjust slice start | Fine adjust |
 | Jog click | — | Tools menu |
+| Down / Up | Filter & Setup knobs / Main knobs | — |
 | Left / Right | Previous / next slice | — |
-| Mute | Toggle one-shot / gated | — |
 | Delete | Delete slice | — |
 | Undo | Undo | Redo |
 | Record | Export menu | — |
 | Play | Play / stop Move set | — |
 | Back | Exit | — |
 
-Envelope, gain, transpose, detune and crush apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
+The knobs follow the two banks of Move's own Drum Sampler, so each control is where Move has it.
+
+**Main knobs** (Up)
+
+| Knob | Function | Shift |
+|------|----------|-------|
+| 1 | Transpose | Detune |
+| 2 | Slice start | Zoom |
+| 3 / 4 | Attack / hold | Fine adjust |
+| 5 | Decay (Shift+tap: Length, the slice's end) | Fine adjust |
+| 6 | Effect: Off / 8-Bit | — |
+| 7 | 8-Bit rate | Fine adjust |
+
+**Filter & Setup knobs** (Down)
+
+| Knob | Function | Shift |
+|------|----------|-------|
+| 1 | Filter frequency | Fine adjust |
+| 2 | Resonance (Peak gain on Peak) | Fine adjust |
+| 3 | Filter type: Low-Pass 12 / 24, High-Pass 24, Peak | — |
+| 4 | Envelope mode: Trigger (one-shot) / Gate (plays while held) | — |
+| 8 | Gain | Fine adjust |
+
+Envelope, gain, transpose, detune, the 8-Bit effect and the filter apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 

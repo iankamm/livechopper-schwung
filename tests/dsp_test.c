@@ -88,6 +88,18 @@ static double file_peak(const char *path, int fmt, int bits) {
 
 static int ramp(int i, int c) { return (i * 3 + c * 1000) % 30000; }
 
+/* Mono 16-bit 44.1 kHz sine at hz, amp of full scale. */
+static void write_tone(const char *path, int frames, double hz, double amp) {
+    FILE *f = fopen(path, "wb");
+    int data = frames * 2;
+    fwrite("RIFF", 1, 4, f); wr32(f, 36 + data); fwrite("WAVE", 1, 4, f);
+    fwrite("fmt ", 1, 4, f); wr32(f, 16); wr16(f, 1); wr16(f, 1);
+    wr32(f, 44100); wr32(f, 44100 * 2); wr16(f, 2); wr16(f, 16);
+    fwrite("data", 1, 4, f); wr32(f, data);
+    for (int i = 0; i < frames; i++) wr16(f, (int)lrint(amp * 32767 * sin(2 * M_PI * hz * i / 44100)));
+    fclose(f);
+}
+
 static void render(void *inst, int blocks) {
     for (int b = 0; b < blocks; b++) api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
 }
@@ -179,6 +191,46 @@ static int field(void *inst, int i) {
 static void until_silent(void *inst) {
     for (int i = 0; i < 2000 && field(inst, F_PLAYING) != -1; i++) render(inst, 1);
     render(inst, 1);
+}
+
+/* Stop, set the filter while silent, play Pad 1 and return the RMS of the
+ * left output over 20 blocks after 10 to settle. */
+static double filtered_rms(void *inst, int type, int hz10, int res, int peak_db10) {
+    char v[16];
+    param(inst, "stop", "1");
+    render(inst, 2);
+    snprintf(v, sizeof v, "%d", type); param(inst, "filter_type", v);
+    snprintf(v, sizeof v, "%d", hz10); param(inst, "filter_hz10", v);
+    snprintf(v, sizeof v, "%d", res); param(inst, "filter_res", v);
+    snprintf(v, sizeof v, "%d", peak_db10); param(inst, "filter_peak_db10", v);
+    render(inst, 1);
+    note(inst, 68);
+    render(inst, 10);
+    double sum = 0;
+    for (int b = 0; b < 20; b++) {
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) sum += (double)out[i * 2] * out[i * 2];
+    }
+    return sqrt(sum / (20 * MOVE_FRAMES_PER_BLOCK));
+}
+
+/* Gain of the filter on a tone file, in dB against the default (bypassed). */
+static double filter_db(const char *path, int type, int hz10, int res, int peak_db10) {
+    void *inst = load(path);
+    double ref = filtered_rms(inst, FILTER_LP24, FILTER_HZ10_MAX, 0, 0);
+    double v = filtered_rms(inst, type, hz10, res, peak_db10);
+    api->destroy_instance(inst);
+    return 20 * log10(v / ref);
+}
+
+/* Largest jump between neighbouring left output frames in one block. */
+static int max_step(void) {
+    int worst = 0;
+    for (int i = 1; i < MOVE_FRAMES_PER_BLOCK; i++) {
+        int d = abs(out[i * 2] - out[(i - 1) * 2]);
+        if (d > worst) worst = d;
+    }
+    return worst;
 }
 
 int main(void) {
@@ -328,7 +380,7 @@ int main(void) {
     note(inst, 68);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
     CHECK(abs(out[80] - 124) <= 1, "detune +50 cents reads 40 frames as 41.17 (%d, want ~124)", out[80]);
-    char det[64];
+    char det[128];
     get(inst, "settings", det, sizeof det);
     int d6 = 0;
     sscanf(det, "%*d %*d %*d %*d %*d %d", &d6);
@@ -356,9 +408,9 @@ int main(void) {
     param(inst, "hold_us", "-1");
 
     /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
-    char set[64];
+    char set[128];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 0 0 0 0") == 0, "one-shot by default: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 0 0 0 0 1 220000 0 0") == 0, "one-shot by default: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
     CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
@@ -366,7 +418,7 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 1 0 0 0") == 0, "gated reported: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 1 0 0 0 1 220000 0 0") == 0, "gated reported: %s", set);
     param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
     note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
     CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");
@@ -482,9 +534,11 @@ int main(void) {
             if (e > worst) worst = e;
         }
         CHECK(worst <= 2, "+6 dB scales playback (worst error %d)", worst);
-        char set[64];
+        char set[128];
+        int g7 = 0;
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 5, " 60 0") == 0, "gain is settings field 7: %s", set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %d", &g7);
+        CHECK(g7 == 60, "gain is settings field 7: %s", set);
 
         /* A change mid-note ramps over one block, never past either end */
         param(inst, "gain_db10", "0");
@@ -501,7 +555,8 @@ int main(void) {
 
         param(inst, "gain_db10", "-1000");                  /* clamps to -70 dB, Move's floor */
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 7, " -700 0") == 0, "gain clamps at -70 dB: %s", set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %d", &g7);
+        CHECK(g7 == -700, "gain clamps at -70 dB: %s", set);
         render(inst, 1);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
         int peak = 0;
@@ -509,7 +564,8 @@ int main(void) {
         CHECK(peak <= 3, "-70 dB is all but silent (peak %d of 8192)", peak);
         param(inst, "gain_db10", "999");
         get(inst, "settings", set, sizeof set);
-        CHECK(strcmp(set + strlen(set) - 6, " 240 0") == 0, "gain clamps at +24 dB: %s", set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %d", &g7);
+        CHECK(g7 == 240, "gain clamps at +24 dB: %s", set);
         param(inst, "gain_db10", "0");
         api->destroy_instance(inst);
     }
@@ -517,7 +573,7 @@ int main(void) {
     /* ---- Crush: sample-and-hold at crush_hz, cut to 8 bits ---- */
     {
         inst = load("build/t16.wav");          /* frame i = 3i */
-        char set[64];
+        char set[128];
         int crush = -1;
         note(inst, 68);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
@@ -581,6 +637,154 @@ int main(void) {
         get(inst, "settings", set, sizeof set);
         sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
         CHECK(crush == 0, "a negative crush is off: %s", set);
+        api->destroy_instance(inst);
+    }
+
+    /* ---- Filter: LP12 / LP24 / HP24 / Peak after the crush ---- */
+    {
+        /* The default (Low-Pass 24 fully open) and any low-pass at 22 kHz
+         * play bit-identical to no filter, at any resonance. */
+        inst = load("build/t16.wav");
+        note(inst, 68);
+        render(inst, 3);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
+        memcpy(ref, out, sizeof ref);
+        param(inst, "stop", "1");
+        render(inst, 2);
+        param(inst, "filter_res", "900");
+        note(inst, 68);
+        render(inst, 3);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(memcmp(out, ref, sizeof ref) == 0, "LP24 at 22 kHz, resonance 0.9: bypassed, bit-identical");
+        param(inst, "stop", "1");
+        render(inst, 2);
+        param(inst, "filter_type", "0");
+        note(inst, 68);
+        render(inst, 3);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(memcmp(out, ref, sizeof ref) == 0, "LP12 at 22 kHz: bypassed, bit-identical");
+
+        /* Settings fields 9-12, and the params clamp to Move's ranges */
+        char set[128];
+        int ft = -1, fh = -1, fr = -1, fp = -1;
+        param(inst, "filter_type", "9");
+        param(inst, "filter_hz10", "5");
+        param(inst, "filter_res", "5000");
+        param(inst, "filter_peak_db10", "500");
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %*d %d %d %d %d", &ft, &fh, &fr, &fp);
+        CHECK(ft == 3 && fh == 300 && fr == 900 && fp == 120, "filter clamps high, settings fields 9-12: %s", set);
+        param(inst, "filter_type", "-1");
+        param(inst, "filter_hz10", "999999");
+        param(inst, "filter_res", "-3");
+        param(inst, "filter_peak_db10", "-500");
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %*d %d %d %d %d", &ft, &fh, &fr, &fp);
+        CHECK(ft == 0 && fh == 220000 && fr == 0 && fp == -120, "filter clamps low: %s", set);
+
+        /* Resonance 0.9 on a near full-scale sawtooth, the cutoff jumping
+         * across the range every block: the state stays finite and bounded. */
+        live_chopper_t *lc = (live_chopper_t *)inst;
+        param(inst, "filter_res", "900");
+        param(inst, "gain_db10", "240");
+        int blown = 0;
+        for (int type = FILTER_LP12; type <= FILTER_PEAK; type++) {
+            char v[8];
+            snprintf(v, sizeof v, "%d", type);
+            param(inst, "filter_type", v);
+            param(inst, "filter_peak_db10", "120");
+            note(inst, 68);
+            for (int b = 0; b < 100; b++) {
+                param(inst, "filter_hz10", b % 2 ? "300" : "200000");
+                render(inst, 1);
+                for (int s = 0; s < 2; s++) {
+                    for (int c = 0; c < 2; c++) {
+                        float a = lc->filter.ic1[s][c], z = lc->filter.ic2[s][c];
+                        if (!isfinite(a) || !isfinite(z) || fabsf(a) > 1e7f || fabsf(z) > 1e7f) blown++;
+                    }
+                }
+            }
+        }
+        CHECK(blown == 0, "resonance 0.9 under a fast sweep stays finite and bounded (%d bad)", blown);
+        param(inst, "gain_db10", "0");
+
+        /* Peak ignores the resonance */
+        param(inst, "stop", "1");
+        render(inst, 2);
+        param(inst, "filter_type", "3");
+        param(inst, "filter_hz10", "10000");
+        param(inst, "filter_peak_db10", "60");
+        param(inst, "filter_res", "0");
+        render(inst, 1);
+        note(inst, 68);
+        render(inst, 3);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        memcpy(ref, out, sizeof ref);
+        param(inst, "stop", "1");
+        render(inst, 2);
+        param(inst, "filter_res", "900");
+        render(inst, 1);
+        note(inst, 68);
+        render(inst, 3);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(memcmp(out, ref, sizeof ref) == 0, "Peak's output doesn't change with resonance");
+        api->destroy_instance(inst);
+
+        /* Responses, against the bypassed default */
+        write_tone("build/f50.wav", 88200, 50, 0.5);
+        write_tone("build/f100.wav", 88200, 100, 0.5);
+        write_tone("build/f1k.wav", 88200, 1000, 0.5);
+        write_tone("build/f5k.wav", 88200, 5000, 0.5);
+        write_tone("build/f1kq.wav", 88200, 1000, 0.1);     /* room for a 12 dB boost */
+        double db;
+        db = filter_db("build/f5k.wav", FILTER_LP12, 5000, 0, 0);
+        CHECK(db <= -20, "LP12 at 500 Hz cuts 5 kHz by 20 dB or more (%.1f dB)", db);
+        db = filter_db("build/f100.wav", FILTER_LP12, 5000, 0, 0);
+        CHECK(fabs(db) <= 1, "LP12 at 500 Hz passes 100 Hz within 1 dB (%.1f dB)", db);
+        db = filter_db("build/f5k.wav", FILTER_LP24, 5000, 0, 0);
+        CHECK(db <= -40, "LP24 at 500 Hz cuts 5 kHz by 40 dB or more (%.1f dB)", db);
+        db = filter_db("build/f100.wav", FILTER_LP24, 5000, 0, 0);
+        CHECK(fabs(db) <= 1, "LP24 at 500 Hz passes 100 Hz within 1 dB (%.1f dB)", db);
+        db = filter_db("build/f100.wav", FILTER_HP24, 5000, 0, 0);
+        CHECK(db <= -30, "HP24 at 500 Hz cuts 100 Hz by 30 dB or more (%.1f dB)", db);
+        db = filter_db("build/f5k.wav", FILTER_HP24, 5000, 0, 0);
+        CHECK(fabs(db) <= 1, "HP24 at 500 Hz passes 5 kHz within 1 dB (%.1f dB)", db);
+        db = filter_db("build/f1kq.wav", FILTER_PEAK, 10000, 0, 120);
+        CHECK(fabs(db - 12) <= 0.5, "Peak +12 dB at 1 kHz boosts 1 kHz by 12 dB (%.1f dB)", db);
+        db = filter_db("build/f1k.wav", FILTER_PEAK, 10000, 0, -120);
+        CHECK(fabs(db + 12) <= 0.5, "Peak -12 dB at 1 kHz cuts 1 kHz by 12 dB (%.1f dB)", db);
+        db = filter_db("build/f50.wav", FILTER_PEAK, 10000, 0, 120);
+        CHECK(fabs(db) <= 1, "Peak at 1 kHz leaves 50 Hz within 1 dB (%.1f dB)", db);
+        db = filter_db("build/f1kq.wav", FILTER_LP12, 10000, 900, 0);
+        CHECK(db >= 12, "resonance 0.9 peaks at the cutoff (%.1f dB)", db);
+
+        /* Crush, then filter: a low-pass smooths the crushed steps. */
+        write_tone("build/f200.wav", 88200, 200, 0.5);
+        inst = load("build/f200.wav");
+        param(inst, "crush_hz", "1000");
+        filtered_rms(inst, FILTER_LP24, FILTER_HZ10_MAX, 0, 0);
+        int crushed = max_step();
+        filtered_rms(inst, FILTER_LP12, 10000, 0, 0);
+        int smoothed = max_step();
+        CHECK(crushed > 1000 && smoothed * 4 < crushed, "a low-pass after the crush smooths its steps (%d -> %d)",
+              crushed, smoothed);
+        api->destroy_instance(inst);
+
+        /* A choke hands the filter state to the tail, so it carries on
+         * instead of restarting from silence (a jump). */
+        inst = load("build/f50.wav");
+        param(inst, "filter_type", "0");
+        param(inst, "filter_hz10", "5000");
+        render(inst, 1);
+        note(inst, 68);
+        render(inst, 4);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int last = out[(MOVE_FRAMES_PER_BLOCK - 1) * 2];
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(abs(last) > 8000 && abs(out[0] - last) < 400, "a choke tail keeps the filter state (%d -> %d)",
+              last, out[0]);
         api->destroy_instance(inst);
     }
 

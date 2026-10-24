@@ -11,26 +11,32 @@
  * Chop points are shared: moving a slice's start also moves the previous
  * slice's end. The marker/zoom UI follows the waveform editor's.
  *
- * Controls:
+ * Controls: the knobs copy the two banks of Move's own Drum Sampler (Move
+ * manual 15.9.1), so each control sits where Move has it. Down / Up switch
+ * between them. Sound settings are global (every slice, and the export).
  *   Red pads   - Play that slice (chokes the others); selects it
  *   Blue pad   - While a slice plays: chop at the playhead
- *   Knob 1     - Move the selected slice's start
- *   Knob 2     - Move the selected slice's end
- *   Knob 3     - Zoom
- *                Shift+Knob 3: crush, the drum sampler's 8-Bit effect:
- *                Off (fully clockwise), then 30.0 kHz down to 1.00 kHz
- *   Knob 4     - Gain, -70 to +24 dB (global; the waveform follows it)
- *   Knob 5-7   - Attack / Hold / Decay (global, all slices)
- *   Knob 8     - Transpose in semitones (global, repitch)
- *                Shift+Knob 8: detune, -50 to +50 cents
+ *   Main page:
+ *   Knob 1     - Transpose in semitones (repitch) | Shift: detune in cents
+ *   Knob 2     - Move the selected slice's start  | Shift: zoom
+ *   Knob 3-4   - Attack / Hold
+ *   Knob 5     - Decay; Shift+tap switches it to Length (the slice's end,
+ *                shown as a percentage of the sample) and back
+ *   Knob 6     - Effect: Off / 8-Bit (the drum sampler's 8-Bit effect)
+ *   Knob 7     - 8-Bit rate, 1.00 to 30.0 kHz
+ *   Filter & Setup page:
+ *   Knob 1     - Filter frequency, 30 Hz to 22 kHz
+ *   Knob 2     - Resonance (0-90%), or Peak gain (+-12 dB) on Peak
+ *   Knob 3     - Filter type: Low-Pass 12 / 24, High-Pass 24, Peak
+ *   Knob 4     - Envelope mode: Trigger (one-shot) / Gate (plays while held)
+ *   Knob 8     - Gain, -70 to +24 dB (the waveform follows it)
  *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
- *   Shift      - Fine steps for knobs and jog (crush on Knob 3, detune
- *                on Knob 8)
+ *   Shift      - Fine steps for knobs and jog
+ *   Down/Up    - Filter & Setup page / Main page
  *   Left/Right - Select previous/next slice
  *   Delete     - Delete the selected slice (merges it into the previous one)
  *   Undo       - Undo the last chop or delete  |  Shift+Undo: redo
- *   Mute       - Toggle one-shot (lit) / gated (unlit) playback
  *   Record     - Export menu: rename, Drum Preset, Slices (one WAV per pad)
  *   Play       - Passed through to Move (module.json button_passthrough):
  *                plays/stops the set to practise along with
@@ -44,9 +50,8 @@
  */
 
 import {
-    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveMute, MoveShift, MoveLeft, MoveRight,
-    MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob2, MoveKnob3, MoveKnob4,
-    MoveKnob5, MoveKnob6, MoveKnob7, MoveKnob8,
+    MoveBack, MoveUndo, MoveRecord, MoveDelete, MoveShift, MoveLeft, MoveRight, MoveUp, MoveDown,
+    MoveMainKnob, MoveMainButton, MoveKnob1, MoveKnob8,
     MovePads,
     Black, DarkGrey, White, BrightRed, PureBlue,
     WhiteLedOff, WhiteLedBright
@@ -66,20 +71,15 @@ function debugLog(msg) { uniLog("LiveChopper", msg); }
 var CC_BACK = MoveBack;
 var CC_UNDO = MoveUndo;
 var CC_RECORD = MoveRecord;      /* RGB LED */
-var CC_MUTE = MoveMute;
 var CC_DELETE = MoveDelete;
 var CC_SHIFT = MoveShift;
 var CC_LEFT = MoveLeft;
 var CC_RIGHT = MoveRight;
+var CC_UP = MoveUp;
+var CC_DOWN = MoveDown;
 var CC_JOG = MoveMainKnob;
 var CC_JOG_CLICK = MoveMainButton;
-var CC_E1 = MoveKnob1;
-var CC_E2 = MoveKnob2;
-var CC_E3 = MoveKnob3;
-var CC_E4 = MoveKnob4;
-var CC_E5 = MoveKnob5;
-var CC_E6 = MoveKnob6;
-var CC_E7 = MoveKnob7;
+var CC_E1 = MoveKnob1;          /* Knobs 1-8 are CCs 71-78 */
 var CC_E8 = MoveKnob8;
 
 var PAD_NOTE_MIN = MovePads[0];
@@ -128,23 +128,55 @@ var TRANSPOSE_MIN = -24;
 var TRANSPOSE_MAX = 24;
 var DETUNE_MIN = -50;            /* cents */
 var DETUNE_MAX = 50;
-/* Crush rates, as the drum sampler's 8-Bit Resampling Rate (1-30 kHz): log
- * steps of 1/24 octave, rounded as Move shows them (10 Hz below 10 kHz,
- * 100 Hz above). One step past the top is Off. */
-var CRUSH_MIN_HZ = 1000;
-var CRUSH_MAX_HZ = 30000;
-var CRUSH_STEPS_PER_OCTAVE = 24;
-var CRUSH_STEPS = (function() {
+/* Log steps from lo up to hi, perOctave to the octave, each rounded by
+ * round(); repeats are dropped and the last step is hi. */
+function logSteps(lo, hi, perOctave, round) {
     var steps = [];
     for (var i = 0; ; i++) {
-        var hz = CRUSH_MIN_HZ * Math.pow(2, i / CRUSH_STEPS_PER_OCTAVE);
-        if (hz >= CRUSH_MAX_HZ) break;
-        var unit = hz < 10000 ? 10 : 100;
-        steps.push(Math.round(hz / unit) * unit);
+        var v = round(lo * Math.pow(2, i / perOctave));
+        if (v >= hi) break;
+        if (steps.length === 0 || v !== steps[steps.length - 1]) steps.push(v);
     }
-    steps.push(CRUSH_MAX_HZ);
+    steps.push(hi);
     return steps;
-})();
+}
+
+/* Crush rates, as the drum sampler's 8-Bit Resampling Rate (1-30 kHz): log
+ * steps of 1/24 octave (Shift: 1/96), rounded as Move shows them (10 Hz
+ * below 10 kHz, 100 Hz above). */
+var CRUSH_MIN_HZ = 1000;
+var CRUSH_MAX_HZ = 30000;
+var CRUSH_DEFAULT_HZ = 14080;   /* Move's default rate */
+function roundCrush(hz) {
+    var unit = hz < 10000 ? 10 : 100;
+    return Math.round(hz / unit) * unit;
+}
+var CRUSH_STEPS = logSteps(CRUSH_MIN_HZ, CRUSH_MAX_HZ, 24, roundCrush);
+var CRUSH_FINE_STEPS = logSteps(CRUSH_MIN_HZ, CRUSH_MAX_HZ, 96, roundCrush);
+
+/* Filter, in the drum sampler's ranges. Frequency in tenths of a Hz, 30 Hz
+ * to 22 kHz in 1/24-octave steps (Shift: 1/96), rounded as Move shows it:
+ * 0.1 Hz below 100 Hz, 1 Hz below 1 kHz, 10 Hz below 10 kHz, 100 Hz above. */
+var FILTER_TYPE_NAMES = ["Low-Pass 12", "Low-Pass 24", "High-Pass 24", "Peak"];
+var FILTER_LP24 = 1;
+var FILTER_PEAK = 3;
+var FILTER_HZ10_MIN = 300;
+var FILTER_HZ10_MAX = 220000;
+function roundFreq10(v) {
+    var unit = v < 1000 ? 1 : v < 10000 ? 10 : v < 100000 ? 100 : 1000;
+    return Math.round(v / unit) * unit;
+}
+var FREQ_STEPS = logSteps(FILTER_HZ10_MIN, FILTER_HZ10_MAX, 24, roundFreq10);
+var FREQ_FINE_STEPS = logSteps(FILTER_HZ10_MIN, FILTER_HZ10_MAX, 96, roundFreq10);
+var FILTER_RES_MAX = 900;       /* thousandths: Move's 0.9, shown as 90% */
+var RES_STEP = 10;              /* 1% (Shift: 0.1%) */
+var PEAK_DB10_MAX = 120;        /* +-12 dB, 0.5 dB steps (Shift: 0.1) */
+
+/* Knob pages: Move's Drum Sampler banks */
+var PAGE_MAIN = 0;
+var PAGE_FILTER = 1;
+var PAGE_NAMES = ["Main", "Filter & Setup"];
+var PAGE_SPOKEN = ["Main page", "Filter and Setup page"];
 var EDIT_TIMEOUT_MS = 100;
 
 /* Slice pads are the left 4x4 block, like a Move drum rack.
@@ -249,6 +281,11 @@ var transpose = 0;
 var detune = 0;             /* cents */
 var gainDb10 = 0;           /* tenths of a dB, GAIN_MIN to GAIN_MAX */
 var crushHz = 0;            /* 0 = off, else CRUSH_MIN_HZ to CRUSH_MAX_HZ */
+var crushRate = CRUSH_DEFAULT_HZ;   /* the 8-Bit rate, kept while the effect is off */
+var filterType = FILTER_LP24;
+var filterHz10 = FILTER_HZ10_MAX;
+var filterRes = 0;          /* thousandths, 0 to FILTER_RES_MAX */
+var filterPeakDb10 = 0;     /* Peak gain, tenths of a dB */
 var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var attackKnob = 0;
 var holdKnob = 1;
@@ -257,6 +294,9 @@ var pendingSettings = {};   /* key -> value, sent once per tick */
 var overlayText = "";       /* footer readout while a sound knob moves */
 var overlayTimer = 0;
 var touchedKnob = -1;       /* 0-7 while a knob is touched */
+var tapKnob = -1;           /* knob touched with Shift held and not turned yet */
+var page = PAGE_MAIN;
+var lengthMode = false;     /* Main Knob 5 is Length (Shift+tap), not Decay */
 var settingAnnounce = "";
 var settingAnnounceTimer = 0;
 
@@ -400,13 +440,16 @@ function coarseStep() {
     return Math.max(1, Math.round(viewLen() / WAVE_COLS));
 }
 
+function setActiveSide(side) {
+    if (side === activeSide) return;
+    activeSide = side;
+    keepMarkerVisible();
+}
+
 function queueNudge(side, ticks) {
     if (loadState !== "ready" || ticks === 0) return;
     if (touchedKnob < 0) overlayTimer = 0;
-    if (side !== activeSide) {
-        activeSide = side;
-        keepMarkerVisible();
-    }
+    setActiveSide(side);
     var step = shiftHeld ? Math.max(1, Math.round(coarseStep() / FINE_DIVISOR)) : coarseStep();
     if (pendingNudge && (pendingNudge.slice !== selectedSlice || pendingNudge.side !== side)) {
         flushNudge();
@@ -443,7 +486,6 @@ function changeZoom(ticks) {
     if (zoom < 0) zoom = 0;
     if (zoom > ZOOM_MAX) zoom = ZOOM_MAX;
     centerOnStart();
-    showKnob(2);
 }
 
 function selectSlice(idx) {
@@ -477,23 +519,36 @@ function formatDetune(c) {
     return (c > 0 ? "+" : "") + c + "ct";
 }
 
-function formatCrush(hz) {
-    if (hz <= 0) return "Off";
-    return (hz / 1000).toFixed(hz < 10000 ? 2 : 1) + "kHz";
+/* Hz as Move shows it: "30.0 Hz", "250 Hz", "1.20 kHz", "12.5 kHz". */
+function formatHz(hz) {
+    if (hz < 100) return hz.toFixed(1) + " Hz";
+    if (hz < 1000) return Math.round(hz) + " Hz";
+    return (hz / 1000).toFixed(hz < 10000 ? 2 : 1) + " kHz";
 }
 
-function spokenCrush(hz) {
-    return hz <= 0 ? "off" : (hz / 1000) + " kilohertz";
+function spokenHz(hz) {
+    if (hz < 1000) return (Math.round(hz * 10) / 10) + " hertz";
+    return (Math.round(hz) / 1000) + " kilohertz";
 }
 
-/* Index into CRUSH_STEPS of the step nearest hz; CRUSH_STEPS.length is Off. */
-function crushIndex(hz) {
-    if (hz <= 0) return CRUSH_STEPS.length;
-    var best = 0;
-    for (var i = 1; i < CRUSH_STEPS.length; i++) {
-        if (Math.abs(CRUSH_STEPS[i] - hz) < Math.abs(CRUSH_STEPS[best] - hz)) best = i;
-    }
-    return best;
+/* A percentage as Move shows it: one decimal below 10, none from 10 up. */
+function formatPercent(x) {
+    var r = Math.round(x * 10) / 10;
+    return r < 10 ? r.toFixed(1) : String(Math.round(r));
+}
+
+/* Move ticks steps along a sorted table from value. A value between steps
+ * reaches the next one on the first step. Stops at either end. */
+function tableStep(table, value, ticks) {
+    var i = 0;
+    while (i < table.length - 1 && table[i] < value) i++;
+    if (table[i] > value && ticks > 0) i--;
+    i += ticks;
+    return table[Math.max(0, Math.min(table.length - 1, i))];
+}
+
+function clampInt(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
 }
 
 function knobToUs(pos, maxUs) {
@@ -518,45 +573,98 @@ function readSettings() {
     detune = parseInt(p[5], 10) || 0;
     gainDb10 = Math.max(GAIN_MIN, Math.min(GAIN_MAX, parseInt(p[6], 10) || 0));
     crushHz = parseInt(p[7], 10) || 0;
+    if (crushHz > 0) crushRate = crushHz;
+    filterType = clampInt(parseInt(p[8], 10), 0, FILTER_TYPE_NAMES.length - 1);
+    if (isNaN(filterType)) filterType = FILTER_LP24;
+    filterHz10 = parseInt(p[9], 10) || FILTER_HZ10_MAX;
+    filterRes = parseInt(p[10], 10) || 0;
+    filterPeakDb10 = parseInt(p[11], 10) || 0;
     attackKnob = usToKnob(attackUs, ATTACK_MAX_US);
     holdKnob = holdUs === HOLD_FULL ? 1 : usToKnob(holdUs, HOLD_MAX_US);
     decayKnob = usToKnob(decayUs, DECAY_MAX_US);
 }
 
-/* Mute: switch between one-shot and gated playback for every pad. */
-function toggleGate() {
-    if (loadState !== "ready") return;
-    gated = !gated;
+/* On: gated (Move's Gate mode, A-S-R); off: one-shot (Trigger, A-H-D). */
+function setGate(on) {
+    gated = on;
     pendingSettings.gate = gated ? 1 : 0;
-    var text = gated ? "Gated: plays while held" : "One-shot";
-    showMessage(gated ? "Gated" : "One-shot", OVERLAY_TICKS);
-    announce(text);
+}
+
+/* What knob i (0-7) does right now: it depends on the page, Shift, the
+ * Knob 5 toggle and, for Filter Knob 2, the filter type. */
+function knobRole(i) {
+    if (page === PAGE_MAIN) {
+        switch (i) {
+        case 0: return shiftHeld ? "detune" : "transpose";
+        case 1: return shiftHeld ? "zoom" : "start";
+        case 2: return "attack";
+        case 3: return "hold";
+        case 4: return lengthMode ? "length" : "decay";
+        case 5: return "effect";
+        case 6: return "rate";
+        default: return "none";
+        }
+    }
+    switch (i) {
+    case 0: return "frequency";
+    case 1: return filterType === FILTER_PEAK ? "peak" : "resonance";
+    case 2: return "type";
+    case 3: return "mode";
+    case 7: return "gain";
+    default: return "none";
+    }
+}
+
+/* The selected slice's length as a percentage of the sample, as Move shows
+ * Length (and as the export writes Voice_PlaybackLength). */
+function lengthPercent() {
+    if (sliceCount === 0 || frames <= 0) return 0;
+    return (sliceEnds[selectedSlice] - sliceStarts[selectedSlice]) * 100 / frames;
 }
 
 /* [screen text, spoken text] for knob i (0-7), from current values. */
 function knobReadout(i) {
-    switch (i) {
-    case 0:
-    case 1:
-        var pos = sliceCount > 0 ? (i === 0 ? sliceStarts[selectedSlice] : sliceEnds[selectedSlice]) : 0;
-        var name = i === 0 ? "Start" : "End";
-        return [name + " " + formatSeconds(pos),
-                "Pad " + (selectedSlice + 1) + " " + name.toLowerCase() + " " + spokenSeconds(pos)];
-    case 2:
-        if (shiftHeld) return ["Crush " + formatCrush(crushHz), "Crush " + spokenCrush(crushHz)];
+    var pad = "Pad " + (selectedSlice + 1);
+    switch (knobRole(i)) {
+    case "transpose":
+        return ["Transpose " + formatTranspose(transpose), "Transpose " + transpose + " semitones"];
+    case "detune":
+        return ["Detune " + formatDetune(detune), "Detune " + detune + " cents"];
+    case "start":
+        var pos = sliceCount > 0 ? sliceStarts[selectedSlice] : 0;
+        return ["Start " + formatSeconds(pos), pad + " start " + spokenSeconds(pos)];
+    case "zoom":
         var z = Math.round(Math.pow(2, zoom));
         return ["Zoom x" + z, "Zoom " + z];
-    case 3:
-        return ["Gain " + formatGain(gainDb10), "Gain " + spokenGain(gainDb10)];
-    case 4:
+    case "attack":
         return ["Attack " + formatUs(attackUs), "Attack " + spokenUs(attackUs)];
-    case 5:
+    case "hold":
         return ["Hold " + formatUs(holdUs), "Hold " + spokenUs(holdUs)];
-    case 6:
+    case "decay":
         return ["Decay " + formatUs(decayUs), "Decay " + spokenUs(decayUs)];
+    case "length":
+        var len = formatPercent(lengthPercent());
+        return ["Length " + len + "%", pad + " length " + len + " percent"];
+    case "effect":
+        return crushHz > 0 ? ["Effect 8-Bit", "Effect 8-Bit"] : ["Effect Off", "Effect off"];
+    case "rate":
+        if (crushHz <= 0) return ["-", "8-Bit rate, the effect is off"];
+        return ["Rate " + formatHz(crushHz), "8-Bit rate " + spokenHz(crushHz)];
+    case "frequency":
+        return ["Frequency " + formatHz(filterHz10 / 10), "Frequency " + spokenHz(filterHz10 / 10)];
+    case "resonance":
+        var res = formatPercent(filterRes / 10);
+        return ["Resonance " + res + "%", "Resonance " + res + " percent"];
+    case "peak":
+        return ["Peak Gain " + formatGain(filterPeakDb10), "Peak gain " + spokenGain(filterPeakDb10)];
+    case "type":
+        return ["Type " + FILTER_TYPE_NAMES[filterType], "Filter " + FILTER_TYPE_NAMES[filterType].toLowerCase()];
+    case "mode":
+        return gated ? ["Mode Gate", "Mode gate"] : ["Mode Trigger", "Mode trigger"];
+    case "gain":
+        return ["Gain " + formatGain(gainDb10), "Gain " + spokenGain(gainDb10)];
     default:
-        if (shiftHeld) return ["Detune " + formatDetune(detune), "Detune " + detune + " cents"];
-        return ["Transpose " + formatTranspose(transpose), "Transpose " + transpose + " semitones"];
+        return ["-", "Not used"];
     }
 }
 
@@ -569,59 +677,147 @@ function showKnob(i) {
     settingAnnounceTimer = ANNOUNCE_SETTLE_TICKS;
 }
 
-function onKnobTouch(i, touched) {
-    if (!touched) {
-        if (touchedKnob === i) touchedKnob = -1;
-        return;
-    }
-    if (loadState !== "ready") return;
-    touchedKnob = i;
-    if (i <= 1 && activeSide !== i) {
-        activeSide = i;
-        keepMarkerVisible();
-    }
-    if (i === 2 && !shiftHeld) centerOnStart();
+/* Show knob i's value and speak it now. */
+function sayKnob(i) {
     var r = knobReadout(i);
     overlayText = r[0];
     overlayTimer = OVERLAY_TICKS;
     announce(r[1]);
 }
 
+function onKnobTouch(i, touched) {
+    if (!touched) {
+        if (touchedKnob === i) touchedKnob = -1;
+        /* Shift+tap (touched with Shift held, let go without turning) */
+        if (tapKnob === i) {
+            tapKnob = -1;
+            toggleLength();
+        }
+        return;
+    }
+    if (loadState !== "ready") return;
+    touchedKnob = i;
+    var role = knobRole(i);
+    tapKnob = shiftHeld && (role === "decay" || role === "length") ? i : -1;
+    if (role === "start" || role === "length") setActiveSide(role === "start" ? 0 : 1);
+    if (role === "zoom") centerOnStart();
+    sayKnob(i);
+}
+
+/* Shift+tap Knob 5: Decay <-> Length, as on Move. */
+function toggleLength() {
+    if (loadState !== "ready" || page !== PAGE_MAIN) return;
+    lengthMode = !lengthMode;
+    setActiveSide(lengthMode ? 1 : 0);
+    sayKnob(4);
+}
+
+/* Down / Up: Filter & Setup / Main. */
+function setPage(p) {
+    if (loadState !== "ready" || sliceCount === 0) return;
+    page = p;
+    tapKnob = -1;
+    showMessage(PAGE_NAMES[page], OVERLAY_TICKS);
+    announce(PAGE_SPOKEN[page]);
+}
+
 function clamp01(x) {
     return x < 0 ? 0 : (x > 1 ? 1 : x);
 }
 
-function changeSetting(cc, ticks) {
+/* Turn knob i by ticks detents: whatever its role is right now. */
+function turnKnob(i, ticks) {
     if (loadState !== "ready" || ticks === 0) return;
-    var step = (shiftHeld ? ENV_KNOB_FINE : ENV_KNOB_STEP) * ticks;
-    if (cc === CC_E5) {
-        attackKnob = clamp01(attackKnob + step);
+    if (tapKnob === i) tapKnob = -1;        /* turned: not a tap */
+    var fine = shiftHeld;
+    var envStep = (fine ? ENV_KNOB_FINE : ENV_KNOB_STEP) * ticks;
+    var v;
+    switch (knobRole(i)) {
+    case "start":
+        queueNudge(0, ticks);
+        return;
+    case "length":
+        queueNudge(1, ticks);
+        return;
+    case "zoom":
+        changeZoom(ticks);
+        break;
+    case "transpose":
+        transpose = clampInt(transpose + ticks, TRANSPOSE_MIN, TRANSPOSE_MAX);
+        pendingSettings.transpose = transpose;
+        break;
+    case "detune":
+        detune = clampInt(detune + ticks, DETUNE_MIN, DETUNE_MAX);
+        pendingSettings.detune = detune;
+        break;
+    case "attack":
+        attackKnob = clamp01(attackKnob + envStep);
         attackUs = knobToUs(attackKnob, ATTACK_MAX_US);
         pendingSettings.attack_us = attackUs;
-        showKnob(4);
-    } else if (cc === CC_E6) {
-        holdKnob = clamp01(holdKnob + step);
+        break;
+    case "hold":
+        holdKnob = clamp01(holdKnob + envStep);
         holdUs = holdKnob >= 1 ? HOLD_FULL : knobToUs(holdKnob, HOLD_MAX_US);
         pendingSettings.hold_us = holdUs;
-        showKnob(5);
-    } else if (cc === CC_E7) {
-        decayKnob = clamp01(decayKnob + step);
+        break;
+    case "decay":
+        decayKnob = clamp01(decayKnob + envStep);
         decayUs = knobToUs(decayKnob, DECAY_MAX_US);
         pendingSettings.decay_us = decayUs;
-        showKnob(6);
-    } else if (cc === CC_E8 && shiftHeld) {
-        detune += ticks;
-        if (detune < DETUNE_MIN) detune = DETUNE_MIN;
-        if (detune > DETUNE_MAX) detune = DETUNE_MAX;
-        pendingSettings.detune = detune;
-        showKnob(7);
-    } else if (cc === CC_E8) {
-        transpose += ticks;
-        if (transpose < TRANSPOSE_MIN) transpose = TRANSPOSE_MIN;
-        if (transpose > TRANSPOSE_MAX) transpose = TRANSPOSE_MAX;
-        pendingSettings.transpose = transpose;
-        showKnob(7);
+        break;
+    case "effect":
+        v = ticks > 0 ? crushRate : 0;
+        if (v !== crushHz) {
+            crushHz = v;
+            pendingSettings.crush_hz = crushHz;
+        }
+        break;
+    case "rate":
+        if (crushHz <= 0) break;            /* the effect is off */
+        v = tableStep(fine ? CRUSH_FINE_STEPS : CRUSH_STEPS, crushRate, ticks);
+        if (v !== crushHz) {
+            crushRate = crushHz = v;
+            pendingSettings.crush_hz = crushHz;
+        }
+        break;
+    case "frequency":
+        v = tableStep(fine ? FREQ_FINE_STEPS : FREQ_STEPS, filterHz10, ticks);
+        if (v !== filterHz10) {
+            filterHz10 = v;
+            pendingSettings.filter_hz10 = filterHz10;
+        }
+        break;
+    case "resonance":
+        v = clampInt(filterRes + ticks * (fine ? 1 : RES_STEP), 0, FILTER_RES_MAX);
+        if (v !== filterRes) {
+            filterRes = v;
+            pendingSettings.filter_res = filterRes;
+        }
+        break;
+    case "peak":
+        v = clampInt(filterPeakDb10 + ticks * (fine ? 1 : 5), -PEAK_DB10_MAX, PEAK_DB10_MAX);
+        if (v !== filterPeakDb10) {
+            filterPeakDb10 = v;
+            pendingSettings.filter_peak_db10 = filterPeakDb10;
+        }
+        break;
+    case "type":
+        v = clampInt(filterType + ticks, 0, FILTER_TYPE_NAMES.length - 1);
+        if (v !== filterType) {
+            filterType = v;
+            pendingSettings.filter_type = filterType;
+        }
+        break;
+    case "mode":
+        if ((ticks > 0) !== gated) setGate(ticks > 0);
+        break;
+    case "gain":
+        v = gainDb10;
+        for (var n = 0; n < Math.abs(ticks); n++) v = gainStep(v, ticks > 0 ? 1 : -1);
+        setGain(v);
+        break;
     }
+    showKnob(i);
 }
 
 function flushSettings() {
@@ -653,29 +849,9 @@ function gainStep(db10, dir) {
     return v;
 }
 
-/* Shift + Knob 3: clockwise raises the rate, and past 30 kHz is Off. */
-function changeCrush(ticks) {
-    if (loadState !== "ready" || ticks === 0) return;
-    var i = Math.max(0, Math.min(CRUSH_STEPS.length, crushIndex(crushHz) + ticks));
-    var hz = i === CRUSH_STEPS.length ? 0 : CRUSH_STEPS[i];
-    if (hz !== crushHz) {
-        crushHz = hz;
-        pendingSettings.crush_hz = crushHz;
-    }
-    showKnob(2);
-}
-
 function setGain(db10) {
     gainDb10 = db10;
     pendingSettings.gain_db10 = gainDb10;
-}
-
-function changeGain(ticks) {
-    if (loadState !== "ready" || ticks === 0) return;
-    var v = gainDb10;
-    for (var n = 0; n < Math.abs(ticks); n++) v = gainStep(v, ticks > 0 ? 1 : -1);
-    setGain(v);
-    showKnob(3);
 }
 
 /* ============ Export ============ */
@@ -731,7 +907,8 @@ function exportDrumPreset(base) {
         transpose: transpose,
         detune: detune,
         gainDb10: gainDb10,
-        crushHz: crushHz
+        crushHz: crushHz,
+        filter: { type: filterType, hz: filterHz10 / 10, res: filterRes / 1000, peakDb: filterPeakDb10 / 10 }
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
     var ok = host_write_file(PRESET_DIR + "/" + name + ".ablpreset", JSON.stringify(preset, null, 2));
@@ -994,7 +1171,7 @@ function pollConvert() {
 }
 
 /* Set Gain so the sample's peak is at 0 dBFS (the DSP found the peak when
- * it loaded the file). Nothing is written; Knob 4 takes it back. */
+ * it loaded the file). Nothing is written; the Gain knob takes it back. */
 function normalizeGain() {
     var g = host_module_get_param("normalize_gain");
     if (g === "silent") {
@@ -1066,9 +1243,10 @@ function handleConfirmCC(cc, value) {
 
 /* ============ Resume ============ */
 
-/* "2 <unexported> <zoom>" (version 1 also had a waveform scale after zoom) */
+/* "3 <unexported> <zoom> <page> <length mode>". Version 2 stopped at zoom;
+ * version 1 also had a waveform scale after it. */
 function uiStateString() {
-    return "2 " + (hasUnexported() ? 1 : 0) + " " + zoom;
+    return "3 " + (hasUnexported() ? 1 : 0) + " " + zoom + " " + page + " " + (lengthMode ? 1 : 0);
 }
 
 /* Keep the DSP's copy current, so a resume finds it however the tool was
@@ -1083,13 +1261,17 @@ function saveUiState() {
 
 function restoreUiState() {
     var p = (host_module_get_param("ui_state") || "").split(" ");
-    if (p[0] !== "1" && p[0] !== "2") return;
+    if (p[0] !== "1" && p[0] !== "2" && p[0] !== "3") return;
     if (p[1] === "1") {
         editVersion = 1;
         exportedVersion = 0;
     }
     var z = parseFloat(p[2]);
     if (z >= 0 && z <= ZOOM_MAX) zoom = z;
+    if (p[0] === "3") {
+        page = p[3] === "1" ? PAGE_FILTER : PAGE_MAIN;
+        lengthMode = p[4] === "1";
+    }
     lastUiState = uiStateString();
 }
 
@@ -1117,6 +1299,8 @@ function onLoadStateChange() {
         zoom = 0;
         viewStart = 0;
         waveKey = "";
+        page = PAGE_MAIN;
+        lengthMode = false;
         readSettings();
         if (resumed) {
             restoreUiState();
@@ -1152,9 +1336,11 @@ function onRedo() {
     announce("Redo, " + sliceCount + (sliceCount === 1 ? " slice" : " slices"));
 }
 
+/* After a nudge settles: the start in seconds, or the length as Move shows it. */
 function announceMarker() {
-    var name = activeSide === 0 ? " start " : " end ";
-    announce("Pad " + (selectedSlice + 1) + name + spokenSeconds(activeMarkerPos()));
+    var pad = "Pad " + (selectedSlice + 1);
+    if (activeSide === 0) announce(pad + " start " + spokenSeconds(activeMarkerPos()));
+    else announce(pad + " length " + formatPercent(lengthPercent()) + " percent");
 }
 
 /* ============ LEDs ============ */
@@ -1167,8 +1353,8 @@ function setButtonLit(cc, on) {
 }
 
 /* Undo, Delete and Record are lit while pressing them would do something.
- * With Shift held, Undo shows whether there is anything to redo. Mute is lit
- * for one-shot playback and dark for gated. */
+ * With Shift held, Undo shows whether there is anything to redo. Of Down /
+ * Up, the one for the other knob page is lit. */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
@@ -1176,7 +1362,8 @@ function updateButtonLeds() {
     setButtonLit(CC_UNDO, (shiftHeld ? redoDepth : undoDepth) > 0 && editing);
     setButtonLit(CC_DELETE, ready && sliceCount > 1 && editing);
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport && !convertJob);
-    setButtonLit(CC_MUTE, ready && editing && !gated);
+    setButtonLit(CC_DOWN, ready && editing && page === PAGE_MAIN);
+    setButtonLit(CC_UP, ready && editing && page === PAGE_FILTER);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -1206,7 +1393,8 @@ function turnOffLeds() {
     setButtonLit(CC_UNDO, false);
     setButtonLit(CC_DELETE, false);
     setButtonLit(CC_RECORD, false);
-    setButtonLit(CC_MUTE, false);
+    setButtonLit(CC_DOWN, false);
+    setButtonLit(CC_UP, false);
 }
 
 function exitTool() {
@@ -1499,8 +1687,6 @@ globalThis.onMidiMessageInternal = function(data) {
         requestExit();
     } else if (d1 === CC_RECORD && d2 > 0) {
         openExportMenu();
-    } else if (d1 === CC_MUTE && d2 > 0) {
-        toggleGate();
     } else if (d1 === CC_DELETE && d2 > 0) {
         deleteSelected();
     } else if (d1 === CC_UNDO && d2 > 0 && shiftHeld) {
@@ -1513,18 +1699,10 @@ globalThis.onMidiMessageInternal = function(data) {
         flushNudge();
         if (undoDepth > 0) setParamNow("undo", "1");
         else announce("Nothing to undo");
-    } else if (d1 === CC_E1) {
-        queueNudge(0, decodeDelta(d2));
-    } else if (d1 === CC_E2) {
-        queueNudge(1, decodeDelta(d2));
-    } else if (d1 === CC_E3 && shiftHeld) {
-        changeCrush(decodeDelta(d2));
-    } else if (d1 === CC_E3) {
-        changeZoom(decodeDelta(d2));
-    } else if (d1 === CC_E4) {
-        changeGain(decodeDelta(d2));
-    } else if (d1 === CC_E5 || d1 === CC_E6 || d1 === CC_E7 || d1 === CC_E8) {
-        changeSetting(d1, decodeDelta(d2));
+    } else if (d1 >= CC_E1 && d1 <= CC_E8) {
+        turnKnob(d1 - CC_E1, decodeDelta(d2));
+    } else if ((d1 === CC_UP || d1 === CC_DOWN) && d2 > 0) {
+        setPage(d1 === CC_DOWN ? PAGE_FILTER : PAGE_MAIN);
     } else if (d1 === CC_JOG) {
         queueNudge(0, decodeDelta(d2));     /* the jog only ever moves the start */
     } else if ((d1 === CC_LEFT || d1 === CC_RIGHT) && d2 > 0) {

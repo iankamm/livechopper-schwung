@@ -7,7 +7,9 @@
  * Every pad points at the same WAV with Voice_PlaybackStart/Length set to
  * its slice as fractions of the file. All 16 pads share choke group 1.
  * Envelope times are in seconds (A-H-D mode), as in Move's own sets.
- * Crush switches every pad's effect slot to 8-Bit at that rate.
+ * Crush switches every pad's effect slot to 8-Bit at that rate. The filter
+ * sets every pad's Voice_Filter_* to the same type, cutoff, resonance and
+ * Peak gain; its defaults are Move's (Low-Pass 24 fully open).
  */
 
 export var USER_LIBRARY = "/data/UserData/UserLibrary/";
@@ -27,6 +29,14 @@ var GAIN_MAX_DB10 = 240;
 var CRUSH_MIN_HZ = 1000;     /* 8-Bit Resampling Rate: 1.00 to 30.0 kHz */
 var CRUSH_MAX_HZ = 30000;
 var EIGHT_BIT_RATE_DEFAULT = 14080.0;
+/* Voice_Filter_Type for Low-Pass 12, Low-Pass 24 (the default), High-Pass 24
+ * and Peak, from a Move set. */
+export var FILTER_TYPES = ["Lowpass 12dB", "Lowpass", "Highpass", "Peak"];
+var FILTER_DEFAULT_TYPE = 1;
+var FILTER_MIN_HZ = 30.0;
+var FILTER_MAX_HZ = 22000.0;
+var FILTER_RES_MAX = 0.9;
+var FILTER_PEAK_DB_MAX = 12.0;
 
 /* "ableton:/user-library/<path>" for a file inside the User Library, with
  * each path segment percent-encoded. null if the file is elsewhere. */
@@ -62,9 +72,23 @@ function voiceGain(db10) {
     return Math.pow(10, db10 / 200);
 }
 
-function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10, crushHz) {
+/* filter: { type 0-3, hz, res 0-0.9, peakDb } or undefined for Move's
+ * defaults. Move stores Peak gain linear (1.0 = 0 dB), like Voice_Gain. */
+function filterParams(filter) {
+    var f = filter || {};
+    var type = f.type >= 0 && f.type < FILTER_TYPES.length ? f.type : FILTER_DEFAULT_TYPE;
+    return {
+        type: FILTER_TYPES[type],
+        hz: f.hz === undefined ? FILTER_MAX_HZ : clamp(f.hz, FILTER_MIN_HZ, FILTER_MAX_HZ),
+        res: f.res === undefined ? 0.0 : clamp(f.res, 0.0, FILTER_RES_MAX),
+        peakGain: Math.pow(10, (f.peakDb === undefined ? 0 : clamp(f.peakDb, -FILTER_PEAK_DB_MAX, FILTER_PEAK_DB_MAX)) / 20)
+    };
+}
+
+function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10, crushHz, filter) {
     /* Crush off keeps Move's default: Stretch at 1.0, a no-op. */
     var crush = crushHz > 0;
+    var f = filterParams(filter);
     return {
         "Effect_EightBitFilterDecay": 5.0,
         "Effect_EightBitResamplingRate": crush ? clamp(crushHz, CRUSH_MIN_HZ, CRUSH_MAX_HZ) : EIGHT_BIT_RATE_DEFAULT,
@@ -94,11 +118,11 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, det
         "Voice_Envelope_Decay": envS.decay,
         "Voice_Envelope_Hold": envS.hold,
         "Voice_Envelope_Mode": envS.mode,
-        "Voice_Filter_Frequency": 22000.0,
+        "Voice_Filter_Frequency": f.hz,
         "Voice_Filter_On": true,
-        "Voice_Filter_PeakGain": 1.0,
-        "Voice_Filter_Resonance": 0.0,
-        "Voice_Filter_Type": "Lowpass",
+        "Voice_Filter_PeakGain": f.peakGain,
+        "Voice_Filter_Resonance": f.res,
+        "Voice_Filter_Type": f.type,
         "Voice_Gain": voiceGain(gainDb10),
         "Voice_ModulationAmount": 0.0,
         "Voice_ModulationSource": "Velocity",
@@ -186,6 +210,8 @@ function reverbReturnChain() {
  *   detune:     cents (-50 to +50)
  *   gainDb10:   gain in tenths of a dB, -700 to 240
  *   crushHz:    8-Bit resampling rate in Hz, 1000 to 30000; 0 = off
+ *   filter:     { type: 0-3 (LP12, LP24, HP24, Peak), hz: 30-22000,
+ *                 res: 0-0.9, peakDb: -12 to +12 }; omitted = Move's default
  * }
  * Returns the preset object (JSON.stringify it to write).
  */
@@ -208,7 +234,8 @@ export function buildDrumRackPreset(opts) {
                 "presetUri": null,
                 "kind": "drumCell",
                 "name": "",
-                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10, opts.crushHz),
+                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10, opts.crushHz,
+                                                  opts.filter),
                 "deviceData": { "sampleUri": opts.sampleUri }
             }],
             "mixer": {

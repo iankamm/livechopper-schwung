@@ -1,0 +1,45 @@
+{
+  "source": "drumCell parameters from a Move set saved with pads set to each filter type (docs/ref/Song.abl, 2026-10-23), in Move's order. Pad 1 also has the lowest frequency (30 Hz) and 8-Bit Decay (0.01); the Peak pad has resonance 0.9.",
+  "cells": [
+    {
+      "moveShows": "Low-Pass 12",
+      "parameters": {
+        "Voice_Filter_Type": "Lowpass 12dB",
+        "Voice_Filter_Frequency": 30.0,
+        "Voice_Filter_Resonance": 0.0,
+        "Voice_Filter_PeakGain": 1.0,
+        "Effect_EightBitFilterDecay": 0.009999999776482582
+      }
+    },
+    {
+      "moveShows": "Low-Pass 24",
+      "parameters": {
+        "Voice_Filter_Type": "Lowpass",
+        "Voice_Filter_Frequency": 22000.0,
+        "Voice_Filter_Resonance": 0.0,
+        "Voice_Filter_PeakGain": 1.0,
+        "Effect_EightBitFilterDecay": 5.0
+      }
+    },
+    {
+      "moveShows": "High-Pass 24",
+      "parameters": {
+        "Voice_Filter_Type": "Highpass",
+        "Voice_Filter_Frequency": 22000.0,
+        "Voice_Filter_Resonance": 0.0,
+        "Voice_Filter_PeakGain": 1.0,
+        "Effect_EightBitFilterDecay": 5.0
+      }
+    },
+    {
+      "moveShows": "Peak",
+      "parameters": {
+        "Voice_Filter_Type": "Peak",
+        "Voice_Filter_Frequency": 21999.990234375,
+        "Voice_Filter_Resonance": 0.8999999761581421,
+        "Voice_Filter_PeakGain": 1.0,
+        "Effect_EightBitFilterDecay": 5.0
+      }
+    }
+  ]
+}
