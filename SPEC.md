@@ -60,8 +60,13 @@ a Move drum rack preset or one WAV per slice.
   Decay stays at its default). Filter & Setup: 1 Frequency, 2 Resonance (Peak
   Gain on Peak), 3 Type, 4 Envelope Mode, 5-7 not used (chop mode always
   chokes; no velocity), 8 Gain (Pan's slot; Move has no gain knob here).
-  Unused knobs show "-". The page and the Knob 5 toggle are kept for a
-  resume and reset on a fresh start. Jog, Left/Right and the buttons work
+  Unused knobs show "-". The LED under each knob is lit while turning it
+  does something on this page, brighter the higher its value (the
+  framework's knob_leds.mjs, as its parameter pages use: Knobs 1-4 white,
+  5-8 amber, never fully dark while lit). Unused knobs, and Rate while the
+  effect is off, stay dark, and every knob is dark in a menu.
+  The page and the Knob 5 toggle are kept for a resume and reset on a fresh
+  start. Jog, Left/Right and the buttons work
   the same on both pages.
 - Shift+tap: touching a knob with Shift held and letting go without turning
   it switches it to its second function, as on Move. Only Main Knob 5 has

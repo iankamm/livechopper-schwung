@@ -32,6 +32,8 @@
  *   Knob 8     - Gain, -70 to +24 dB (the waveform follows it)
  *   Jog        - Move the selected slice's start
  *   Touch knob - Preview its value on the bottom line (and speak it)
+ *   Knob LEDs  - Lit under the knobs that do something on this page,
+ *                brighter with the value (the framework's knob_leds.mjs)
  *   Shift      - Fine steps for knobs and jog
  *   Down/Up    - Filter & Setup page / Main page
  *   Left/Right - Select previous/next slice
@@ -60,6 +62,9 @@ import {
 import { setLED, setButtonLED, decodeDelta } from '/data/UserData/schwung/shared/input_filter.mjs';
 
 import { announce } from '/data/UserData/schwung/shared/screen_reader.mjs';
+
+import { updateKnobLEDs, clearKnobLEDs, resetKnobLedCache }
+    from '/data/UserData/schwung/shared/param_pages/knob_leds.mjs';
 
 import { buildDrumRackPreset, sampleUriFor, PRESET_DIR } from './drum_rack.mjs';
 
@@ -612,6 +617,35 @@ function knobRole(i) {
     case 3: return "mode";
     case 7: return "gain";
     default: return "none";
+    }
+}
+
+/* Where v sits from lo to hi on a log scale, 0..1. */
+function logPos(v, lo, hi) {
+    return Math.log(v / lo) / Math.log(hi / lo);
+}
+
+/* Knob i's value as 0..1 for its LED, or null while turning it does nothing
+ * (no role, or Rate with the effect off): the LED is dark then. */
+function knobLevel(i) {
+    switch (knobRole(i)) {
+    case "transpose": return (transpose - TRANSPOSE_MIN) / (TRANSPOSE_MAX - TRANSPOSE_MIN);
+    case "detune":    return (detune - DETUNE_MIN) / (DETUNE_MAX - DETUNE_MIN);
+    case "start":     return frames > 0 ? sliceStarts[selectedSlice] / frames : 0;
+    case "zoom":      return zoom / ZOOM_MAX;
+    case "attack":    return attackKnob;
+    case "hold":      return holdKnob;
+    case "decay":     return decayKnob;
+    case "length":    return lengthPercent() / 100;
+    case "effect":    return crushHz > 0 ? 1 : 0;
+    case "rate":      return crushHz > 0 ? logPos(crushHz, CRUSH_MIN_HZ, CRUSH_MAX_HZ) : null;
+    case "frequency": return logPos(filterHz10, FILTER_HZ10_MIN, FILTER_HZ10_MAX);
+    case "resonance": return filterRes / FILTER_RES_MAX;
+    case "peak":      return (filterPeakDb10 + PEAK_DB10_MAX) / (2 * PEAK_DB10_MAX);
+    case "type":      return filterType / (FILTER_TYPE_NAMES.length - 1);
+    case "mode":      return gated ? 1 : 0;
+    case "gain":      return (gainDb10 - GAIN_MIN) / (GAIN_MAX - GAIN_MIN);
+    default:          return null;
     }
 }
 
@@ -1354,7 +1388,9 @@ function setButtonLit(cc, on) {
 
 /* Undo, Delete and Record are lit while pressing them would do something.
  * With Shift held, Undo shows whether there is anything to redo. Of Down /
- * Up, the one for the other knob page is lit. */
+ * Up, the one for the other knob page is lit. A knob's LED is lit while it
+ * does something on this page, brighter the higher its value: knob_leds.mjs,
+ * as the framework's own parameter pages do (Knobs 1-4 white, 5-8 amber). */
 function updateButtonLeds() {
     if (exited) return;
     var ready = loadState === "ready";
@@ -1364,6 +1400,9 @@ function updateButtonLeds() {
     setButtonLit(CC_RECORD, ready && sliceCount > 0 && editing && !sliceExport && !convertJob);
     setButtonLit(CC_DOWN, ready && editing && page === PAGE_MAIN);
     setButtonLit(CC_UP, ready && editing && page === PAGE_FILTER);
+    var levels = [];
+    for (var i = 0; i < 8; i++) levels.push(ready && sliceCount > 0 && editing ? knobLevel(i) : null);
+    updateKnobLEDs(levels);
 }
 
 /* Set a slice pad's LED only when its color changes. */
@@ -1395,6 +1434,7 @@ function turnOffLeds() {
     setButtonLit(CC_RECORD, false);
     setButtonLit(CC_DOWN, false);
     setButtonLit(CC_UP, false);
+    clearKnobLEDs();
 }
 
 function exitTool() {
@@ -1565,6 +1605,8 @@ globalThis.init = function() {
     filePath = (typeof host_tool_file_path === "string") ? host_tool_file_path : "";
     fileName = baseName(filePath);
     clearAllPadLeds();
+    /* knob_leds.mjs is shared: its cache may hold another UI's colours */
+    resetKnobLedCache();
     /* Resuming a kept session: the DSP still has this file and its slices,
      * so don't reload it. If another tool replaced the DSP meanwhile, the
      * host still says "reconnect" but the file isn't there: load it fresh. */

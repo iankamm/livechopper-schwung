@@ -40,6 +40,12 @@ const padLeds = {};
 g.move_midi_internal_send = m => { if (m[0] === 0x0b) buttonLeds[m[2]] = m[3]; if (m[0] === 0x09) padLeds[m[2]] = m[3]; return true; };
 const WHITE = 120, RED = 1, BLUE = 125;
 const lit = cc => buttonLeds[cc] > 0;
+// Which knob LEDs (1-8) are lit, e.g. '1234567'
+const litKnobs = () => [1, 2, 3, 4, 5, 6, 7, 8].filter(k => lit(70 + k)).join('');
+// Knob LED colours come from the framework's knob_leds.mjs: Knobs 1-4 white,
+// 5-8 amber, dim to bright with the value
+const { WHITE_LEVELS, AMBER_LEVELS } = await import(pathToFileURL(path.join(shared, 'param_pages/knob_leds.mjs')).href);
+const knobLed = k => buttonLeds[70 + k];
 const UNDO = 56, DELETE = 119, RECORD = 118, CAPTURE = 52, MUTE = 88;
 g.host_send_screenreader = t => log.push('SAY: ' + t);
 g.host_announce_screenreader = g.host_send_screenreader;
@@ -185,9 +191,17 @@ turn(6, 127); tick(70);
 
 // ---- Pages: Down is Filter & Setup, Up is Main ----
 check(lit(DOWN) && !lit(UP), 'Main page: Down lit (the other page), Up dark');
+// Knob LEDs: lit under the knobs that do something on this page
+check(litKnobs() === '123456', 'Main page, effect off: Knobs 1-6 lit: ' + litKnobs());
+turn(6, 1); tick(1);
+check(litKnobs() === '1234567', 'effect on: Knob 7 (Rate) lit too, 8 dark: ' + litKnobs());
+shift(true); tick(1);
+check(litKnobs() === '1234567', 'Main page with Shift: the same knobs lit: ' + litKnobs());
+shift(false); turn(6, 127); tick(70);
 filterPage(); tick(1);
 check(printed.includes('Filter & Setup') && log.at(-1) === 'SAY: Filter and Setup page' && lit(UP) && !lit(DOWN),
       'Down: Filter & Setup page, Up lit, Down dark: ' + JSON.stringify(printed));
+check(litKnobs() === '12348', 'Filter & Setup page: Knobs 1-4 and 8 lit: ' + litKnobs());
 filterPage(); tick(1);
 check(lit(UP) && log.at(-1) === 'SAY: Filter and Setup page', 'Down again stays there');
 
@@ -200,8 +214,10 @@ shift(true); turn(8, 1); shift(false); tick(1);
 check(printed.includes('Gain +1.1dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(printed));
 turn(8, 63); tick(1);
 check(printed.includes('Gain +24.0dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
+check(knobLed(8) === AMBER_LEVELS.at(-1), 'Knob 8 LED full amber at +24 dB: ' + knobLed(8));
 turn(8, 65); turn(8, 65); tick(1);   // 126 steps down
 check(printed.includes('Gain -70.0dB') && gainSets().at(-1) === 'gain_db10=-700', 'bottoms out at -70 dB: ' + JSON.stringify(printed));
+check(knobLed(8) === AMBER_LEVELS[0], 'Knob 8 LED dimmest amber at -70 dB, still lit: ' + knobLed(8));
 turn(8, 23); tick(1);                       // 23 x 2 dB = -24 dB
 check(printed.includes('Gain -24.0dB'), '2 dB steps below -24 dB: ' + JSON.stringify(printed));
 turn(8, 2); tick(1);
@@ -257,6 +273,7 @@ turn(6, 127); tick(1);
 check(printed.includes('Effect Off') && !sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'left of Off stays Off, sends nothing');
 touch(6, false); touch(7, true); tick(1);
 check(printed.includes('-') && log.at(-1) === 'SAY: 8-Bit rate, the effect is off', 'Knob 7 shows "-" while the effect is off');
+check(litKnobs() === '123456', 'Knob 7 dark while the effect is off: ' + litKnobs());
 turn(7, 5); tick(1);
 check(!sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'Knob 7 does nothing while the effect is off');
 touch(7, false); touch(6, true); turn(6, 1); tick(1);
@@ -448,7 +465,7 @@ check(sets.slice(mark).length === 0 && !lit(MUTE), 'Mute does nothing');
 filterPage(); turn(4, 1); tick(1); mainPage(); tick(70);
 check(sets.includes('gate=1'), 'Mode Gate sends gate=1');
 midi(0xB0, 118, 127); tick(1);
-check(!lit(UP) && !lit(DOWN), 'page buttons dark in the export menu');
+check(!lit(UP) && !lit(DOWN) && litKnobs() === '', 'page buttons and knobs dark in the export menu');
 jog(1); click(); tick(2);
 const gatedPreset = JSON.parse(files[presetDir + 'test loop Chop 3.ablpreset'] || '{}');
 check(gatedPreset.chains && gatedPreset.chains[0].devices[0].chains[0].devices[0].parameters.Voice_Envelope_Mode === 'A-S-R',
@@ -527,7 +544,7 @@ const keptState = dsp.uiState;
 check(/^3 1 [\d.]+ 1 1$/.test(keptState) && !/^3 1 0 /.test(keptState), 'ui_state saved: zoom, page, Length: ' + keptState);
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
-check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD) && !lit(UP) && !lit(DOWN), 'hiding turns the buttons off');
+check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD) && !lit(UP) && !lit(DOWN) && litKnobs() === '', 'hiding turns the buttons and knobs off');
 check(log.some(l => l === 'SAY: Kept for later, resume from Tools'), 'hiding announced');
 
 async function freshUi(tag) {
@@ -742,12 +759,14 @@ filterPage(); tick(70);
 mark = sets.length;
 touch(1, true); tick(1);
 check(printed.includes('Frequency 22.0 kHz') && log.at(-1) === 'SAY: Frequency 22 kilohertz', 'frequency starts fully open: ' + JSON.stringify(printed));
+check(knobLed(1) === WHITE_LEVELS.at(-1), 'Knob 1 LED full white at 22 kHz: ' + knobLed(1));
 turn(1, 1); tick(1);
 check(printed.includes('Frequency 22.0 kHz') && filterSets('filter_hz10').length === 0, 'stops at 22 kHz, sends nothing');
 turn(1, 127); tick(1);
 check(printed.includes('Frequency 21.7 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=217000', 'one step down: 21.7 kHz: ' + JSON.stringify(printed));
 turn(1, 65); turn(1, 65); turn(1, 65); turn(1, 65); tick(1);
 check(printed.includes('Frequency 30.0 Hz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=300', 'bottoms out at 30.0 Hz: ' + JSON.stringify(printed));
+check(knobLed(1) === WHITE_LEVELS[0], 'Knob 1 LED dimmest white at 30 Hz, still lit: ' + knobLed(1));
 turn(1, 1); tick(1);
 check(printed.includes('Frequency 30.9 Hz'), 'one decimal below 100 Hz: ' + JSON.stringify(printed));
 for (const [ticks, want] of [[40, '98.0 Hz'], [1, '101 Hz'], [79, '988 Hz'], [1, '1.02 kHz'], [79, '9.96 kHz'], [1, '10.3 kHz']]) {
