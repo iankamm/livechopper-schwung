@@ -13,19 +13,42 @@ permissions:
 
 jobs:
   tests:
+    # Against Schwung's min_host_version and its newest release, so a
+    # framework change that breaks the module shows up when it ships.
+    name: tests (schwung ${{ matrix.schwung }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        schwung: [v1.7.3, latest]
     steps:
       # tests/ui_smoke.mjs reads ../schwung (shared JS, a Move set fixture)
       # and ../schwung-waveform-editor (reference preset), so check all three
-      # out side by side. Schwung is pinned to min_host_version.
+      # out side by side.
       - uses: actions/checkout@v4
         with:
           path: livechopper
 
+      - name: Resolve the Schwung ref
+        id: ref
+        run: |
+          set -eo pipefail
+          REF="${{ matrix.schwung }}"
+          if [ "$REF" = latest ]; then
+            REF=$(git ls-remote --tags --refs https://github.com/charlesvestal/schwung.git \
+              | sed 's|.*refs/tags/||' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          else
+            # The pinned entry must stay the declared minimum.
+            MIN="v$(jq -r .min_host_version livechopper/src/module.json)"
+            [ "$REF" = "$MIN" ] || { echo "matrix has $REF but min_host_version is $MIN"; exit 1; }
+          fi
+          echo "Schwung $REF"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
           repository: charlesvestal/schwung
-          ref: v1.7.3
+          ref: ${{ steps.ref.outputs.ref }}
           path: schwung
 
       - uses: actions/checkout@v4
