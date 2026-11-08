@@ -48,6 +48,10 @@ Envelope, gain, transpose, detune, the 8-Bit effect and the filter apply to all 
 
 [Schwung](https://github.com/charlesvestal/schwung) 1.7.3 or later installed on your Ableton Move.
 
+LiveChopper 0.6.2 has been tested on a Move running Schwung 1.9.2, the
+newest release at the time, with no problems found. CI runs the host tests
+against both 1.7.3 and the newest Schwung release.
+
 ## Build and Install
 
 ```bash
