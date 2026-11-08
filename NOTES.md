@@ -1,7 +1,8 @@
 # Design notes
 
 Findings from studying the framework and schwung-waveform-editor (v0.7.3),
-2026-10-15. Answers and open points for SPEC.md.
+2026-10-15. Answers and open points for SPEC.md. These are design-time
+findings; where they differ from SPEC.md, SPEC.md is authoritative.
 
 ## Sample-accurate chops: DSP owns pad input
 
@@ -45,7 +46,7 @@ Findings from studying the framework and schwung-waveform-editor (v0.7.3),
 - Transpose: `Voice_Transpose` per drumCell, so global transpose can be
   exported.
 - Envelope: the drumCell envelope is `Voice_Envelope_Attack/Hold/Decay` with
-  `Voice_Envelope_Mode: "A-H-D"`. The spec's per-slice AHD maps directly onto
-  these fields.
+  `Voice_Envelope_Mode: "A-H-D"`. The spec's global envelope maps onto these
+  fields (A-H-D, or A-S-R when gated).
 - The preset always has 16 chains (receivingNote 36-51); unused pads get
   `speakerOn: false`.

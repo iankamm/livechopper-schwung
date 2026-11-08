@@ -24,7 +24,7 @@ a Move drum rack preset or one WAV per slice.
 
 ## Also
 
-- Transpose: repitch the sample (see open questions for per-pad vs global).
+- Transpose and detune: repitch the sample, one global setting (see Decisions).
 - Fine-tune chop points afterwards with knobs/jog and a waveform view, borrowing
   from the waveform editor's marker and zoom UI.
 - Export menu on the Record button, like the waveform editor's: rename,
@@ -118,6 +118,9 @@ a Move drum rack preset or one WAV per slice.
   releasing it does not stop it. Pressing it again restarts the region.
   Filter & Setup Knob 4, Envelope Mode, switches all pads between Trigger
   (one-shot) and Gate (gated), as on Move. The Mute button does nothing.
+  Play is passed through to Move (module.json button_passthrough), so it
+  starts and stops the set to chop along with (set tempo and metronome in
+  Move first).
   Gated is Move's A-S-R: full level while the pad that started the voice is held, then Decay is the
   release; Hold does nothing. Letting go of the blue pad after a chop keeps
   the gate open.

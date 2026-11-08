@@ -892,7 +892,6 @@ function setGain(db10) {
 
 /* ============ Export ============ */
 
-/* "<name> Chop", or "<name> Chop 2", 3, ... so nothing is overwritten. */
 /* Keyboard input becomes part of a file name: no slashes, no leading dot. */
 function cleanName(name) {
     return String(name || "").replace(/[\/\\]/g, "-").replace(/^[.\s]+/, "").replace(/\s+$/, "");

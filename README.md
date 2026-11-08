@@ -17,7 +17,7 @@ preset or a folder of WAV files. See [SPEC.md](SPEC.md) for more details.
 | Undo | Undo | Redo |
 | Record | Export menu | — |
 | Play | Play / stop Move set | — |
-| Back | Exit | — |
+| Back | Exit menu (keep for later / exit) | — |
 
 The knobs follow the two banks of Move's own Drum Sampler, so each control is where Move has it.
 
@@ -56,12 +56,14 @@ Envelope, gain, transpose, detune, the 8-Bit effect and the filter apply to all 
 ./scripts/install-hooks.sh  # once per clone: run the tests on every commit
 ```
 
+The build produces `dist/live-chopper-module.tar.gz`.
+
 The tests expect [schwung](https://github.com/charlesvestal/schwung) and
 [schwung-waveform-editor](https://github.com/charlesvestal/schwung-waveform-editor)
 checked out next to this repo. CI runs the same tests and the ARM64 build on
 every push and pull request.
 
-This produces `dist/live-chopper-module.tar.gz`. To install:
+To install:
 
 - **Web manager:** upload the tarball at http://move.local:7700/modules
   (custom install), then restart Schwung.
