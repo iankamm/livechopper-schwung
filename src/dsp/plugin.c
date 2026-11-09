@@ -1,7 +1,7 @@
 /*
  * LiveChopper DSP Plugin
  *
- * Real-time sample chopping across pads. See SPEC.md.
+ * Real-time sample chopping across pads. See docs/SPEC.md.
  *
  * V2 API only. Every entry point below runs on the SPI audio callback
  * (see plugin_api_v1.h): no malloc/free, no file I/O, no logging, no locks,

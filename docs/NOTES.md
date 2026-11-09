@@ -1,8 +1,9 @@
 # Design notes
 
 Findings from studying the framework and schwung-waveform-editor (v0.7.3),
-2026-10-15. Answers and open points for SPEC.md. These are design-time
-findings; where they differ from SPEC.md, SPEC.md is authoritative.
+2026-10-15. Answers for SPEC.md. These are design-time findings; where
+they differ from SPEC.md, SPEC.md is authoritative. Planned work is in
+PLAN.md.
 
 ## Sample-accurate chops: DSP owns pad input
 
@@ -23,7 +24,7 @@ findings; where they differ from SPEC.md, SPEC.md is authoritative.
 
 - The waveform editor loads WAVs with fopen/malloc inside `set_param`, which
   breaks the rules in plugin_api_v1.h. Don't copy that loader as-is.
-- Plan: `set_param("file_path")` only copies the path and signals a worker
+- As built: `set_param("file_path")` only copies the path and signals a worker
   thread (SCHED_OTHER, pinned to cores 0-2) created in `create_instance`. The
   worker loads and publishes a buffer pointer; render plays silence until it
   lands. Old buffers are freed by the worker, never on the audio thread.

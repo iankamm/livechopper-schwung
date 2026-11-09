@@ -1,7 +1,7 @@
 /*
  * LiveChopper UI
  *
- * Chop a sample across pads in real time. See SPEC.md.
+ * Chop a sample across pads in real time. See docs/SPEC.md.
  * 128x64 1-bit monochrome display, QuickJS runtime.
  *
  * The DSP owns pad input, the slice list, the selected slice and the

@@ -1,5 +1,8 @@
 # LiveChopper spec
 
+What the module does today. Planned work is in [PLAN.md](PLAN.md) and moves
+here once it's built.
+
 A tool for Ableton Move (Schwung) that chops a sample across pads in real time
 by tapping pads while it plays (the "lazy chop" / live chop workflow of Akai
 MPCs, also on the SP-404MKII and EP-133 K.O. II), then exports the result as

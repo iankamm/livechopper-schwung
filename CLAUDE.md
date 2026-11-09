@@ -3,7 +3,8 @@
 This repo is a standalone module for the Schwung framework on Ableton Move.
 We do NOT modify the framework. Never edit files outside this repo.
 
-Feature spec: SPEC.md. Read it before proposing or writing code.
+Feature spec: docs/SPEC.md. Read it before proposing or writing code.
+Planned work: docs/PLAN.md. Design findings: docs/NOTES.md.
 
 ## Reference material (read-only)
 
