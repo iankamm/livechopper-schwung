@@ -40,7 +40,8 @@ PLAN.md.
   `sampleUri` with `Voice_PlaybackStart` / `Voice_PlaybackLength` as
   fractions of the file. LiveChopper does the same (src/drum_rack.mjs).
 - Units, from a real Move set (schwung tests/fixtures/song_abl_sample.json):
-  envelope times are seconds (attack 0.0001 min, decay up to 10.0); Move's
+  envelope times are seconds (attack 0.0001 min; decay 10.0 in that set,
+  but a 909 Kit has 12.87 and 13.92, so Move goes higher: see PLAN.md); Move's
   own kits use hold 0.001 with the decay doing the work. Volume around -12.
 - Choke: each pad has `drumZoneSettings.chokeGroup`, already set to 1 for all
   16 pads. Choke-all is supported.
