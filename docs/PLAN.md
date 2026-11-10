@@ -67,13 +67,24 @@ Extends SPEC "Crush"; the decision there becomes "Effect".
 - Resume keeps the selected effect and all values; any change counts as
   unexported work.
 
-### Phases
+### Build order
 
-1. Punch, Pitch Env, Sub Osc, Ring Mod, FM, Noise. These shape the signal,
-   so each stand-in is a small per-voice DSP block next to the crush.
-2. Stretch and Loop. These change how the sample is played back, so they
+1. Done (2026-11-10, see SPEC "Knob model"): one knob model for every
+   knob that mirrors Move (`src/knobs.mjs`, checked against the device by
+   `tests/knobs_test.mjs`), on Attack, Hold, Decay, 8-Bit Rate, Frequency,
+   Resonance and Peak Gain; Move's formats everywhere, "Inf" for the top
+   Hold; Shift on Knob 5 is Length while held (no Shift+tap, no fine steps
+   on Decay or Length). Readout labels stay LiveChopper's short ones
+   ("Freq", "Peak Gain") to fit the bottom line.
+2. The Effect knob (nine effects, no Off) with Knobs 7/8 on the knob model,
+   8-Bit's Decay on Knob 8, and stand-ins for Punch, Pitch Env (100% = 24
+   semitones for now), Sub Osc, Ring Mod, FM and Noise. These shape the
+   signal, so each stand-in is a small per-voice DSP block next to the
+   crush. Fixes the Loop Offset default. Selecting Stretch or Loop already
+   exports them; chop mode plays them dry.
+3. Stretch and Loop. These change how the sample is played back, so they
    interact with the playhead a chop reads and with slice ends. Each needs
-   its own design before building.
+   its own design here before building.
 
 ### To settle on the Move first
 
@@ -302,5 +313,5 @@ values):
 
 - A weekly scheduled CI run, so a new Schwung release is tested even while
   this repo is idle.
-- Release v0.6.3 to put the help.json fix (Shift+tap back to Decay) on
-  devices.
+- The help.json fix waiting for a release goes out with step 1's release
+  instead of a v0.6.3.

@@ -21,9 +21,9 @@ var CHOKE_GROUP = 1;
 /* Drum sampler limits, from values seen in Move sets. */
 var ATTACK_MIN_S = 0.0001;
 var HOLD_MIN_S = 0.001;
-var HOLD_FULL_S = 60.0;     /* "Full": longer than any slice */
+var HOLD_FULL_S = 60.0;     /* Move's top Hold, shown "Inf" */
 var DECAY_MIN_S = 0.001;
-var DECAY_MAX_S = 10.0;
+var DECAY_MAX_S = 60.0;
 var GAIN_MIN_DB10 = -700;    /* Move's drum sampler Gain: -70 to +24 dB */
 var GAIN_MAX_DB10 = 240;
 var CRUSH_MIN_HZ = 1000;     /* 8-Bit Resampling Rate: 1.00 to 30.0 kHz */

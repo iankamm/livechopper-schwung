@@ -19,7 +19,7 @@ preset or a folder of WAV files. See [docs/SPEC.md](docs/SPEC.md) for more detai
 | Play | Play / stop Move set | — |
 | Back | Exit menu (keep for later / exit) | — |
 
-The knobs follow the two banks of Move's own Drum Sampler, so each control is where Move has it.
+The knobs follow the two banks of Move's own Drum Sampler, so each control is where Move has it, and they step and read out as Move's do (measured on a Move: same ranges, curves, 131 clicks end to end, and Shift as a tenth-of-a-click fine adjust).
 
 **Main knobs** (Up)
 
@@ -28,7 +28,7 @@ The knobs follow the two banks of Move's own Drum Sampler, so each control is wh
 | 1 | Transpose | Detune |
 | 2 | Slice start | Zoom |
 | 3 / 4 | Attack / hold | Fine adjust |
-| 5 | Decay (Shift+tap: Length, the slice's end) | Fine adjust |
+| 5 | Decay | Length (the slice's end) |
 | 6 | Effect: Off / 8-Bit | — |
 | 7 | 8-Bit rate | Fine adjust |
 

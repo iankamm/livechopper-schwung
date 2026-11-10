@@ -10,5 +10,8 @@ gcc -std=c11 -g -fsanitize=address,undefined -Wall -Isrc/dsp \
     tests/dsp_test.c -o build/dsp_test -lm -lpthread
 build/dsp_test
 
+echo "=== Knobs ==="
+node tests/knobs_test.mjs
+
 echo "=== UI ==="
 node tests/ui_smoke.mjs | tail -1

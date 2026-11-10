@@ -79,7 +79,7 @@ jobs:
           set -e
           ID=$(jq -r .id src/module.json)
           file "dist/$ID/dsp.so" | tee /dev/stderr | grep -q 'ARM aarch64'
-          for f in module.json ui.js drum_rack.mjs dsp.so help.json; do
+          for f in module.json ui.js drum_rack.mjs knobs.mjs dsp.so help.json; do
             tar tzf "dist/$ID-module.tar.gz" | grep -qx "$ID/$f" || { echo "missing $ID/$f"; exit 1; }
           done
           echo "Artifacts OK"

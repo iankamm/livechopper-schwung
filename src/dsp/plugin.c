@@ -127,7 +127,7 @@
 #define MIN_SLICE_FRAMES 64
 #define PATH_MAX_LEN 512
 #define ERROR_MAX_LEN 64
-#define UI_STATE_MAX_LEN 128
+#define UI_STATE_MAX_LEN 512
 
 /* 10 minutes of stereo int16 at 44.1 kHz is ~106 MB. */
 #define MAX_SOURCE_FRAMES (44100 * 60 * 10)
@@ -142,7 +142,7 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 /* Envelope and pitch */
 #define HOLD_FULL (-1)              /* hold until the slice ends */
 #define DEFAULT_DECAY_US 50000
-#define MAX_ENV_US 10000000         /* 10 s */
+#define MAX_ENV_US 60000000         /* 60 s: Move's Hold and Decay maximum */
 #define TRANSPOSE_MIN (-48)        /* semitones, as on Move's drum sampler */
 #define TRANSPOSE_MAX 48
 #define DETUNE_MIN (-50)            /* cents */

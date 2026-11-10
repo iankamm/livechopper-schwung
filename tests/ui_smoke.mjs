@@ -16,6 +16,7 @@ fs.mkdirSync(dir, { recursive: true });
 let src = fs.readFileSync(path.join(repo, 'src/ui.js'), 'utf8');
 src = src.replaceAll('/data/UserData/schwung/shared/', pathToFileURL(shared).href + '/');
 src = src.replaceAll("'./drum_rack.mjs'", "'" + pathToFileURL(path.join(repo, 'src/drum_rack.mjs')).href + "'");
+src = src.replaceAll("'./knobs.mjs'", "'" + pathToFileURL(path.join(repo, 'src/knobs.mjs')).href + "'");
 fs.writeFileSync(path.join(dir, 'ui_under_test.mjs'), src);
 
 let failures = 0;
@@ -104,7 +105,6 @@ const READOUT = /^(Start|Length|Zoom|Gain|Attack|Hold|Decay|Transpose|Detune|Eff
 const shift = on => midi(0xB0, 49, on ? 127 : 0);
 const touch = (k, on) => midi(0x90, k - 1, on ? 127 : 0);
 const turn = (k, v) => midi(0xB0, 70 + k, v);
-const shiftTap = k => { shift(true); touch(k, true); touch(k, false); shift(false); };
 const DOWN = 54;
 const UP = 55;
 const filterPage = () => midi(0xB0, DOWN, 127);
@@ -124,12 +124,17 @@ dsp.sel = 2; tick(1);
 check(padLeds[70] === WHITE && padLeds[69] === RED, 'white follows the selection');
 dsp.sel = 1; tick(1);
 
-// Shift+tap Knob 5 switches it to Length (the end marker), as on Move
+// Holding Shift makes Knob 5 Length (the end marker), as on Move
 mark = sets.length;
-shiftTap(5); tick(1);
+touch(5, true); tick(1);
+check(printed.includes('Decay: 50.0 ms') && log.at(-1) === 'SAY: Decay 50.0 milliseconds', 'Knob 5 is Decay: ' + JSON.stringify(printed));
+shift(true); tick(1);
 check(printed.includes('Length: 23 %') && log.at(-1) === 'SAY: Pad 2 length 23 percent',
-      'Shift+tap Knob 5: Length, as a percentage of the sample: ' + JSON.stringify(printed) + ' ' + log.at(-1));
-check(sets.slice(mark).every(s => s.startsWith('ui_state=')), 'the tap itself changes nothing');
+      'Shift while touching Knob 5: Length, as a percentage of the sample: ' + JSON.stringify(printed) + ' ' + log.at(-1));
+shift(false); tick(1);
+check(printed.includes('Decay: 50.0 ms') && log.at(-1) === 'SAY: Decay 50.0 milliseconds', 'letting go of Shift: Decay again: ' + log.at(-1));
+touch(5, false);
+check(sets.slice(mark).every(s => s.startsWith('ui_state=')), 'switching changes nothing');
 // Zoom (Shift + Knob 2) centers on the selected slice's start, even with the end marker active
 shift(true); turn(2, 5); shift(false); tick(1);
 {
@@ -137,25 +142,31 @@ shift(true); turn(2, 5); shift(false); tick(1);
   check(from <= 100000 && to > 100000 && Math.abs(mid - 100000) <= 2,
         'zoom centers on the start marker, not the end: ' + from + '-' + to);
 }
-// Turning Length moves the end, and the view follows it
+// Turning Length (Shift + Knob 5) moves the end, and the view follows it
 mark = sets.length;
-touch(5, true); turn(5, 120); touch(5, false); tick(1);
+shift(true); touch(5, true); turn(5, 120); touch(5, false); shift(false); tick(1);
 check(lastWave[1] > 100000, 'moving the end scrolls the view to it: ' + lastWave[1] + '-' + lastWave[2]);
 check(sets.slice(mark).some(s => /^nudge=1 1 -\d+$/.test(s)), 'Length nudges the end: ' + JSON.stringify(sets.slice(mark)));
+check(!sets.slice(mark).some(s => s.startsWith('decay_us=')), 'Shift + Knob 5 leaves Decay alone');
 // Touching zoom (Shift + Knob 2) recenters on the start
 shift(true); touch(2, true); tick(1); touch(2, false); shift(false);
 {
   const [, from, to] = lastWave, mid = (from + to) / 2;
   check(Math.abs(mid - 100000) <= 2, 'touching zoom recenters on the start: ' + from + '-' + to);
 }
-// A Shift+turn of Knob 5 is fine steps, not a tap: it stays Length
-shift(true); touch(5, true); turn(5, 1); touch(5, false); shift(false); tick(1);
-touch(5, true); tick(1); touch(5, false);
-check(printed.some(t => t.startsWith('Length: ')), 'Shift + turning Knob 5 does not switch it: ' + JSON.stringify(printed));
+// Shift picks Length, so Length has no fine step: a click moves a screen
+// column, as a Start click does
+mark = sets.length;
+shift(true); turn(5, 1); shift(false); tick(1);
+turn(2, 1); tick(1);
+{
+  const n = sets.slice(mark).filter(s => s.startsWith('nudge=')).map(s => Math.abs(+s.split(' ')[2]));
+  check(n.length === 2 && n[0] === n[1] && n[0] > 1, 'a Length click is a whole column, like Start: ' + JSON.stringify(n));
+}
 // Selecting a short slice with the end marker active still shows its start
 dsp.starts = [0, 100000, 130000]; dsp.ends = [100000, 130000, 441000]; dsp.sel = 0; tick(1);
 shift(true); turn(2, 7); shift(false); tick(1);                            // zoom x8: view ~55k frames
-touch(2, true); touch(2, false); touch(5, true); touch(5, false); tick(1);   // end active
+touch(2, true); touch(2, false); shift(true); touch(5, true); touch(5, false); shift(false); tick(1);   // end active
 check(lastWave[1] > 50000, 'end marker active and in view: ' + lastWave[1] + '-' + lastWave[2]);
 tick(70);
 check(printed.some(t => t.startsWith('S 0.000s L ')), 'bottom line shows the start even with the end active: ' + JSON.stringify(printed));
@@ -166,8 +177,8 @@ check(lastWave[1] <= 130000 && lastWave[2] > 130000, 'long slice shows its start
 shift(true); turn(2, 121); shift(false); tick(1);
 dsp.starts = [0, 100000, 200000]; dsp.ends = [100000, 200000, 441000]; dsp.sel = 1; tick(1);
 shift(true); turn(2, 123); shift(false); touch(2, true); touch(2, false); tick(1);   // zoom back out, start active
-shiftTap(5); tick(1);
-check(log.at(-1).startsWith('SAY: Decay '), 'Shift+tap again: back to Decay: ' + log.at(-1));
+touch(5, true); tick(1); touch(5, false);
+check(log.at(-1).startsWith('SAY: Decay '), 'without Shift, Knob 5 is Decay: ' + log.at(-1));
 tick(70);
 
 // Knob touch shows a readout, turning updates it, on both pages
@@ -248,11 +259,11 @@ mark = sets.length;
 shift(true); touch(1, true); tick(1);
 check(printed.includes('Detune: 0 ct'), 'Shift + touching Knob 1 shows detune: ' + JSON.stringify(printed));
 turn(1, 5); tick(1);
-check(printed.includes('Detune: +5 ct'), 'Shift + Knob 1 turns detune: ' + JSON.stringify(printed));
+check(printed.includes('Detune: 5 ct'), 'Shift + Knob 1 turns detune, no "+" as on Move: ' + JSON.stringify(printed));
 check(sets.slice(mark).includes('detune=5') && !sets.slice(mark).some(s => s.startsWith('transpose=')),
       'detune sent, transpose untouched: ' + JSON.stringify(sets.slice(mark)));
 turn(1, 63); tick(1);
-check(printed.includes('Detune: +50 ct') && sets.at(-1) === 'detune=50', 'detune clamps at +50');
+check(printed.includes('Detune: 50 ct') && sets.at(-1) === 'detune=50', 'detune clamps at +50');
 turn(1, 65); turn(1, 65); tick(1);
 check(printed.includes('Detune: -50 ct') && sets.at(-1) === 'detune=-50', 'detune clamps at -50');
 turn(1, 20); tick(1);
@@ -264,7 +275,7 @@ check(printed.some(t => t.startsWith('Transpose')), 'without Shift, Knob 1 is tr
 // Transpose: -48 to +48 semitones, Move's drum sampler range
 mark = sets.length;
 turn(1, 63); tick(1);
-check(printed.includes('Transpose: +48 st') && sets.at(-1) === 'transpose=48', 'transpose tops out at +48: ' + JSON.stringify(printed));
+check(printed.includes('Transpose: 48 st') && sets.at(-1) === 'transpose=48', 'transpose tops out at +48, no "+": ' + JSON.stringify(printed));
 turn(1, 65); turn(1, 65); tick(1);
 check(printed.includes('Transpose: -48 st') && sets.at(-1) === 'transpose=-48', 'transpose bottoms out at -48: ' + JSON.stringify(printed));
 turn(1, 48); tick(1);
@@ -272,7 +283,7 @@ check(printed.includes('Transpose: 0 st') && sets.at(-1) === 'transpose=0', 'tra
 touch(1, false); tick(70);
 
 // Knob 6 is the effect: Off / 8-Bit. Knob 7 is the 8-Bit rate, kept while
-// the effect is off; the knob loop left it at 15.1 kHz.
+// the effect is off; the knob loop left it 3 clicks above Move's 14.08 kHz.
 const crushSets = () => sets.filter(x => x.startsWith('crush_hz='));
 mark = sets.length;
 touch(6, true); tick(1);
@@ -285,27 +296,28 @@ check(litKnobs() === '123456', 'Knob 7 dark while the effect is off: ' + litKnob
 turn(7, 5); tick(1);
 check(!sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'Knob 7 does nothing while the effect is off');
 touch(7, false); touch(6, true); turn(6, 1); tick(1);
-check(printed.includes('Effect: 8-Bit') && crushSets().at(-1) === 'crush_hz=15100', 'on again at the rate it had: ' + crushSets().at(-1));
+check(printed.includes('Effect: 8-Bit') && crushSets().at(-1) === 'crush_hz=15222', 'on again at the rate it had: ' + crushSets().at(-1));
 const onSets = crushSets().length;
 turn(6, 1); tick(1);
 check(crushSets().length === onSets && printed.includes('Effect: 8-Bit'), 'right of 8-Bit stays 8-Bit, sends nothing');
 touch(6, false); touch(7, true); tick(1);
-check(printed.includes('Rate: 15.1 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 15.2 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
 turn(7, 63); tick(1);
 check(printed.includes('Rate: 30.0 kHz') && crushSets().at(-1) === 'crush_hz=30000', 'tops out at 30.0 kHz: ' + JSON.stringify(printed));
+check(knobLed(7) === AMBER_LEVELS.at(-1), 'Knob 7 LED full amber at the top: ' + knobLed(7));
 turn(7, 127); tick(1);
-check(printed.includes('Rate: 29.3 kHz'), '1/24 octave steps, 100 Hz precision above 10 kHz: ' + JSON.stringify(printed));
-turn(7, 65); turn(7, 65); tick(1);   // 126 steps down
+check(printed.includes('Rate: 29.2 kHz') && crushSets().at(-1) === 'crush_hz=29230', 'one click down is Move\'s step: ' + JSON.stringify(printed));
+turn(7, 65); turn(7, 65); turn(7, 123); tick(1);   // 131 clicks down
 check(printed.includes('Rate: 1.00 kHz') && crushSets().at(-1) === 'crush_hz=1000', 'bottoms out at 1.00 kHz: ' + JSON.stringify(printed));
 turn(7, 1); tick(1);
-check(printed.includes('Rate: 1.03 kHz'), '10 Hz precision below 10 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.03 kHz') && crushSets().at(-1) === 'crush_hz=1026', 'a click up: ' + JSON.stringify(printed));
 shift(true); turn(7, 1); shift(false); tick(1);
-check(printed.includes('Rate: 1.04 kHz') && crushSets().at(-1) === 'crush_hz=1040', 'Shift: 1/96 octave steps: ' + JSON.stringify(printed));
-turn(7, 63); turn(7, 8); tick(1);    // 71 steps: the first reaches 1.06 kHz, then up to 8 kHz
-check(printed.includes('Rate: 8.00 kHz') && crushSets().at(-1) === 'crush_hz=8000', 'rate at 8.00 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.04 kHz') && crushSets().at(-1) === 'crush_hz=1037', 'Shift: fine steps until the readout changes: ' + JSON.stringify(printed));
+turn(7, 63); turn(7, 8); tick(1);    // 71 clicks
+check(printed.includes('Rate: 6.57 kHz') && crushSets().at(-1) === 'crush_hz=6571', 'rate at 6.57 kHz: ' + JSON.stringify(printed));
 check(!sets.slice(mark).some(s => !/^(crush_hz|ui_state)=/.test(s)), 'Knobs 6 and 7 send only crush: ' + JSON.stringify(sets.slice(mark)));
 touch(7, false); tick(70);
-check(log.includes('SAY: 8-Bit rate 8 kilohertz'), 'rate announced: ' + log.slice(-3));
+check(log.includes('SAY: 8-Bit rate 6.57 kilohertz'), 'rate announced: ' + log.slice(-3));
 // Knob 8 on the Main page is not used (8-Bit Decay stays at Move's default)
 mark = sets.length;
 touch(8, true); turn(8, 5); tick(1);
@@ -319,18 +331,20 @@ check(printed[0] === 'Pad 2/3', `top bar shows only the pad (got "${printed[0]}"
 check(!printed.some(t => /x\d|st\b|START|END/.test(t)), 'no zoom/transpose/START/END when idle: ' + JSON.stringify(printed));
 
 // The jog only ever moves the start, even after touching Length
-shiftTap(5); touch(5, true); tick(1); touch(5, false);
+shift(true); touch(5, true); tick(1); touch(5, false); shift(false);
 mark = sets.length;
 midi(0xB0, 3, 127); midi(0xB0, 14, 1); tick(1);
 check(sets.slice(mark).some(s => /^nudge=\d+ 0 \d+$/.test(s)) && !sets.slice(mark).some(s => /^nudge=\d+ 1 /.test(s)),
       'jog nudges the start: ' + JSON.stringify(sets.slice(mark)));
-shiftTap(5); tick(70);
+tick(70);
 
 // Other controls run without throwing
 midi(0xB0, 14, 1); midi(0xB0, 3, 127); midi(0xB0, 62, 127); midi(0xB0, 56, 127); tick(30);
 
 // ---- Export ----
 const settingSets = Object.fromEntries(sets.filter(s => /^(attack_us|hold_us|decay_us|transpose|detune)=/.test(s)).map(s => s.split('=')));
+// The export has the knobs' exact values; the DSP got them rounded to a microsecond
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
 const presetDir = '/data/UserData/UserLibrary/Track Presets/';
 const exits = () => log.filter(l => l === 'EXIT').length;
 // Export menu (Record): row 0 name, then Drum Preset, Slices, Cancel
@@ -396,14 +410,15 @@ if (p1 in files) {
       check(Math.abs(p.Voice_PlaybackLength - l) < 1e-12, `pad ${i + 1} length ${l}`);
     }
     check(p.Voice_Envelope_Mode === 'A-H-D', 'A-H-D mode');
-    check(Math.abs(p.Voice_Envelope_Attack - Math.max(0.0001, settingSets.attack_us / 1e6)) < 1e-9, 'attack seconds');
-    check(p.Voice_Envelope_Hold === (+settingSets.hold_us < 0 ? 60 : +settingSets.hold_us / 1e6), 'hold seconds');
-    check(Math.abs(p.Voice_Envelope_Decay - settingSets.decay_us / 1e6) < 1e-9, 'decay seconds');
+    check(near(p.Voice_Envelope_Attack, Math.max(0.0001, settingSets.attack_us / 1e6), 1e-6), 'attack seconds: ' + p.Voice_Envelope_Attack);
+    check(near(p.Voice_Envelope_Hold, !(+settingSets.hold_us >= 0) ? 60 : +settingSets.hold_us / 1e6, 1e-6), 'hold seconds: ' + p.Voice_Envelope_Hold);
+    check(near(p.Voice_Envelope_Decay, settingSets.decay_us / 1e6, 1e-6), 'decay seconds: ' + p.Voice_Envelope_Decay);
     check(p.Voice_Transpose === +settingSets.transpose, 'transpose');
     // Move's Song.abl stores detune in semitones: -0.25 st was saved as -0.2522932291030884
     check(Math.abs(p.Voice_Detune - -0.3) < 1e-12 && +settingSets.detune === -30, 'detune -30 cents exported as -0.3 semitones: ' + p.Voice_Detune);
-    check(p.Effect_Type === '8-bit' && p.Effect_EightBitResamplingRate === 8000 && p.Effect_EightBitFilterDecay === 5 && p.Effect_On === true,
-          'crush exported as the 8-Bit effect at 8000 Hz: ' + [p.Effect_Type, p.Effect_EightBitResamplingRate]);
+    check(p.Effect_Type === '8-bit' && near(p.Effect_EightBitResamplingRate, 6570.697277836515, 1e-6) &&
+          p.Effect_EightBitFilterDecay === 5 && p.Effect_On === true,
+          'crush exported as the 8-Bit effect at the knob\'s exact rate: ' + [p.Effect_Type, p.Effect_EightBitResamplingRate]);
   });
   const c0 = rack.chains[0].devices[0].parameters;
   console.log(`export: attack=${c0.Voice_Envelope_Attack}s hold=${c0.Voice_Envelope_Hold}s decay=${c0.Voice_Envelope_Decay}s transpose=${c0.Voice_Transpose} detune=${c0.Voice_Detune}`);
@@ -544,12 +559,14 @@ midi(0xB0, 51, 127); tick(1);
 
 // ---- Keep for later, then resume ----
 shift(true); turn(2, 5); shift(false); tick(1);   // zoom in: remembered
-shiftTap(5); filterPage(); tick(1);                   // Length, then the Filter & Setup page: remembered
+filterPage(); tick(1);                            // the Filter & Setup page: remembered
+touch(1, true); turn(1, 127); shift(true); turn(1, 127); shift(false); touch(1, false); tick(1);   // off the grid: remembered exactly
 dsp.chop = 7; tick(1);                            // unexported work
 mark = sets.length;
 midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
-check(/^3 1 [\d.]+ 1 1$/.test(keptState) && !/^3 1 0 /.test(keptState), 'ui_state saved: zoom, page, Length: ' + keptState);
+check(/^4 1 [\d.]+ 1( [\d.]+){7}$/.test(keptState) && !/^4 1 0 /.test(keptState) && keptState.endsWith(' 1297 0 654'),
+      'ui_state saved: zoom, page and the knob positions: ' + keptState);
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD) && !lit(UP) && !lit(DOWN) && litKnobs() === '', 'hiding turns the buttons and knobs off');
@@ -566,13 +583,11 @@ g.init(); tick(2);
 check(!sets.slice(mark).some(s => s.startsWith('file_path=')), 'resume does not reload the file');
 check(log.slice(logMark).includes(`SAY: Resumed test loop.wav, ${dsp.starts.length} slices`), 'resume announced: ' + JSON.stringify(log.slice(logMark)));
 check(!log.slice(logMark).some(l => /SAY: (Chop|Undo|Redo|Deleted)/.test(l)), 'resume does not replay old edits');
-check(dsp.uiState === keptState, 'zoom, page, Length and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
+check(dsp.uiState === keptState, 'zoom, page, knob positions and unexported restored on resume: ' + dsp.uiState + ' vs ' + keptState);
 check(lit(RECORD) && lit(UP) && !lit(DOWN), 'buttons lit again after resuming, Up back to Main from the Filter & Setup page');
 touch(1, true); tick(1); touch(1, false);
-check(printed.some(t => t.startsWith('Freq: ')), 'resumed on the Filter & Setup page: ' + JSON.stringify(printed));
-mainPage(); touch(5, true); tick(1); touch(5, false);
-check(printed.some(t => t.startsWith('Length: ')), 'resumed with Knob 5 on Length: ' + JSON.stringify(printed));
-shiftTap(5); tick(70);
+check(printed.includes('Freq: 20.8 kHz'), 'resumed on the Filter & Setup page, frequency exact: ' + JSON.stringify(printed));
+mainPage(); tick(70);
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'unexported work is still unexported after resuming');
 midi(0xB0, 51, 127); tick(1);
@@ -736,7 +751,7 @@ check(printed.includes('Effect: 8-Bit'), 'effect restored from settings: ' + JSO
 touch(7, true); tick(1);
 check(printed.includes('Rate: 8.41 kHz'), 'rate restored from settings: ' + JSON.stringify(printed));
 turn(7, 1); tick(1);
-check(printed.includes('Rate: 8.48 kHz'), 'a restored off-grid 8410 Hz steps to the next step, 8.48 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 8.63 kHz'), 'a restored 8410 Hz steps a click from there, as Move keeps an off-grid position: ' + JSON.stringify(printed));
 touch(7, false); tick(70);
 
 // The filter is restored from the DSP's settings too
@@ -763,44 +778,39 @@ const filterSets = k => sets.filter(x => x.startsWith(k + '='));
 // Turn by n detents (CC values 1-63 up, 65-127 down)
 const turnBy = (k, n) => { while (n !== 0) { const d = Math.max(-63, Math.min(63, n)); turn(k, d > 0 ? d : 128 + d); n -= d; } };
 filterPage(); tick(70);
-// Frequency: 30 Hz to 22 kHz, 1/24 octave (Shift 1/96), rounded as Move shows it
+// Frequency: 30 Hz to 22 kHz, Move's log knob (knobs.mjs)
 mark = sets.length;
 touch(1, true); tick(1);
-check(printed.includes('Freq: 22.0 kHz') && log.at(-1) === 'SAY: Frequency 22 kilohertz', 'frequency starts fully open: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 22.0 kHz') && log.at(-1) === 'SAY: Frequency 22.0 kilohertz', 'frequency starts fully open: ' + JSON.stringify(printed));
 check(knobLed(1) === WHITE_LEVELS.at(-1), 'Knob 1 LED full white at 22 kHz: ' + knobLed(1));
 turn(1, 1); tick(1);
-check(printed.includes('Freq: 22.0 kHz') && filterSets('filter_hz10').length === 0, 'stops at 22 kHz, sends nothing');
+check(printed.includes('Freq: 22.0 kHz') && !sets.slice(mark).some(s => s.startsWith('filter_hz10=')), 'stops at 22 kHz, sends nothing');
 turn(1, 127); tick(1);
-check(printed.includes('Freq: 21.7 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=217000', 'one step down: 21.7 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 20.9 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=209178', 'one click down: 20.9 kHz: ' + JSON.stringify(printed));
 turn(1, 65); turn(1, 65); turn(1, 65); turn(1, 65); tick(1);
 check(printed.includes('Freq: 30.0 Hz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=300', 'bottoms out at 30.0 Hz: ' + JSON.stringify(printed));
 check(knobLed(1) === WHITE_LEVELS[0], 'Knob 1 LED dimmest white at 30 Hz, still lit: ' + knobLed(1));
 turn(1, 1); tick(1);
-check(printed.includes('Freq: 30.9 Hz'), 'one decimal below 100 Hz: ' + JSON.stringify(printed));
-for (const [ticks, want] of [[40, '98.0 Hz'], [1, '101 Hz'], [79, '988 Hz'], [1, '1.02 kHz'], [79, '9.96 kHz'], [1, '10.3 kHz']]) {
-  turnBy(1, ticks); tick(1);
-  check(printed.includes('Freq: ' + want), `frequency rounding: ${want}: ` + JSON.stringify(printed));
-}
-turnBy(1, -80); tick(1);                 // 80 steps down: 1.02 kHz
-check(printed.includes('Freq: 1.02 kHz'), 'back at 1.02 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 31.6 Hz'), 'a click up from 30 Hz: ' + JSON.stringify(printed));
+turnBy(1, 68); tick(1);
+check(printed.includes('Freq: 974 Hz'), '69 clicks up: 974 Hz: ' + JSON.stringify(printed));
 shift(true); turn(1, 1); shift(false); tick(1);
-check(printed.includes('Freq: 1.03 kHz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=10300', 'Shift: 1/96 octave: ' + JSON.stringify(printed));
+check(printed.includes('Freq: 979 Hz') && filterSets('filter_hz10').at(-1) === 'filter_hz10=9791', 'Shift: a tenth of a click: ' + JSON.stringify(printed));
 touch(1, false); tick(70);
-check(log.includes('SAY: Frequency 1.03 kilohertz'), 'frequency announced: ' + log.slice(-2));
-// Resonance: 0-90%, 1% steps (Shift 0.1%), one decimal below 10
+check(log.includes('SAY: Frequency 979 hertz'), 'frequency announced: ' + log.slice(-2));
+// Resonance: 0-90%, linear, 131 clicks; one decimal below 10
 touch(2, true); tick(1);
 check(printed.includes('Resonance: 0.0 %') && log.at(-1) === 'SAY: Resonance 0.0 percent', 'resonance starts at 0.0%: ' + JSON.stringify(printed));
 turn(2, 5); tick(1);
-check(printed.includes('Resonance: 5.0 %') && filterSets('filter_res').at(-1) === 'filter_res=50', 'resonance 5.0%: ' + JSON.stringify(printed));
-turn(2, 5); tick(1);
+check(printed.includes('Resonance: 3.4 %') && filterSets('filter_res').at(-1) === 'filter_res=34', 'resonance 3.4% after 5 clicks: ' + JSON.stringify(printed));
+turn(2, 10); tick(1);
 check(printed.includes('Resonance: 10 %'), 'no decimal from 10%: ' + JSON.stringify(printed));
 shift(true); turn(2, 127); shift(false); tick(1);
-check(printed.includes('Resonance: 9.9 %') && filterSets('filter_res').at(-1) === 'filter_res=99', 'Shift: 0.1%: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 9.9 %') && filterSets('filter_res').at(-1) === 'filter_res=99', 'Shift: fine steps: ' + JSON.stringify(printed));
 turn(2, 63); turn(2, 63); tick(1);
 check(printed.includes('Resonance: 90 %') && filterSets('filter_res').at(-1) === 'filter_res=900', 'tops out at 90%: ' + JSON.stringify(printed));
-turn(2, 65); tick(1);                    // 63 down: 27%
-turn(2, 110); tick(1);                   // 18 more: 9.0%? no: 27 - 18 = 9
-check(printed.includes('Resonance: 9.0 %') && filterSets('filter_res').at(-1) === 'filter_res=90', 'resonance 9.0%: ' + JSON.stringify(printed));
+turnBy(2, -82); tick(1);              // fewer than 131 clicks: from 10% up each one changes the whole number
+check(printed.includes('Resonance: 8.8 %') && filterSets('filter_res').at(-1) === 'filter_res=88', 'resonance 8.8%: ' + JSON.stringify(printed));
 touch(2, false); tick(70);
 // Type: Low-Pass 12, Low-Pass 24, High-Pass 24, Peak; stops at both ends
 touch(3, true); tick(1);
@@ -816,22 +826,22 @@ turn(3, 5); tick(1);
 check(printed.includes('Type: Peak') && filterSets('filter_type').at(-1) === 'filter_type=3', 'stops at Peak: ' + JSON.stringify(printed));
 touch(3, false); tick(70);
 check(log.includes('SAY: Filter peak'), 'type announced');
-// Peak: Knob 2 is Peak Gain, -12 to +12 dB, 0.5 dB steps (Shift 0.1); resonance is kept
+// Peak: Knob 2 is Peak Gain, -12 to +12 dB, linear in dB; resonance is kept
 touch(2, true); tick(1);
 check(printed.includes('Peak Gain: 0.0 dB') && log.at(-1) === 'SAY: Peak gain 0.0 decibels', 'on Peak, Knob 2 is Peak Gain: ' + JSON.stringify(printed));
-turn(2, 6); tick(1);
-check(printed.includes('Peak Gain: +3.0 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=30', 'Peak Gain +3.0dB: ' + JSON.stringify(printed));
+turn(2, 16); tick(1);
+check(printed.includes('Peak Gain: 2.9 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=29', 'Peak Gain 2.9 dB, no "+": ' + JSON.stringify(printed));
 shift(true); turn(2, 1); shift(false); tick(1);
-check(printed.includes('Peak Gain: +3.1 dB'), 'Shift: 0.1 dB: ' + JSON.stringify(printed));
+check(printed.includes('Peak Gain: 3.0 dB'), 'Shift: fine steps: ' + JSON.stringify(printed));
 turn(2, 63); tick(1);
-check(printed.includes('Peak Gain: +12.0 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=120', 'tops out at +12 dB');
-turn(2, 65); tick(1);
-check(printed.includes('Peak Gain: -12.0 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=-120', 'bottoms out at -12 dB');
-turn(2, 30); tick(1);
-check(printed.includes('Peak Gain: +3.0 dB'), 'back to +3.0 dB: ' + JSON.stringify(printed));
-check(filterSets('filter_res').at(-1) === 'filter_res=90', 'Peak Gain leaves the resonance alone');
+check(printed.includes('Peak Gain: 12 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=120', 'tops out at 12 dB');
+turn(2, 65); turn(2, 65); turn(2, 65); tick(1);
+check(printed.includes('Peak Gain: -12 dB') && filterSets('filter_peak_db10').at(-1) === 'filter_peak_db10=-120', 'bottoms out at -12 dB');
+turnBy(2, 72); tick(1);
+check(printed.includes('Peak Gain: 2.9 dB'), 'back to 2.9 dB: ' + JSON.stringify(printed));
+check(filterSets('filter_res').at(-1) === 'filter_res=88', 'Peak Gain leaves the resonance alone');
 touch(2, false); turn(3, 126); touch(2, true); tick(1); touch(2, false);
-check(printed.includes('Resonance: 9.0 %'), 'Low-Pass 24 again: resonance kept: ' + JSON.stringify(printed));
+check(printed.includes('Resonance: 8.8 %'), 'Low-Pass 24 again: resonance kept: ' + JSON.stringify(printed));
 // Mode: Trigger / Gate; Mute stays dark either way
 touch(4, true); tick(1);
 check(printed.includes('Mode: Trigger') && !lit(MUTE), 'Mode starts on Trigger: ' + JSON.stringify(printed));
@@ -861,8 +871,9 @@ midi(0xB0, 51, 127); tick(1);
 exportPreset();
 {
   const fp = newestPreset().chains[0].devices[0].chains[0].devices[0].parameters;
-  check(fp.Voice_Filter_Type === 'Lowpass' && fp.Voice_Filter_Frequency === 1030 && Math.abs(fp.Voice_Filter_Resonance - 0.09) < 1e-12 &&
-        Math.abs(fp.Voice_Filter_PeakGain - Math.pow(10, 3 / 20)) < 1e-12 && fp.Voice_Filter_On === true,
+  check(fp.Voice_Filter_Type === 'Lowpass' && near(fp.Voice_Filter_Frequency, 979.0932857069569, 1e-9) &&
+        near(fp.Voice_Filter_Resonance, 0.9 * 128 / 1308, 1e-12) &&
+        near(fp.Voice_Filter_PeakGain, Math.pow(10, (-12 + 24 * 810 / 1308) / 20), 1e-12) && fp.Voice_Filter_On === true,
         'Drum Preset carries the filter: ' + [fp.Voice_Filter_Type, fp.Voice_Filter_Frequency, fp.Voice_Filter_Resonance, fp.Voice_Filter_PeakGain]);
 }
 mainPage(); tick(70);
