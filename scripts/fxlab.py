@@ -109,6 +109,12 @@ def cmd_split(take, song_path, outdir):
     os.makedirs(outdir, exist_ok=True)
     v = read_mono(take)
     pads = drum_pads(json.load(open(song_path)))
+    # Only test sounds can be rendered: other samples (a kit's leftovers)
+    # aren't expected in the take.
+    for note, name, _ in pads:
+        if not os.path.exists(os.path.join(WAVS, name)):
+            print("  skipping pad %d: %s isn't a test sound" % (note, name))
+    pads = [pd for pd in pads if os.path.exists(os.path.join(WAVS, pd[1]))]
     ons = onsets(v)
     if len(ons) != len(pads):
         sys.exit("split: %d onsets (at %s s) but %d pads with samples (notes %s)" % (
@@ -133,7 +139,7 @@ def cmd_split(take, song_path, outdir):
                        for lag in range(0, 64) if len(piece) >= lag + n)
             if best < 0.5:
                 print("  warning: %s doesn't look like %s (correlation %.2f)" % (fname, name, best))
-        else:
+        elif src is None:
             print("  warning: no source %s in build/test_wavs" % name)
         for key in ("Voice_PlaybackStart", "Voice_PlaybackLength"):
             if key in params and abs(params[key] - (0.0 if key.endswith("Start") else 1.0)) > 1e-6:
@@ -354,20 +360,29 @@ def gain_curve_clicks(x, dry, lag, half=24):
     return np.array(t), np.array(g)
 
 
-def gain_shape(t, g):
-    """The curve's extreme (most cut or boost) and when it gets there, when
-    it first moves 0.5 dB, and how long after the extreme it takes to come
-    back 63 % and 90 % of the way to 0 dB."""
+def gain_shape(t, g, end_ms):
+    """Punch's shape, measured on a gain curve up to end_ms (before Move's
+    end fade): the level at the start (0-2 ms), the deepest point and when,
+    the level it settles at (the last 100 ms), when it is halfway down from
+    the start to the deepest point, and how long after the deepest point
+    it is 50 % and 90 % of the way back up to the settled level."""
+    keep = t <= end_ms
+    t, g = t[keep], g[keep]
     if len(g) < 2:
         return None
-    k = int(np.argmax(np.abs(g)))
-    depth = float(g[k])
-    out = {"extreme_db": depth, "extreme_ms": float(t[k]), "end_db": float(g[-1])}
-    moved = np.flatnonzero(np.abs(g) > 0.5)
-    out["start_ms"] = float(t[moved[0]]) if len(moved) else None
-    for frac, key in ((0.63, "back63_ms"), (0.9, "back90_ms")):
-        back = np.flatnonzero(np.abs(g[k:]) <= (1 - frac) * abs(depth))
-        out[key] = float(t[k + back[0]] - t[k]) if len(back) and abs(depth) > 0.5 else None
+    first = g[t <= 2.0]
+    start = float(np.median(first)) if len(first) else float(g[0])
+    k = int(np.argmin(g))
+    low, settled = float(g[k]), float(np.median(g[t >= t[-1] - 100]))
+    out = {"start_db": start, "min_db": low, "min_ms": float(t[k]), "settled_db": settled,
+           "down50_ms": None, "up50_ms": None, "up90_ms": None}
+    if start - low > 0.5:
+        down = np.flatnonzero(g[:k + 1] <= (start + low) / 2)
+        out["down50_ms"] = float(t[down[0]]) if len(down) else None
+    if settled - low > 0.5:
+        for frac, key in ((0.5, "up50_ms"), (0.9, "up90_ms")):
+            up = np.flatnonzero(g[k:] >= low + frac * (settled - low))
+            out[key] = float(t[k + up[0]] - t[k]) if len(up) else None
     return out
 
 
@@ -448,7 +463,10 @@ def cmd_compare(outdir, gain_arg):
             dry = pc["dry"]
             gm = curve(move / gain, dry, lag)
             go = curve(ours_raw, dry, lag)
-            row["gain"] = {"move": gain_shape(*gm), "ours": gain_shape(*go),
+            # Up to 20 ms before the sound ends, clear of Move's end fade.
+            loud = np.flatnonzero(np.abs(dry) > 50)
+            end_ms = ((loud[-1] if len(loud) else len(dry)) - lag) / RATE * 1000 - 20
+            row["gain"] = {"move": gain_shape(*gm, end_ms), "ours": gain_shape(*go, end_ms),
                            "settings": [pc["params"].get(k) for k in EFFECTS[effect_index(pc["params"])][1:3]]}
             row["gain_db"] = stats(interp_err(*gm, *go))
             extra["gain"] = (gm, go, curve is gain_curve_clicks)
@@ -521,14 +539,15 @@ def cmd_compare(outdir, gain_arg):
     if shaped:
         def g(s, k, fmt):
             return "-" if not s or s.get(k) is None else fmt % s[k]
-        print("\ngain against dry (Move / ours): extreme dB at ms, first 0.5 dB, back 63 % and 90 % after the extreme")
-        print("%-22s %-17s %15s %15s %15s %15s %15s" % ("piece", "settings", "extreme dB", "at ms", "start ms", "back63 ms", "back90 ms"))
+        print("\ngain against dry, dB (Move / ours): at the start, deepest and when, settled; ms: halfway down,"
+              " then 50 % and 90 % back up to settled after the deepest point")
+        cols = (("start_db", "%.1f"), ("min_db", "%.1f"), ("min_ms", "%.0f"), ("settled_db", "%.1f"),
+                ("down50_ms", "%.0f"), ("up50_ms", "%.0f"), ("up90_ms", "%.0f"))
+        print("%-22s %-15s" % ("piece", "settings") + "".join(" %13s" % k for k, _ in cols))
         for r in shaped:
             m, o = r["gain"]["move"], r["gain"]["ours"]
-            print("%-22s %-17s" % (r["piece"], " ".join("%.4g" % v for v in r["gain"]["settings"])) + "".join(
-                " %15s" % ("%s / %s" % (g(m, k, f), g(o, k, f))) for k, f in (
-                    ("extreme_db", "%.1f"), ("extreme_ms", "%.0f"), ("start_ms", "%.1f"),
-                    ("back63_ms", "%.0f"), ("back90_ms", "%.0f"))))
+            print("%-22s %-15s" % (r["piece"], " ".join("%.4g" % v for v in r["gain"]["settings"])) + "".join(
+                " %13s" % ("%s / %s" % (g(m, k, f), g(o, k, f))) for k, f in cols))
     json.dump({"gain": gain, "rows": rows}, open(os.path.join(outdir, "compare.json"), "w"), indent=1)
     print("plots in", plots)
 

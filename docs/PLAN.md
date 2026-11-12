@@ -293,6 +293,39 @@ compressor) or only the note-on, and whether the quiet sine ducks the same.
 | 14 | sine_441_quiet | dry |
 | 15 | sine_441_quiet | Amount 100 %, Release 120 ms |
 
+Recorded 2026-11-12 (`.claude/recordings/set29/`, local only; Amount
+50 % is 0.4969 on Move's knob). Move's Punch is a fixed gain envelope from
+note-on, nothing like the stand-in's boost at the start:
+
+- Makeup: the start and everything after the release sit at 1 + Amount³
+  of the dry level (1.1227 = +1.00 dB at 0.4969, exact to 4 digits; 2.000
+  = +6.02 dB at 100 %). So the transient keeps that level and the body is
+  ducked below it.
+- Not level-dependent: sine_441_quiet's curve matches sine_441's to 0.1
+  dB. Nor retriggered: each click of click_train lands on the sine's curve
+  for the same settings.
+- Duck attack: the same for every Release. Barely moving at 2 ms, halfway
+  down at 14-18 ms, 95 % of the way by ~50 ms, done by ~80 ms.
+- Depth (the bottom against the makeup, with Release long enough to get
+  there): -6.0 dB at 49.7 %, -16.5 dB at 100 %; absolute 0.565 and 0.300 of
+  dry. Two points fit neither linear in Amount nor linear in dB.
+- Release: back to the makeup level at about Release after note-on (90 %
+  back by ~1.0 R at 1 s, later relative to R at 120 ms and 60 ms, where
+  the attack hasn't finished). At 100 % and 1 s the bottom is flat until
+  0.6 R and then rises about evenly in dB; at 50 % it starts rising from
+  about 0.4 R, so the shape isn't one curve scaled by depth (neither in
+  linear gain nor in dB). Perhaps the duck is clamped at a floor at high
+  Amounts.
+- Ceiling: at 100 % click_train settles at +2.4 dB, not +6, flat from 30
+  Hz to 20 kHz: its clicks (-2.6 dBFS dry) come out at 31918 (-0.23
+  dBFS), and the ring after each is scaled the same, so it's a gain held
+  down, not a clip. At 50 % (+1 dB) the clicks pass in full. Whether
+  this limiter is part of Punch or after it isn't known yet. The track's
+  Saturator after the Drum Rack is at Dry/Wet 0, as in Set 28.
+
+Still to measure: depth and attack against Amount (10, 25, 75, 90 %), the
+release's shape at more Release values, and where the ceiling sits.
+
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows
 for each setting (its knob steps rarely land on round numbers). Loop, and
