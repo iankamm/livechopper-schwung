@@ -87,6 +87,26 @@
  * output frames, after repitching) and cut to 8 bits, before the envelope.
  * Slice export leaves it out, like the envelope and transpose.
  *
+ * Effect: the drum sampler's other playback effects, which the exported
+ * preset sets. set_param("effect") 0-8 in Move's order: Stretch, Loop,
+ * Pitch Env, Punch, 8-Bit, FM, Ring Mod, Sub Osc, Noise; "fx" "<a> <b>" the
+ * selected effect's two settings (Knobs 7 and 8) in the preset's units,
+ * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
+ * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
+ * Each voice plays a stand-in, not an emulation, before the filter:
+ * Punch boosts the start by up to +12 dB, dying away over its Release;
+ * Pitch Env bends the pitch by up to +-24 semitones, decaying over its
+ * Decay; FM wobbles the playback rate by up to +-1 octave at its
+ * Frequency; Ring Mod multiplies by a sine; Sub Osc adds a sine; Noise adds
+ * noise low-passed at its Color, following the sound's level; 8-Bit's
+ * Decay closes a low-pass on the crushed sound over that time. Stretch
+ * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
+ * of Grain Size from it, half a grain apart, at the normal speed (Factor
+ * 1.00 is plain playback). Loop starts at Offset (of the slice) and repeats
+ * the part from there for Length (in source time) until the
+ * envelope ends, dipping the level for ~1.5 ms either side of each wrap.
+ * Slice export leaves the effect out.
+ *
  * Filter: the drum sampler's filter, which the exported preset sets.
  * set_param("filter_type") 0-3 = Low-Pass 12, Low-Pass 24 (the default),
  * High-Pass 24, Peak; "filter_hz10" the cutoff in tenths of a Hz (30 Hz to
@@ -153,6 +173,35 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 #define DECLICK_FRAMES 64           /* ~1.5 ms fade on a choked voice */
 #define CRUSH_HZ_MIN 1000           /* the drum sampler's 8-Bit Resampling Rate range */
 #define CRUSH_HZ_MAX 30000
+#define CRUSH_DECAY_MIN 0.01f       /* 8-Bit Decay, seconds */
+#define CRUSH_DECAY_OFF 5.0f        /* its top: Move shows "Off" */
+
+/* Playback effects, in Move's order (Knob 6) */
+enum { FX_STRETCH = 0, FX_LOOP, FX_PITCH_ENV, FX_PUNCH, FX_8BIT, FX_FM, FX_RING_MOD, FX_SUB_OSC, FX_NOISE, FX_COUNT };
+/* Each effect's two settings: { a lo, a hi, b lo, b hi }, the preset's units */
+static const float FX_RANGE[FX_COUNT][4] = {
+    { 1.0f, 20.0f, 0.005f, 0.3f },      /* Stretch: factor, grain (s) */
+    { 0.0f, 1.0f, 0.01f, 0.5f },        /* Loop: offset, length (s) */
+    { -1.0f, 1.0f, 0.005f, 2.0f },      /* Pitch Env: amount, decay (s) */
+    { 0.0f, 1.0f, 0.06f, 1.0f },        /* Punch: amount, release (s) */
+    { 1000.0f, 30000.0f, 0.01f, 5.0f }, /* 8-Bit: rate (Hz), decay (s); via crush_* */
+    { 0.0f, 1.0f, 10.0f, 4500.0f },     /* FM: amount, frequency (Hz) */
+    { 0.0f, 1.0f, 1.0f, 5000.0f },      /* Ring Mod: amount, frequency (Hz) */
+    { 0.0f, 1.0f, 30.0f, 120.0f },      /* Sub Osc: amount, frequency (Hz) */
+    { 0.0f, 1.0f, 180.0f, 15000.0f },   /* Noise: amount, color (Hz) */
+};
+static const float FX_DEFAULT[FX_COUNT][2] = {
+    { 1.0f, 0.1f }, { 0.0f, 0.3f }, { 0.0f, 0.3f }, { 0.0f, 0.12016f }, { 14080.0f, 5.0f },
+    { 0.0f, 1000.0f }, { 0.0f, 1000.0f }, { 0.0f, 60.0f }, { 0.0f, 10000.0f },
+};
+#define FX_DECAY_K 4.6f             /* a decay reaches 1% at its time: ln 100 */
+#define PUNCH_MAX_BOOST 2.98107f    /* +12 dB on top of 1.0 */
+#define PITCH_ENV_SEMIS 24.0f       /* Pitch Env at 100% (a guess: Move shows only %) */
+#define FM_MAX_OCT 1.0f
+#define SUB_OSC_LEVEL 16384.0f      /* -6 dBFS at 100% */
+#define NOISE_FOLLOW_RELEASE 0.9995f /* the level follower falls ~70 ms to 1/e */
+#define CRUSH_DECAY_FLOOR_HZ 200.0f /* where 8-Bit Decay's low-pass ends up */
+#define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
 
 /* Filter, in the drum sampler's ranges */
 enum { FILTER_LP12 = 0, FILTER_LP24 = 1, FILTER_HP24 = 2, FILTER_PEAK = 3 };
@@ -210,6 +259,20 @@ typedef struct {
     float l, r;
 } crush_state_t;
 
+/* Per-voice effect state (all but the crush): an oscillator for FM, Ring
+ * Mod and Sub Osc, Noise's generator, filter and level follower, 8-Bit
+ * Decay's low-pass, Stretch's two grains and whether Loop has wrapped. */
+typedef struct {
+    double phase;       /* oscillator, 0..1 */
+    uint32_t rng;
+    float noise_lp;
+    float follow;
+    float decay_l, decay_r;
+    double grain_pos[2]; /* source frames; grain 1 is half a grain behind */
+    int grain_age;      /* output frames into grain 0 */
+    int loop_wrapped;
+} fx_state_t;
+
 /* Per-voice filter state: two SVF stages, two integrators per channel. */
 typedef struct {
     float ic1[2][2];    /* [stage][L/R] */
@@ -229,21 +292,26 @@ typedef struct {
     sample_buf_t *current;
     int playing;
     double play_pos;    /* in source frames */
+    int play_start;     /* the playing slice, [start, end) */
     int play_end;
     int env_pos;        /* output frames since the voice was triggered */
     int gate_note;      /* pad note that started the voice; -1 once released */
     int release_pos;    /* gated: frames since release, -1 while held */
     float release_gain; /* gated: level when the release began */
     crush_state_t crush;
+    fx_state_t fx;
     filter_state_t filter;
 
     /* Choke tail: the voice that was cut off, fading out */
     int tail_active;
     double tail_pos;
+    int tail_start;
     int tail_end;
     float tail_gain;
     int tail_left;
+    int tail_env_pos;
     crush_state_t tail_crush;
+    fx_state_t tail_fx;
     filter_state_t tail_filter;
 
     /* Global sound settings */
@@ -257,6 +325,9 @@ typedef struct {
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
     int crush_hz;                               /* 0 = off, else CRUSH_HZ_MIN-MAX */
+    float crush_decay;                          /* 8-Bit Decay, s; CRUSH_DECAY_OFF = off */
+    int effect;                                 /* FX_STRETCH .. FX_NOISE */
+    float fx_a, fx_b;                           /* its two settings, clamped */
     int filter_type;                            /* FILTER_LP12 .. FILTER_PEAK */
     int filter_hz10;                            /* cutoff, tenths of a Hz */
     int filter_res;                             /* thousandths, 0 to FILTER_RES_MAX */
@@ -1172,6 +1243,98 @@ static int clamp_int(int v, int lo, int hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+static float clamp_f(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static void set_crush_decay(live_chopper_t *inst, float s) {
+    inst->crush_decay = clamp_f(s, CRUSH_DECAY_MIN, CRUSH_DECAY_OFF);
+}
+
+/* The effect's two settings, clamped to its ranges. */
+static void set_fx(live_chopper_t *inst, float a, float b) {
+    const float *r = FX_RANGE[inst->effect];
+    inst->fx_a = clamp_f(a, r[0], r[1]);
+    inst->fx_b = clamp_f(b, r[2], r[3]);
+}
+
+/* Switching effect starts its settings at Move's defaults until "fx" says
+ * otherwise. */
+static void set_effect(live_chopper_t *inst, int fx) {
+    inst->effect = clamp_int(fx, 0, FX_COUNT - 1);
+    set_fx(inst, FX_DEFAULT[inst->effect][0], FX_DEFAULT[inst->effect][1]);
+}
+
+/* A decay from 1 to ~0 over secs, t output frames in. */
+static float fx_decay(int t, float secs) {
+    return expf(-FX_DECAY_K * (float)t / (secs * MOVE_SAMPLE_RATE));
+}
+
+static float fx_osc(fx_state_t *x, float hz) {
+    float v = sinf(2.0f * (float)M_PI * (float)x->phase);
+    x->phase += hz / MOVE_SAMPLE_RATE;
+    if (x->phase >= 1.0) x->phase -= 1.0;
+    return v;
+}
+
+/* The playback rate multiplier for this frame, t frames into the voice:
+ * Pitch Env and FM bend it, the others leave it at 1. */
+static double fx_rate(const live_chopper_t *inst, fx_state_t *x, int t) {
+    if (inst->effect == FX_PITCH_ENV && inst->fx_a != 0.0f)
+        return exp2f(inst->fx_a * PITCH_ENV_SEMIS / 12.0f * fx_decay(t, inst->fx_b));
+    if (inst->effect == FX_FM && inst->fx_a > 0.0f)
+        return exp2f(inst->fx_a * FM_MAX_OCT * fx_osc(x, inst->fx_b));
+    return 1.0;
+}
+
+/* The signal effects on one voice's frame (after the crush, before the
+ * filter), t frames into the voice. */
+static void fx_frame(const live_chopper_t *inst, fx_state_t *x, int t, float *l, float *r) {
+    float a = inst->fx_a, v, n;
+    switch (inst->effect) {
+    case FX_PUNCH:
+        if (a > 0.0f) {
+            v = 1.0f + a * PUNCH_MAX_BOOST * fx_decay(t, inst->fx_b);
+            *l *= v;
+            *r *= v;
+        }
+        break;
+    case FX_RING_MOD:
+        v = 1.0f - a + a * fx_osc(x, inst->fx_b);
+        *l *= v;
+        *r *= v;
+        break;
+    case FX_SUB_OSC:
+        v = a * SUB_OSC_LEVEL * fx_osc(x, inst->fx_b);
+        *l += v;
+        *r += v;
+        break;
+    case FX_NOISE:
+        v = 0.5f * (fabsf(*l) + fabsf(*r));
+        x->follow = v > x->follow ? v : x->follow * NOISE_FOLLOW_RELEASE;
+        x->rng = x->rng * 1664525u + 1013904223u;
+        n = (float)(int32_t)x->rng / 2147483648.0f;
+        x->noise_lp += (1.0f - expf(-2.0f * (float)M_PI * inst->fx_b / MOVE_SAMPLE_RATE)) * (n - x->noise_lp);
+        v = a * x->follow * x->noise_lp * 2.0f;
+        *l += v;
+        *r += v;
+        break;
+    case FX_8BIT:
+        if (inst->crush_hz > 0 && inst->crush_decay < CRUSH_DECAY_OFF) {
+            float hz = 22000.0f * fx_decay(t, inst->crush_decay);
+            if (hz < CRUSH_DECAY_FLOOR_HZ) hz = CRUSH_DECAY_FLOOR_HZ;
+            float k = 1.0f - expf(-2.0f * (float)M_PI * hz / MOVE_SAMPLE_RATE);
+            x->decay_l += k * (*l - x->decay_l);
+            x->decay_r += k * (*r - x->decay_r);
+            *l = x->decay_l;
+            *r = x->decay_r;
+        }
+        break;
+    default:
+        break;          /* Stretch and Loop act on the read (voice_frame) */
+    }
+}
+
 static void set_filter_type(live_chopper_t *inst, int type) {
     inst->filter_type = clamp_int(type, FILTER_LP12, FILTER_PEAK);
 }
@@ -1274,14 +1437,115 @@ static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
     *r = d[idx * 2 + 1] + (d[nxt * 2 + 1] - d[idx * 2 + 1]) * frac;
 }
 
+/* Loop's region in the slice [start, end), in source frames: from Offset
+ * of the way in, Length long (at least LOOP_MIN_S or the whole slice),
+ * clamped to the slice's end. */
+static void loop_bounds(const live_chopper_t *inst, const sample_buf_t *s, int start, int end,
+                        int *ls, int *le) {
+    int span = end - start;
+    if (span < 1) span = 1;
+    int min_len = (int)(LOOP_MIN_S * (float)s->sample_rate);
+    if (min_len > span) min_len = span;
+    if (min_len < 1) min_len = 1;
+    int a = start + (int)(inst->fx_a * (float)span);
+    if (a > start + span - min_len) a = start + span - min_len;
+    int len = (int)(inst->fx_b * (float)s->sample_rate + 0.5f);
+    if (len < min_len) len = min_len;
+    *ls = a;
+    *le = len < start + span - a ? a + len : start + span;
+}
+
+/* A grain's frame: silent at or past the slice end. */
+static void grain_frame(const sample_buf_t *s, double pos, int end, float *l, float *r) {
+    if (pos >= end) {
+        *l = *r = 0.0f;
+        return;
+    }
+    read_frame(s, pos, l, r);
+}
+
+/* One frame of a voice, the playing one or the choke tail: read the slice
+ * [start, end) at *pos (through Stretch's grains or Loop's wrap), then the
+ * 8-Bit crush, the effect and the filter, and advance *pos. t: output
+ * frames since the voice started. Bounded: two reads and one sinf. */
+static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step, double *pos,
+                        int start, int end, int t, crush_state_t *c, fx_state_t *x,
+                        filter_state_t *f, float *l, float *r) {
+    int stretch = inst->effect == FX_STRETCH && inst->fx_a > 1.0f;
+    int loop = inst->effect == FX_LOOP;
+    int grain = 0, ls = 0, le = 0;
+    if (stretch) {
+        grain = (int)(inst->fx_b * MOVE_SAMPLE_RATE);
+        if (grain < 2) grain = 2;
+        if (x->grain_age >= grain) x->grain_age = 0;
+        if (x->grain_age == 0 || x->grain_age == grain / 2) {
+            /* A new grain starts at the playhead, or early enough to end
+             * inside the slice. */
+            double gs = *pos, reach = grain * step;
+            if (gs + reach > end) gs = end - reach;
+            if (gs < start) gs = start;
+            x->grain_pos[x->grain_age == 0 ? 0 : 1] = gs;
+        }
+        float w = sinf((float)M_PI * (float)x->grain_age / (float)grain);
+        float l0, r0, l1, r1;
+        grain_frame(s, x->grain_pos[0], end, &l0, &r0);
+        grain_frame(s, x->grain_pos[1], end, &l1, &r1);
+        w *= w;
+        *l = l0 * w + l1 * (1.0f - w);
+        *r = r0 * w + r1 * (1.0f - w);
+    } else {
+        /* Grain 1 carries the sound when a stretch begins mid-voice. */
+        x->grain_pos[0] = x->grain_pos[1] = *pos;
+        x->grain_age = 0;
+        read_frame(s, *pos, l, r);
+        if (loop) {
+            loop_bounds(inst, s, start, end, &ls, &le);
+            int len = le - ls;
+            int fade = len / 4 < DECLICK_FRAMES ? len / 4 : DECLICK_FRAMES;
+            if (fade > 0) {
+                float g = 1.0f;
+                if (*pos > le - fade) g = *pos < le ? (float)(le - *pos) / (float)fade : 0.0f;
+                if (x->loop_wrapped && *pos >= ls && *pos < ls + fade) {
+                    float gi = (float)(*pos - ls) / (float)fade;
+                    if (gi < g) g = gi;
+                }
+                *l *= g;
+                *r *= g;
+            }
+        }
+    }
+    crush_frame(inst->crush_hz, c, l, r);
+    fx_frame(inst, x, t, l, r);
+    filter_frame(&inst->filter_coef, f, l, r);
+
+    if (stretch) {
+        x->grain_pos[0] += step;
+        x->grain_pos[1] += step;
+        x->grain_age++;
+        *pos += step / inst->fx_a;
+    } else if (loop) {
+        *pos += step;
+        if (*pos >= le) {
+            *pos -= le - ls;
+            if (*pos < ls || *pos >= le) *pos = ls;
+            x->loop_wrapped = 1;
+        }
+    } else {
+        *pos += step * fx_rate(inst, x, t);
+    }
+}
+
 /* Hand the playing voice to the tail so it fades instead of clicking. */
 static void fade_out_voice(live_chopper_t *inst) {
     inst->tail_active = 1;
     inst->tail_pos = inst->play_pos;
+    inst->tail_start = inst->play_start;
     inst->tail_end = inst->play_end;
     inst->tail_gain = env_gain(inst);
     inst->tail_left = DECLICK_FRAMES;
     inst->tail_crush = inst->crush;
+    inst->tail_fx = inst->fx;
+    inst->tail_env_pos = inst->env_pos;
     inst->tail_filter = inst->filter;
 }
 
@@ -1290,11 +1554,22 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     if (!s || idx < 0 || idx >= inst->slice_count) return;
     if (inst->playing) fade_out_voice(inst);
     inst->play_pos = inst->slice_start[idx];
+    inst->play_start = inst->slice_start[idx];
     inst->play_end = inst->slice_end[idx];
+    if (inst->effect == FX_LOOP) {
+        /* Loop starts at its Offset (heard on Move). */
+        int ls, le;
+        loop_bounds(inst, s, inst->play_start, inst->play_end, &ls, &le);
+        inst->play_pos = ls;
+    }
     inst->env_pos = 0;
     inst->gate_note = note;
     inst->release_pos = -1;
     inst->crush.phase = MOVE_SAMPLE_RATE;   /* hold the slice's first frame */
+    uint32_t rng = inst->fx.rng;
+    memset(&inst->fx, 0, sizeof inst->fx);
+    inst->fx.rng = rng ? rng : 22222u;
+    inst->fx.grain_pos[0] = inst->fx.grain_pos[1] = inst->play_pos;
     memset(&inst->filter, 0, sizeof inst->filter);
     inst->playing_slice = idx;
     inst->selected_slice = idx;
@@ -1336,6 +1611,7 @@ static void relocate_playhead(live_chopper_t *inst) {
     for (int i = 0; i < inst->slice_count; i++) {
         if (pos >= inst->slice_start[i] && pos < inst->slice_end[i]) {
             inst->playing_slice = i;
+            inst->play_start = inst->slice_start[i];
             inst->play_end = inst->slice_end[i];
             return;
         }
@@ -1369,8 +1645,9 @@ static void chop_at_playhead(live_chopper_t *inst) {
     inst->slice_count++;
     inst->chop_count++;
 
-    /* Same position, same end: only the owner of the playhead changes. */
+    /* Same position, same end: the playhead's slice now starts here. */
     inst->playing_slice = p + 1;
+    inst->play_start = t;
     inst->selected_slice = p + 1;
 }
 
@@ -1408,6 +1685,7 @@ static void nudge_marker(live_chopper_t *inst, int idx, int side, int delta) {
     }
 
     if (inst->playing && inst->playing_slice >= 0) {
+        inst->play_start = inst->slice_start[inst->playing_slice];
         inst->play_end = inst->slice_end[inst->playing_slice];
     }
 }
@@ -1540,6 +1818,9 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     set_filter_res(inst, 0);
     set_filter_peak(inst, 0);
     inst->filter_oct = inst->filter_oct_target;
+    set_crush_decay(inst, CRUSH_DECAY_OFF);
+    set_effect(inst, FX_STRETCH);
+    inst->fx.rng = 22222u;
     if (pthread_create(&inst->worker, NULL, worker_main, inst) == 0) {
         inst->worker_started = 1;
     }
@@ -1707,6 +1988,21 @@ static void set_param(void *instance, const char *key, const char *val) {
         set_crush(inst, parse_int(&p));
         return;
     }
+    if (strcmp(key, "crush_decay") == 0) {
+        set_crush_decay(inst, strtof(val, NULL));
+        return;
+    }
+    if (strcmp(key, "effect") == 0) {
+        const char *p = val;
+        set_effect(inst, parse_int(&p));
+        return;
+    }
+    if (strcmp(key, "fx") == 0) {
+        char *end;
+        float a = strtof(val, &end);
+        set_fx(inst, a, strtof(end, NULL));
+        return;
+    }
     if (strcmp(key, "filter_type") == 0) {
         const char *p = val;
         set_filter_type(inst, parse_int(&p));
@@ -1790,11 +2086,12 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
     if (strcmp(key, "settings") == 0) {
         /* "<attack_us> <hold_us, -1 = full> <decay_us> <transpose> <gated> <detune>
          *  <gain_db10> <crush_hz> <filter_type> <filter_hz10> <filter_res>
-         *  <filter_peak_db10>" */
-        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d %d %d %d %d %d",
+         *  <filter_peak_db10> <effect> <fx_a> <fx_b> <crush_decay>" */
+        return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d %d %d %d %d %d %d %.9g %.9g %.9g",
                         inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
                         inst->detune, inst->gain_db10, inst->crush_hz, inst->filter_type,
-                        inst->filter_hz10, inst->filter_res, inst->filter_peak_db10);
+                        inst->filter_hz10, inst->filter_res, inst->filter_peak_db10,
+                        inst->effect, inst->fx_a, inst->fx_b, inst->crush_decay);
     }
     if (strncmp(key, "wave ", 5) == 0) {
         /* "wave <start> <end> <cols>" -> cols * 2 hex digits */
@@ -1844,8 +2141,6 @@ static void render_block(void *instance, int16_t *out, int frames) {
     }
 
     double step = (double)s->sample_rate / (double)MOVE_SAMPLE_RATE * inst->pitch_ratio;
-    int crush_hz = inst->crush_hz;
-    const filter_coef_t *fc = &inst->filter_coef;
     for (int i = 0; i < frames; i++) {
         float l = 0.0f, r = 0.0f, vl, vr;
         if (i % FILTER_COEF_FRAMES == 0) filter_update(inst);
@@ -1856,12 +2151,10 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 inst->playing_slice = -1;
             } else {
                 float g = env_gain(inst);
-                read_frame(s, inst->play_pos, &vl, &vr);
-                crush_frame(crush_hz, &inst->crush, &vl, &vr);
-                filter_frame(fc, &inst->filter, &vl, &vr);
+                voice_frame(inst, s, step, &inst->play_pos, inst->play_start, inst->play_end,
+                            inst->env_pos, &inst->crush, &inst->fx, &inst->filter, &vl, &vr);
                 l += vl * g;
                 r += vr * g;
-                inst->play_pos += step;
                 inst->env_pos++;
                 if (inst->release_pos >= 0) inst->release_pos++;
             }
@@ -1872,12 +2165,12 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 inst->tail_active = 0;
             } else {
                 float g = inst->tail_gain * (float)inst->tail_left / (float)DECLICK_FRAMES;
-                read_frame(s, inst->tail_pos, &vl, &vr);
-                crush_frame(crush_hz, &inst->tail_crush, &vl, &vr);
-                filter_frame(fc, &inst->tail_filter, &vl, &vr);
+                voice_frame(inst, s, step, &inst->tail_pos, inst->tail_start, inst->tail_end,
+                            inst->tail_env_pos, &inst->tail_crush, &inst->tail_fx,
+                            &inst->tail_filter, &vl, &vr);
                 l += vl * g;
                 r += vr * g;
-                inst->tail_pos += step;
+                inst->tail_env_pos++;
                 inst->tail_left--;
             }
         }

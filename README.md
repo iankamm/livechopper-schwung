@@ -1,6 +1,6 @@
 # LiveChopper for Schwung
 
-Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, shape them with the drum sampler's 8-Bit effect and filter, then export a Move drum rack
+Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, shape them with the drum sampler's effects and filter, then export a Move drum rack
 preset or a folder of WAV files. See [docs/SPEC.md](docs/SPEC.md) for more details and [docs/PLAN.md](docs/PLAN.md) for what's planned.
 
 ## Controls
@@ -29,8 +29,8 @@ The knobs follow the two banks of Move's own Drum Sampler, so each control is wh
 | 2 | Slice start | Zoom |
 | 3 / 4 | Attack / hold | Fine adjust |
 | 5 | Decay | Length (the slice's end) |
-| 6 | Effect: Off / 8-Bit | — |
-| 7 | 8-Bit rate | Fine adjust |
+| 6 | Effect: Stretch, Loop, Pitch Env, Punch, 8-Bit, FM, Ring Mod, Sub Osc, Noise | — |
+| 7 / 8 | The effect's two settings (8-Bit: rate / decay) | Fine adjust |
 
 **Filter & Setup knobs** (Down)
 
@@ -42,7 +42,7 @@ The knobs follow the two banks of Move's own Drum Sampler, so each control is wh
 | 4 | Envelope mode: Trigger (one-shot) / Gate (plays while held) | — |
 | 8 | Gain | Fine adjust |
 
-Envelope, gain, transpose, detune, the 8-Bit effect and the filter apply to all pads. Settings can be adjusted per pad after exporting to a native drum preset.
+Envelope, gain, transpose, detune, the effect and the filter apply to all pads. In chop mode the effects play as simple stand-ins; the exported drum rack gets Move's own. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 

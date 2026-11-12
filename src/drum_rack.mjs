@@ -7,7 +7,8 @@
  * Every pad points at the same WAV with Voice_PlaybackStart/Length set to
  * its slice as fractions of the file. All 16 pads share choke group 1.
  * Envelope times are in seconds (A-H-D mode), as in Move's own sets.
- * Crush switches every pad's effect slot to 8-Bit at that rate. The filter
+ * The effect sets every pad's effect slot to one of the drum sampler's nine
+ * effects, with its two settings; the others stay at Move's defaults. The filter
  * sets every pad's Voice_Filter_* to the same type, cutoff, resonance and
  * Peak gain; its defaults are Move's (Low-Pass 24 fully open).
  */
@@ -26,9 +27,23 @@ var DECAY_MIN_S = 0.001;
 var DECAY_MAX_S = 60.0;
 var GAIN_MIN_DB10 = -700;    /* Move's drum sampler Gain: -70 to +24 dB */
 var GAIN_MAX_DB10 = 240;
-var CRUSH_MIN_HZ = 1000;     /* 8-Bit Resampling Rate: 1.00 to 30.0 kHz */
-var CRUSH_MAX_HZ = 30000;
 var EIGHT_BIT_RATE_DEFAULT = 14080.0;
+
+/* The drum sampler's effects in Move's order (Knob 6): Effect_Type, and
+ * the fields for Knobs 7 and 8 with their ranges, from Move sets. Loop is
+ * the one whose Knob 7 is the second field of its pair. */
+export var EFFECTS = [
+    { type: "Stretch",   a: ["Effect_StretchFactor", 1, 20],          b: ["Effect_StretchGrainSize", 0.005, 0.3] },
+    { type: "Loop",      a: ["Effect_LoopOffset", 0, 1],              b: ["Effect_LoopLength", 0.01, 0.5] },
+    { type: "Pitch Env", a: ["Effect_PitchEnvelopeAmount", -1, 1],    b: ["Effect_PitchEnvelopeDecay", 0.005, 2] },
+    { type: "Punch",     a: ["Effect_PunchAmount", 0, 1],             b: ["Effect_PunchTime", 0.06, 1] },
+    { type: "8-bit",     a: ["Effect_EightBitResamplingRate", 1000, 30000], b: ["Effect_EightBitFilterDecay", 0.01, 5] },
+    { type: "FM",        a: ["Effect_FmAmount", 0, 1],                b: ["Effect_FmFrequency", 10, 4500] },
+    { type: "Ring Mod",  a: ["Effect_RingModAmount", 0, 1],           b: ["Effect_RingModFrequency", 1, 5000] },
+    { type: "Sub Osc",   a: ["Effect_SubOscAmount", 0, 1],            b: ["Effect_SubOscFrequency", 30, 120] },
+    { type: "Noise",     a: ["Effect_NoiseAmount", 0, 1],             b: ["Effect_NoiseFrequency", 180, 15000] }
+];
+var EIGHT_BIT = 4;
 /* Voice_Filter_Type for Low-Pass 12, Low-Pass 24 (the default), High-Pass 24
  * and Peak, from a Move set. */
 export var FILTER_TYPES = ["Lowpass 12dB", "Lowpass", "Highpass", "Peak"];
@@ -85,17 +100,27 @@ function filterParams(filter) {
     };
 }
 
-function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10, crushHz, filter) {
-    /* Crush off keeps Move's default: Stretch at 1.0, a no-op. */
-    var crush = crushHz > 0;
+/* effect: { index 0-8 (EFFECTS), a, b } (Knobs 7 and 8), or undefined for
+ * Move's default (Stretch at 1.0, a no-op). The older crushHz > 0 is 8-Bit
+ * at that rate. */
+function effectParams(effect, crushHz) {
+    if (!effect && crushHz > 0) effect = { index: EIGHT_BIT, a: crushHz, b: 5.0 };
+    if (!effect || !(effect.index >= 0 && effect.index < EFFECTS.length)) return { type: "Stretch", fields: {} };
+    var e = EFFECTS[effect.index], fields = {};
+    fields[e.a[0]] = clamp(effect.a, e.a[1], e.a[2]);
+    fields[e.b[0]] = clamp(effect.b, e.b[1], e.b[2]);
+    return { type: e.type, fields: fields };
+}
+
+function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, detune, gainDb10, effect, filter) {
     var f = filterParams(filter);
-    return {
+    var p = {
         "Effect_EightBitFilterDecay": 5.0,
-        "Effect_EightBitResamplingRate": crush ? clamp(crushHz, CRUSH_MIN_HZ, CRUSH_MAX_HZ) : EIGHT_BIT_RATE_DEFAULT,
+        "Effect_EightBitResamplingRate": EIGHT_BIT_RATE_DEFAULT,
         "Effect_FmAmount": 0.0,
         "Effect_FmFrequency": 1000.0,
         "Effect_LoopLength": 0.30000001192092896,
-        "Effect_LoopOffset": 0.019999999552965164,
+        "Effect_LoopOffset": 0.0,
         "Effect_NoiseAmount": 0.0,
         "Effect_NoiseFrequency": 10000.0,
         "Effect_On": true,
@@ -109,7 +134,7 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, det
         "Effect_StretchGrainSize": 0.10000000149011612,
         "Effect_SubOscAmount": 0.0,
         "Effect_SubOscFrequency": 60.0,
-        "Effect_Type": crush ? "8-bit" : "Stretch",
+        "Effect_Type": effect.type,
         "Enabled": true,
         "NotePitchBend": true,
         "Pan": 0.0,
@@ -134,6 +159,8 @@ function buildDrumCellParams(playbackStart, playbackLength, envS, transpose, det
         "Voice_VelocityToVolume": 0.5,
         "Volume": -12.0
     };
+    for (var k in effect.fields) p[k] = effect.fields[k];
+    return p;
 }
 
 function macros() {
@@ -209,7 +236,9 @@ function reverbReturnChain() {
  *   transpose:  semitones
  *   detune:     cents (-50 to +50)
  *   gainDb10:   gain in tenths of a dB, -700 to 240
- *   crushHz:    8-Bit resampling rate in Hz, 1000 to 30000; 0 = off
+ *   effect:     { index: 0-8 (EFFECTS, Move's order), a, b: Knobs 7 and 8 in
+ *               the preset's units }; omitted = Stretch at 1.0
+ *   crushHz:    older form: 8-Bit at this rate in Hz when > 0 and no effect
  *   filter:     { type: 0-3 (LP12, LP24, HP24, Peak), hz: 30-22000,
  *                 res: 0-0.9, peakDb: -12 to +12 }; omitted = Move's default
  * }
@@ -218,6 +247,7 @@ function reverbReturnChain() {
 export function buildDrumRackPreset(opts) {
     var n = Math.min(opts.starts.length, PAD_COUNT);
     var envS = envelopeSeconds(opts.env);
+    var effect = effectParams(opts.effect, opts.crushHz);
 
     /* Always 16 chains for Move. Pads past the last slice reuse its region
      * with the speaker off, so the preset loads cleanly. */
@@ -234,7 +264,7 @@ export function buildDrumRackPreset(opts) {
                 "presetUri": null,
                 "kind": "drumCell",
                 "name": "",
-                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10, opts.crushHz,
+                "parameters": buildDrumCellParams(start, len, envS, opts.transpose, opts.detune, opts.gainDb10, effect,
                                                   opts.filter),
                 "deviceData": { "sampleUri": opts.sampleUri }
             }],

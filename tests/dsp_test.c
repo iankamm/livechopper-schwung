@@ -224,6 +224,22 @@ static double filter_db(const char *path, int type, int hz10, int res, int peak_
 }
 
 /* Largest jump between neighbouring left output frames in one block. */
+/* Play Pad 1 until it stops (at most max_blocks): the blocks it sounded
+ * for, and the left channel's upward zero crossings in *crossings. */
+static int play_count(void *inst, int max_blocks, int *crossings) {
+    int blocks = 0, up = 0, prev = 0;
+    note(inst, 68);
+    for (; blocks < max_blocks && field(inst, F_PLAYING) != -1; blocks++) {
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            if (prev < 0 && out[i * 2] >= 0) up++;
+            prev = out[i * 2];
+        }
+    }
+    *crossings = up;
+    return blocks;
+}
+
 static int max_step(void) {
     int worst = 0;
     for (int i = 1; i < MOVE_FRAMES_PER_BLOCK; i++) {
@@ -426,7 +442,7 @@ int main(void) {
     /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
     char set[128];
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 0 0 0 0 1 220000 0 0") == 0, "one-shot by default: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 0 0 0 0 1 220000 0 0 0 1 0.100000001 5") == 0, "one-shot by default: %s", set);
     note(inst, 68); render(inst, 2);
     note_off(inst, 68); render(inst, 20);
     CHECK(field(inst, F_PLAYING) == 0, "one-shot ignores the pad being let go");
@@ -434,7 +450,7 @@ int main(void) {
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == -1, "switching to gated after letting go releases");
     get(inst, "settings", set, sizeof set);
-    CHECK(strcmp(set, "0 -1 10000 0 1 0 0 0 1 220000 0 0") == 0, "gated reported: %s", set);
+    CHECK(strcmp(set, "0 -1 10000 0 1 0 0 0 1 220000 0 0 0 1 0.100000001 5") == 0, "gated reported: %s", set);
     param(inst, "hold_us", "10000");        /* Hold does nothing when gated */
     note(inst, 68); render(inst, 20);       /* 2560 frames > hold + decay */
     CHECK(field(inst, F_PLAYING) == 0, "gated sustains while held, ignoring Hold");
@@ -653,6 +669,208 @@ int main(void) {
         get(inst, "settings", set, sizeof set);
         sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
         CHECK(crush == 0, "a negative crush is off: %s", set);
+        api->destroy_instance(inst);
+    }
+
+    /* ---- Effects: stand-ins for the drum sampler's playback effects ---- */
+    {
+        inst = load("build/t16.wav");          /* frame i = 3i */
+        char set[256];
+        int eff = -1;
+        float fa = 0, fb = 0, cd = 0;
+#define FX_SETTINGS() do { get(inst, "settings", set, sizeof set); \
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d %d %f %f %f", &eff, &fa, &fb, &cd); } while (0)
+        FX_SETTINGS();
+        CHECK(eff == FX_STRETCH && fa == 1.0f && fabsf(fb - 0.1f) < 1e-6f && cd == 5.0f,
+              "default: Stretch at 1.0, 8-Bit Decay Off: %s", set);
+        int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        memcpy(ref, out, sizeof ref);
+        until_silent(inst);
+
+        /* Plays pad 1's first block with the effect set, into out. */
+#define FX_PLAY(e, v) do { param(inst, "stop", "1"); until_silent(inst); param(inst, "effect", e); \
+        param(inst, "fx", v); note(inst, 68); api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK); } while (0)
+        FX_PLAY("0", "1 0.3");
+        CHECK(memcmp(out, ref, sizeof ref) == 0, "Stretch at Factor 1.00 plays dry");
+        FX_PLAY("0", "20 0.3");                /* grain 1 starts as the dry read */
+        int worst = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++)
+            if (abs(out[i] - ref[i]) > worst) worst = abs(out[i] - ref[i]);
+        CHECK(worst <= 2, "Stretch starts as the slice does (off by up to %d)", worst);
+        FX_PLAY("1", "0.5 0.01");
+        CHECK(out[0] == ramp(22050, 0) && out[2] == ramp(22051, 0),
+              "Loop starts at its Offset: %d vs %d", out[0], ramp(22050, 0));
+        for (const char *e = "2345678"; *e; e++) {
+            char v[2] = { *e, 0 };
+            FX_PLAY(v, "0 1000");
+            CHECK(memcmp(out, ref, sizeof ref) == 0, "effect %s at amount 0 plays dry", v);
+        }
+
+        param(inst, "effect", "3");
+        FX_SETTINGS();
+        CHECK(eff == FX_PUNCH && fa == 0.0f && fabsf(fb - 0.12016f) < 1e-6f, "a new effect starts at Move's defaults: %s", set);
+        param(inst, "fx", "5 -1");
+        FX_SETTINGS();
+        CHECK(fa == 1.0f && fabsf(fb - 0.06f) < 1e-6f, "fx clamps to the effect's ranges: %s", set);
+        param(inst, "effect", "99");
+        FX_SETTINGS();
+        CHECK(eff == FX_NOISE, "effect clamps to Noise: %s", set);
+
+        int bad = 0;
+        FX_PLAY("3", "1 1");                   /* Punch: +12 dB at the start, dying over 1 s */
+        for (int i = 1; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            float want = ref[i * 2] * (1.0f + PUNCH_MAX_BOOST * expf(-FX_DECAY_K * i / 44100.0f));
+            if (fabsf(out[i * 2] - want) > 1.5f) bad++;
+        }
+        CHECK(bad == 0, "Punch boosts the start (%d wrong, out[100] = %d)", bad, out[200]);
+        FX_PLAY("6", "1 1000");                /* Ring Mod: times a 1 kHz sine */
+        bad = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            float want = ref[i * 2] * sinf(2.0f * (float)M_PI * 1000.0f * i / 44100.0f);
+            if (fabsf(out[i * 2] - want) > 1.5f) bad++;
+        }
+        CHECK(bad == 0, "Ring Mod at 100%% multiplies by the sine (%d wrong)", bad);
+        FX_PLAY("7", "0.5 60");                /* Sub Osc: adds a 60 Hz sine */
+        bad = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            float want = ref[i * 2] + 0.5f * SUB_OSC_LEVEL * sinf(2.0f * (float)M_PI * 60.0f * i / 44100.0f);
+            if (fabsf(out[i * 2] - want) > 1.5f) bad++;
+        }
+        CHECK(bad == 0, "Sub Osc adds its sine (%d wrong)", bad);
+        FX_PLAY("8", "1 15000");               /* Noise: follows the sound's level */
+        int differ = 0, wild = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            if (out[i * 2] != ref[i * 2]) differ++;
+            if (abs(out[i * 2] - ref[i * 2]) > 2 * 3 * i + 2) wild++;
+        }
+        CHECK(differ > MOVE_FRAMES_PER_BLOCK / 2 && wild == 0, "Noise adds noise no louder than the sound (%d differ, %d too loud)", differ, wild);
+        FX_PLAY("2", "1 2");                   /* Pitch Env up: reads faster */
+        CHECK(out[128] > 3 * ref[128], "Pitch Env +100%% starts up to 2 octaves higher: %d vs %d", out[128], ref[128]);
+        FX_PLAY("2", "-1 2");
+        CHECK(out[128] * 3 < ref[128], "Pitch Env -100%% starts lower: %d vs %d", out[128], ref[128]);
+        FX_PLAY("5", "1 4500");                /* FM: wobbles the rate */
+        differ = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) if (out[i * 2] != ref[i * 2]) differ++;
+        CHECK(differ > MOVE_FRAMES_PER_BLOCK / 2, "FM bends the playback (%d differ)", differ);
+
+        /* 8-Bit: the rate is crush_hz; Decay Off leaves the crush alone */
+        param(inst, "crush_hz", "30000");
+        FX_PLAY("4", "0 0");
+        render(inst, 5);                        /* the 7th block: Decay's low-pass well closed */
+        int16_t crushed[MOVE_FRAMES_PER_BLOCK * 2];
+        memcpy(crushed, out, sizeof crushed);
+        param(inst, "crush_decay", "0.01");
+        FX_SETTINGS();
+        CHECK(fabsf(cd - 0.01f) < 1e-6f, "8-Bit Decay is the last settings field: %s", set);
+        until_silent(inst);
+        note(inst, 68); render(inst, 6);
+        CHECK(out[254] < crushed[254] && out[254] > crushed[254] / 2, "8-Bit Decay closes a low-pass (lags the crushed steps): %d vs %d", out[254], crushed[254]);
+        param(inst, "crush_decay", "99");
+        FX_SETTINGS();
+        CHECK(cd == 5.0f, "8-Bit Decay clamps to Off: %s", set);
+        until_silent(inst);
+        note(inst, 68); render(inst, 6);
+        CHECK(memcmp(out, crushed, sizeof crushed) == 0, "8-Bit Decay Off: just the crush");
+        param(inst, "crush_hz", "0");
+
+        /* A choke hands the effect to the tail: Ring Mod's sine runs on in it */
+        param(inst, "effect", "6"); param(inst, "fx", "1 5000");
+        note(inst, 68); render(inst, 3); note(inst, 68); render(inst, 3);
+        until_silent(inst);
+        api->destroy_instance(inst);
+#undef FX_PLAY
+#undef FX_SETTINGS
+    }
+
+    /* ---- Stretch and Loop: they change how the slice is read ---- */
+    {
+        write_tone("build/t441.wav", 44100, 441.0, 0.5);   /* 1 s, 100 frames a cycle */
+        inst = load("build/t441.wav");
+        live_chopper_t *lc = (live_chopper_t *)inst;
+        int dry_x, x;
+        int dry = play_count(inst, 2000, &dry_x);
+        CHECK(dry >= 344 && dry <= 346 && dry_x >= 440 && dry_x <= 442, "dry: %d blocks, %d cycles", dry, dry_x);
+
+        param(inst, "effect", "0"); param(inst, "fx", "2 0.1");
+        int n = play_count(inst, 2000, &x);
+        CHECK(abs(n - 2 * dry) <= 3, "Stretch 2.00 plays twice as long: %d blocks vs %d", n, dry);
+        CHECK(fabs((double)x / n - (double)dry_x / dry) < 0.05 * dry_x / dry,
+              "Stretch keeps the pitch: %d cycles in %d blocks", x, n);
+        param(inst, "fx", "20 0.005");
+        n = play_count(inst, 8000, &x);
+        CHECK(abs(n - 20 * dry) <= 20, "Stretch 20.00, 5 ms grains: %d blocks", n);
+        param(inst, "fx", "20 0.3");
+        n = play_count(inst, 8000, &x);
+        CHECK(abs(n - 20 * dry) <= 20, "Stretch 20.00, 300 ms grains: %d blocks", n);
+        CHECK(fabs((double)x / n - (double)dry_x / dry) < 0.05 * dry_x / dry,
+              "Stretch 20.00 keeps the pitch: %d cycles in %d blocks", x, n);
+        param(inst, "fx", "3 0.05");            /* a choke hands the grains to the tail */
+        note(inst, 68); render(inst, 50); note(inst, 68);
+        CHECK(lc->tail_active && lc->tail_fx.grain_pos[0] > 0.0, "a choked stretch fades out as a tail");
+        param(inst, "stop", "1"); render(inst, 2);
+
+        /* Loop: hold is Inf by default, so it repeats until stopped */
+        param(inst, "effect", "1"); param(inst, "fx", "0 0.1");
+        note(inst, 68);
+        static int16_t loop_out[3 * 4410 + MOVE_FRAMES_PER_BLOCK];
+        for (int f = 0; f < 3 * 4410; f += MOVE_FRAMES_PER_BLOCK) {
+            api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+            for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) loop_out[f + i] = out[i * 2];
+        }
+        CHECK(memcmp(loop_out + 4410, loop_out + 2 * 4410, 4410 * sizeof(int16_t)) == 0,
+              "Loop repeats the first 100 ms exactly");
+        render(inst, 600);
+        CHECK(field(inst, F_PLAYING) == 0 && lc->play_pos >= 0 && lc->play_pos < 4410,
+              "Loop plays on past the slice's end, inside the loop (at %.1f)", lc->play_pos);
+
+        param(inst, "fx", "0.5 0.1");           /* moves the loop live: plays on into it */
+        render(inst, 250);
+        CHECK(lc->play_pos >= 22050 && lc->play_pos < 22050 + 4410,
+              "Offset 50%% loops from the middle (at %.1f)", lc->play_pos);
+        param(inst, "fx", "1 0.5");
+        render(inst, 400);
+        CHECK(field(inst, F_PLAYING) == 0 && lc->play_pos >= 44100 - 441 && lc->play_pos < 44100,
+              "Offset 100%% still loops 10 ms, clamped at the end (at %.1f)", lc->play_pos);
+
+        /* A loop of 44.32 cycles: the wrap dips instead of clicking */
+        param(inst, "stop", "1"); render(inst, 2);
+        param(inst, "fx", "0 0.1005");
+        note(inst, 68);
+        int worst = 0;
+        for (int b = 0; b < 200; b++) {
+            api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+            if (max_step() > worst) worst = max_step();
+        }
+        CHECK(worst < 1400, "no click at the wrap: steps up to %d", worst);
+        param(inst, "fx", "0 0.0005");          /* clamps to 10 ms */
+        CHECK(fabsf(lc->fx_b - 0.01f) < 1e-6f, "Loop Length clamps to 10 ms: %f", lc->fx_b);
+
+        /* Chop mid-loop: the new slice is the playhead's, and loops from its start */
+        param(inst, "stop", "1"); render(inst, 2);
+        param(inst, "fx", "0 0.1");
+        note(inst, 68); render(inst, 20);       /* the first pass, at 2560 */
+        note(inst, 69);
+        CHECK(strcmp(slices(inst), "2:0-2560,2560-44100") == 0 && lc->play_start == 2560,
+              "chop mid-loop: %s, start %d", slices(inst), lc->play_start);
+        render(inst, 200);
+        CHECK(field(inst, F_PLAYING) == 1 && lc->play_pos >= 2560 && lc->play_pos < 2560 + 4410,
+              "and it loops in the new slice (at %.1f)", lc->play_pos);
+        param(inst, "nudge", "1 0 100");        /* the playing slice's start moves */
+        CHECK(lc->play_start == 2660, "a nudge moves the loop's slice start: %d", lc->play_start);
+        param(inst, "stop", "1"); render(inst, 2);
+        param(inst, "undo", "1");
+
+        /* The envelope still ends a loop */
+        param(inst, "hold_us", "100000"); param(inst, "decay_us", "10000");
+        n = play_count(inst, 2000, &x);
+        CHECK(n >= 37 && n <= 39, "Trigger: Loop stops after Hold and Decay (%d blocks)", n);
+        param(inst, "gate", "1");
+        note(inst, 68); render(inst, 400);
+        CHECK(field(inst, F_PLAYING) == 0, "Gate: Loop plays while held");
+        note_off(inst, 68); render(inst, 5);
+        CHECK(field(inst, F_PLAYING) == -1, "Gate: Loop stops after the release");
         api->destroy_instance(inst);
     }
 

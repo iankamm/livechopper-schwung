@@ -59,8 +59,7 @@ a Move drum rack preset or one WAV per slice.
   same Shift behaviour. Down shows the Filter & Setup page, Up the Main page
   (the button for the other page is lit); the bottom line and screen reader
   confirm. Main: 1 Transpose (Shift: Detune), 2 Start (Shift: Zoom), 3 Attack, 4 Hold, 5 Decay
-  (Shift: Length), 6 Effect, 7 8-Bit rate, 8 not used (Move's 8-Bit
-  Decay stays at its default). Filter & Setup: 1 Frequency, 2 Resonance (Peak
+  (Shift: Length), 6 Effect, 7 and 8 the effect's two settings. Filter & Setup: 1 Frequency, 2 Resonance (Peak
   Gain on Peak), 3 Type, 4 Envelope Mode, 5-7 not used (chop mode always
   chokes; no velocity), 8 Gain (Pan's slot; Move has no gain knob here).
   Unused knobs show "-". The LED under each knob is lit while turning it
@@ -81,8 +80,8 @@ a Move drum rack preset or one WAV per slice.
   and frequencies read in three significant figures ("0.10 ms", "110 ms",
   "1.03 s", "979 Hz", "1.20 kHz"), percentages and dB with one decimal
   below 10 and none from 10 up ("9.9 %", "10 %", "-12 dB"), and nothing
-  has a "+". The knobs on it: Attack, Hold, Decay, 8-Bit rate, Frequency,
-  Resonance and Peak Gain. Transpose and Detune step 1 a click; Start, Zoom,
+  has a "+". The knobs on it: Attack, Hold, Decay, every effect setting
+  (Main Knobs 7 and 8), Frequency, Resonance and Peak Gain. Transpose and Detune step 1 a click; Start, Zoom,
   Length, Type, Mode, Effect and Gain keep their own steps.
 - Shift on Main Knob 5: while Shift is held, Knob 5 is Length instead of
   Decay, as on Move, so neither has a fine step. A touched knob whose role
@@ -107,22 +106,56 @@ a Move drum rack preset or one WAV per slice.
   Move's drum sampler: -70 to +24 dB, default 0 dB. 0.5 dB steps (Shift: 0.1 dB) from -24 dB up, 2 dB
   steps below. Applied to playback (ramped over a block, so no clicks; boosts
   clip at full scale). The waveform is drawn at the gained level.
-- Crush: one global setting that sets the drum sampler's built-in 8-Bit
-  effect on every pad. Main Knob 6 is the effect, Off (the default) or 8-Bit;
-  Main Knob 7 the rate, 1.00 to 30.0 kHz (the effect's Resampling Rate
-  range) on the knob model, log. The rate starts at Move's 14.08 kHz
-  (shown 14.1 kHz) and is kept while the effect is off; Knob 7 shows "-"
-  then. Chop mode
-  plays a stand-in, not an emulation: each voice is sampled and held at the
-  rate (after repitching) and cut to 8 bits, before the envelope. The
-  waveform is drawn uncrushed.
+- Effect: one global setting that sets the drum sampler's playback effect
+  on every pad. Main Knob 6 steps through Move's nine, one a click, in
+  Move's order: Stretch (the default, at factor 1.00: what Move's own
+  default exports, a no-op), Loop, Pitch Env, Punch, 8-Bit, FM, Ring Mod,
+  Sub Osc, Noise. There is no Off, as on Move. Main Knobs 7 and 8 are the
+  selected effect's two settings on the knob model, with Move's ranges,
+  curves and defaults, and each effect keeps its own while you switch
+  (labels shortened to fit the bottom line; the screen reader says Move's
+  names):
+
+  | Effect | Knob 7 | Knob 8 |
+  |---|---|---|
+  | Stretch | Factor, 1.00-20.00 | Grain, 5.00-300 ms |
+  | Loop | Offset, 0-100 % | Loop Len, 10.0-500 ms |
+  | Pitch Env | Amount, -100 to 100 % | Decay, 5.00 ms-2.00 s |
+  | Punch | Amount, 0-100 % | Release, 60.0 ms-1.00 s |
+  | 8-Bit | Rate, 1.00-30.0 kHz | Decay, 10.0 ms-3.98 s, then Off (default) |
+  | FM | Amount, 0-100 % | Freq, 10.0 Hz-4.50 kHz |
+  | Ring Mod | Amount, 0-100 % | Freq, 1.00 Hz-5.00 kHz |
+  | Sub Osc | Amount, 0-100 % | Freq, 30.0-120 Hz |
+  | Noise | Amount, 0-100 % | Color, 180 Hz-15.0 kHz |
+
+  Chop mode plays a stand-in for each, not an emulation, before the filter
+  (sample -> effect -> filter -> envelope, drumCell's order): 8-Bit samples
+  and holds each voice at the rate (after repitching) and cuts it to 8
+  bits, and its Decay closes a low-pass on that over the Decay time;
+  Punch boosts the start by up to +12 dB, dying away over the Release;
+  Pitch Env bends the pitch by up to +-24 semitones at 100% (Move shows
+  only a percentage), decaying over the Decay; FM wobbles the playback rate
+  by up to +-1 octave at its Freq; Ring Mod multiplies by a sine; Sub Osc
+  adds a sine (-6 dBFS at 100%); Noise adds noise low-passed at its Color,
+  following the sound's level. Stretch moves the playhead at 1/Factor of
+  the normal speed and plays two grains of Grain size from it, half a grain
+  apart under Hann windows, at the normal speed, so the pitch holds while
+  the slice lasts about Factor times as long (Factor 1.00 is plain
+  playback); a grain that would run past the slice's end starts early
+  enough to fit. Loop starts Offset of the way into the slice, as on Move,
+  and repeats the part from there, Loop Len long in the sample's
+  own time (at least 10 ms, clamped to the slice's end), until the envelope
+  ends: with Hold at Inf, until another pad cuts it or the tool is hidden.
+  Each wrap dips the level for ~1.5 ms either side against clicks; the
+  knobs move the loop live, and a chop or marker nudge under a looping
+  voice moves its loop with the slice. The waveform is drawn without the effect.
 - Filter: one global setting that sets the drum sampler's filter on every
   pad. Type (Filter & Setup Knob 3): Low-Pass 12, Low-Pass 24 (the
   default), High-Pass 24, Peak; no Off, as on Move: Low-Pass 24 fully open
   is Move's "no filter". Frequency (Knob 1): 30 Hz to 22 kHz (default),
   log. Knob 2: Resonance, 0-90% (Move's 0-0.9), linear; on Peak it is Peak
   Gain instead, -12 to +12 dB, linear in dB, and the two are kept
-  separately. All three on the knob model. Chop mode plays a stand-in after the crush (sample -> crush ->
+  separately. All three on the knob model. Chop mode plays a stand-in after the effect (sample -> effect ->
   filter -> envelope, drumCell's order): a state-variable filter, two
   stages for the 24 dB types, a fixed-width bell for Peak (which ignores the
   resonance), with the cutoff gliding over ~10 ms. A low-pass type fully
@@ -169,8 +202,7 @@ a Move drum rack preset or one WAV per slice.
 - Back opens a menu: Keep for later / Discard and exit / Cancel, with
   Keep for later selected. The title warns "Not exported" if anything
   changed since the last export (chops, deletes, undo, redo, chop points,
-  envelope, gate, gain, transpose, detune, and any effect such as crush or
-  the filter, even one only the Drum Preset carries; zoom and the knob page
+  envelope, gate, gain, transpose, detune, the effect or the filter, even one only the Drum Preset carries; zoom and the knob page
   don't count); with
   nothing unexported the middle item is just "Exit".
 - Keep for later (resume): stops any voice and hides the tool with
@@ -191,7 +223,7 @@ a Move drum rack preset or one WAV per slice.
   DSP worker copies each slice's frames from the source file, so format, bit
   depth and channel count are kept; at a gain other than 0 dB each sample is
   scaled (PCM clips at full scale), at 0 dB they are copied as they are.
-  Crush and the filter are left out, like the envelope and transpose.
+  The effect and the filter are left out, like the envelope and transpose.
 - Export Drum Preset: one .ablpreset in UserLibrary/Track Presets,
   named "<name>" (then "<name> 2", 3, ... never overwritten). All 16
   pads point at the original WAV with Voice_PlaybackStart/Length set to their
@@ -199,8 +231,10 @@ a Move drum rack preset or one WAV per slice.
   is exported in seconds in A-H-D mode, or A-S-R when gated (Hold Inf =
   60 s, Move's top), at the knobs' exact values, transpose as Voice_Transpose, detune as Voice_Detune (in semitones, so -30 cents is -0.3), gain as
   Voice_Gain (linear amplitude, 1.0 = 0 dB, -70 to +24 dB as on Move),
-  crush as Effect_Type "8-bit" with Effect_EightBitResamplingRate in Hz
-  (Filter Decay left at 5.0; crush off leaves Stretch at 1.0, a no-op),
+  the effect as Move's Effect_Type ("Stretch", "Loop", "Pitch Env", "Punch",
+  "8-bit", "FM", "Ring Mod", "Sub Osc", "Noise") with its two Effect_*
+  fields at the knobs' exact values (the other effects' fields at Move's
+  defaults, Loop Offset 0.0),
   the filter as Voice_Filter_Type ("Lowpass 12dB", "Lowpass", "Highpass",
   "Peak"), Voice_Filter_Frequency in Hz, Voice_Filter_Resonance (0-0.9) and
   Voice_Filter_PeakGain (linear, 1.0 = 0 dB), so the default filter is

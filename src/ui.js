@@ -22,8 +22,8 @@
  *   Knob 3-4   - Attack / Hold
  *   Knob 5     - Decay | Shift: Length (the slice's end, shown as a
  *                percentage of the sample), as on Move
- *   Knob 6     - Effect: Off / 8-Bit (the drum sampler's 8-Bit effect)
- *   Knob 7     - 8-Bit rate, 1.00 to 30.0 kHz
+ *   Knob 6     - Effect: the drum sampler's nine, in Move's order (no Off)
+ *   Knob 7-8   - The effect's two settings (8-Bit: rate and decay)
  *   Knobs that mirror a Move control step, fine-step (Shift) and read out
  *   as Move's do: see knobs.mjs.
  *   Filter & Setup page:
@@ -134,8 +134,32 @@ var DETUNE_MAX = 50;
 
 /* Knobs that follow Move's knob model (knobs.mjs), by role. Each has a
  * position; the DSP gets its value in its own units. */
-var MODEL_KNOBS = ["attack", "hold", "decay", "rate", "frequency", "resonance", "peak"];
 var CRUSH_DEFAULT_HZ = 14080;   /* Move's default 8-Bit rate */
+
+/* Main Knob 6: the drum sampler's effects, in Move's order. Knobs 7 and 8
+ * are the selected one's settings: [knob model key, label, spoken name].
+ * Labels are short to fit the bottom line. */
+var EFFECTS = [
+    { name: "Stretch",   a: ["stretch_factor", "Factor", "Stretch factor"], b: ["stretch_grain", "Grain", "Grain size"] },
+    { name: "Loop",      a: ["loop_offset", "Offset", "Loop offset"],       b: ["loop_length", "Loop Len", "Loop length"] },
+    { name: "Pitch Env", a: ["pitch_amount", "Amount", "Pitch envelope amount"], b: ["pitch_decay", "Decay", "Pitch envelope decay"] },
+    { name: "Punch",     a: ["punch_amount", "Amount", "Punch amount"],     b: ["punch_release", "Release", "Punch release"] },
+    { name: "8-Bit",     a: ["rate", "Rate", "8-Bit rate"],                 b: ["crush_decay", "Decay", "8-Bit decay"] },
+    { name: "FM",        a: ["fm_amount", "Amount", "FM amount"],           b: ["fm_freq", "Freq", "FM frequency"] },
+    { name: "Ring Mod",  a: ["ring_amount", "Amount", "Ring mod amount"],   b: ["ring_freq", "Freq", "Ring mod frequency"] },
+    { name: "Sub Osc",   a: ["sub_amount", "Amount", "Sub amount"],         b: ["sub_freq", "Freq", "Sub frequency"] },
+    { name: "Noise",     a: ["noise_amount", "Amount", "Noise amount"],     b: ["noise_color", "Color", "Noise color"] }
+];
+var EFFECT_8BIT = 4;
+/* Move's defaults for the effects' settings (8-Bit's rate is CRUSH_DEFAULT_HZ) */
+var EFFECT_DEFAULTS = {
+    crush_decay: 5, stretch_factor: 1, stretch_grain: 0.1, loop_offset: 0, loop_length: 0.3,
+    pitch_amount: 0, pitch_decay: 0.3, punch_amount: 0, punch_release: 0.12016,
+    fm_amount: 0, fm_freq: 1000, ring_amount: 0, ring_freq: 1000, sub_amount: 0, sub_freq: 60,
+    noise_amount: 0, noise_color: 10000
+};
+/* Every model knob, in ui_state order (version 4 had only the first 7). */
+var MODEL_KNOBS = ["attack", "hold", "decay", "rate", "frequency", "resonance", "peak"].concat(Object.keys(EFFECT_DEFAULTS));
 
 /* Filter types, in the drum sampler's order. */
 var FILTER_TYPE_NAMES = ["Low-Pass 12", "Low-Pass 24", "High-Pass 24", "Peak"];
@@ -250,7 +274,7 @@ var knobPositions = defaultKnobPositions();
 var transpose = 0;
 var detune = 0;             /* cents */
 var gainDb10 = 0;           /* tenths of a dB, GAIN_MIN to GAIN_MAX */
-var crushOn = false;        /* Effect: 8-Bit, or off; the rate is kept while off */
+var effect = 0;             /* EFFECTS index; each effect keeps its settings */
 var filterType = FILTER_LP24;
 var gated = false;          /* false = one-shot (A-H-D), true = gated (A-S-R) */
 var pendingSettings = {};   /* key -> value, sent once per tick */
@@ -474,9 +498,9 @@ function clampInt(v, lo, hi) {
 }
 
 /* Move's defaults: attack at its minimum, Hold Inf, a short decay, the
- * filter fully open, 8-Bit at 14.08 kHz. */
+ * filter fully open, 8-Bit at 14.08 kHz, every effect at Move's own. */
 function defaultKnobPositions() {
-    return {
+    var pos = {
         attack: 0,
         hold: KNOB_UNITS,
         decay: knobPos(KNOBS.decay, 0.05),
@@ -485,6 +509,13 @@ function defaultKnobPositions() {
         resonance: 0,
         peak: knobPos(KNOBS.peak, 0)
     };
+    for (var k in EFFECT_DEFAULTS) pos[k] = knobPos(KNOBS[k], EFFECT_DEFAULTS[k]);
+    return pos;
+}
+
+/* The selected effect's two settings, as the DSP's "fx" takes them. */
+function fxString() {
+    return knobVal(EFFECTS[effect].a[0]) + " " + knobVal(EFFECTS[effect].b[0]);
 }
 
 function knobVal(name) {
@@ -502,11 +533,24 @@ function dspSetting(name) {
     case "attack":    return ["attack_us", Math.round(v * 1e6)];
     case "hold":      return ["hold_us", holdIsInf() ? HOLD_FULL : Math.round(v * 1e6)];
     case "decay":     return ["decay_us", Math.round(v * 1e6)];
-    case "rate":      return ["crush_hz", crushOn ? Math.round(v) : 0];
+    case "rate":      return ["crush_hz", effect === EFFECT_8BIT ? Math.round(v) : 0];
+    case "crush_decay": return ["crush_decay", v];
     case "frequency": return ["filter_hz10", Math.round(v * 10)];
     case "resonance": return ["filter_res", Math.round(v * 1000)];
-    default:          return ["filter_peak_db10", Math.round(v * 10)];
+    case "peak":      return ["filter_peak_db10", Math.round(v * 10)];
+    default:          return ["fx", fxString()];   /* the other effects' settings */
     }
+}
+
+/* Knob 6: switch effect. The DSP resets the effect's settings on "effect",
+ * so "fx" must follow it in the same flush. */
+function setEffect(i) {
+    effect = i;
+    delete pendingSettings.fx;
+    pendingSettings.effect = effect;
+    pendingSettings.fx = fxString();
+    sendKnob("rate");
+    sendKnob("crush_decay");
 }
 
 function sendKnob(name) {
@@ -519,7 +563,13 @@ function knobPositionsFrom(p) {
     var us = function(i, d) { var v = parseInt(p[i], 10); return isNaN(v) ? d : v; };
     var hold = us(1, HOLD_FULL);
     var crush = parseInt(p[7], 10) || 0;
+    var fxA = parseFloat(p[13]), fxB = parseFloat(p[14]), decay8 = parseFloat(p[15]);
     var pos = defaultKnobPositions();
+    if (effect !== EFFECT_8BIT) {
+        if (!isNaN(fxA)) pos[EFFECTS[effect].a[0]] = knobPos(KNOBS[EFFECTS[effect].a[0]], fxA);
+        if (!isNaN(fxB)) pos[EFFECTS[effect].b[0]] = knobPos(KNOBS[EFFECTS[effect].b[0]], fxB);
+    }
+    if (!isNaN(decay8)) pos.crush_decay = knobPos(KNOBS.crush_decay, decay8);
     pos.attack = knobPos(KNOBS.attack, us(0, 0) / 1e6);
     pos.hold = hold < 0 ? KNOB_UNITS : knobPos(KNOBS.hold, hold / 1e6);
     pos.decay = knobPos(KNOBS.decay, us(2, 50000) / 1e6);
@@ -538,7 +588,9 @@ function readSettings() {
     gated = p[4] === "1";
     detune = parseInt(p[5], 10) || 0;
     gainDb10 = Math.max(GAIN_MIN, Math.min(GAIN_MAX, parseInt(p[6], 10) || 0));
-    crushOn = (parseInt(p[7], 10) || 0) > 0;
+    /* Older DSPs had no effect field: 8-Bit when crushing, else Stretch. */
+    effect = clampInt(parseInt(p[12], 10), 0, EFFECTS.length - 1);
+    if (isNaN(effect)) effect = (parseInt(p[7], 10) || 0) > 0 ? EFFECT_8BIT : 0;
     filterType = clampInt(parseInt(p[8], 10), 0, FILTER_TYPE_NAMES.length - 1);
     if (isNaN(filterType)) filterType = FILTER_LP24;
     knobPositions = knobPositionsFrom(p);
@@ -561,8 +613,8 @@ function knobRole(i) {
         case 3: return "hold";
         case 4: return shiftHeld ? "length" : "decay";
         case 5: return "effect";
-        case 6: return "rate";
-        default: return "none";
+        case 6: return "fxa";
+        default: return "fxb";
         }
     }
     switch (i) {
@@ -586,8 +638,9 @@ function knobLevel(i) {
     case "attack": case "hold": case "decay": case "frequency": case "resonance": case "peak":
         return knobPositions[knobRole(i)] / KNOB_UNITS;
     case "length":    return lengthPercent() / 100;
-    case "effect":    return crushOn ? 1 : 0;
-    case "rate":      return crushOn ? knobPositions.rate / KNOB_UNITS : null;
+    case "effect":    return effect / (EFFECTS.length - 1);
+    case "fxa": case "fxb":
+        return knobPositions[fxKnob(knobRole(i))[0]] / KNOB_UNITS;
     case "type":      return filterType / (FILTER_TYPE_NAMES.length - 1);
     case "mode":      return gated ? 1 : 0;
     case "gain":      return (gainDb10 - GAIN_MIN) / (GAIN_MAX - GAIN_MIN);
@@ -626,10 +679,10 @@ function knobReadout(i) {
         var len = formatSmall(lengthPercent());
         return ["Length: " + len + " %", pad + " length " + len + " percent"];
     case "effect":
-        return crushOn ? ["Effect: 8-Bit", "Effect 8-Bit"] : ["Effect: Off", "Effect off"];
-    case "rate":
-        if (!crushOn) return ["-", "8-Bit rate, the effect is off"];
-        return modelReadout("rate", "Rate", "8-Bit rate");
+        return ["Effect: " + EFFECTS[effect].name, "Effect " + EFFECTS[effect].name.toLowerCase()];
+    case "fxa": case "fxb":
+        var k = fxKnob(knobRole(i));
+        return modelReadout(k[0], k[1], k[2]);
     case "frequency":
         return modelReadout("frequency", "Freq", "Frequency");
     case "resonance":
@@ -645,6 +698,11 @@ function knobReadout(i) {
     default:
         return ["-", "Not used"];
     }
+}
+
+/* [model key, label, spoken name] for Main Knob 7 ("fxa") or 8 ("fxb"). */
+function fxKnob(role) {
+    return role === "fxa" ? EFFECTS[effect].a : EFFECTS[effect].b;
 }
 
 /* [screen text, spoken text] for a model knob. */
@@ -738,17 +796,15 @@ function turnKnob(i, ticks) {
         }
         break;
     case "effect":
-        if ((ticks > 0) !== crushOn) {
-            crushOn = ticks > 0;
-            sendKnob("rate");
-        }
+        v = clampInt(effect + ticks, 0, EFFECTS.length - 1);
+        if (v !== effect) setEffect(v);
         break;
-    case "rate":
-        if (!crushOn) break;                /* the effect is off */
-        v = stepKnob(KNOBS.rate, knobPositions.rate, ticks, shiftHeld);
-        if (v !== knobPositions.rate) {
-            knobPositions.rate = v;
-            sendKnob("rate");
+    case "fxa": case "fxb":
+        var key = fxKnob(role)[0];
+        v = stepKnob(KNOBS[key], knobPositions[key], ticks, shiftHeld);
+        if (v !== knobPositions[key]) {
+            knobPositions[key] = v;
+            sendKnob(key);
         }
         break;
     case "type":
@@ -857,7 +913,7 @@ function exportDrumPreset(base) {
         transpose: transpose,
         detune: detune,
         gainDb10: gainDb10,
-        crushHz: crushOn ? knobVal("rate") : 0,
+        effect: { index: effect, a: knobVal(EFFECTS[effect].a[0]), b: knobVal(EFFECTS[effect].b[0]) },
         filter: { type: filterType, hz: knobVal("frequency"), res: knobVal("resonance"), peakDb: knobVal("peak") }
     });
     if (typeof host_ensure_dir === "function") host_ensure_dir(PRESET_DIR);
@@ -1193,11 +1249,11 @@ function handleConfirmCC(cc, value) {
 
 /* ============ Resume ============ */
 
-/* "3 <unexported> <zoom> <page> <length mode>". Version 2 stopped at zoom;
+/* "5 <unexported> <zoom> <page> <MODEL_KNOBS positions>". Version 4 had
+ * the first 7 positions, 3 a Knob 5 toggle instead, 2 stopped at zoom;
  * version 1 also had a waveform scale after it. */
 function uiStateString() {
-    /* 4: Knob 5 has no toggle any more; Move's knobs keep their positions. */
-    return "4 " + (hasUnexported() ? 1 : 0) + " " + zoom + " " + page + " " +
+    return "5 " + (hasUnexported() ? 1 : 0) + " " + zoom + " " + page + " " +
         MODEL_KNOBS.map(function(n) { return +knobPositions[n].toFixed(3); }).join(" ");
 }
 
@@ -1213,15 +1269,15 @@ function saveUiState() {
 
 function restoreUiState() {
     var p = (host_module_get_param("ui_state") || "").split(" ");
-    if (p[0] !== "1" && p[0] !== "2" && p[0] !== "3" && p[0] !== "4") return;
+    if (!/^[1-5]$/.test(p[0])) return;
     if (p[1] === "1") {
         editVersion = 1;
         exportedVersion = 0;
     }
     var z = parseFloat(p[2]);
     if (z >= 0 && z <= ZOOM_MAX) zoom = z;
-    if (p[0] === "3" || p[0] === "4") page = p[3] === "1" ? PAGE_FILTER : PAGE_MAIN;
-    if (p[0] === "4") {
+    if (p[0] >= "3") page = p[3] === "1" ? PAGE_FILTER : PAGE_MAIN;
+    if (p[0] >= "4") {
         /* The exact positions; the DSP's settings are them rounded. */
         MODEL_KNOBS.forEach(function(n, k) {
             var v = parseFloat(p[4 + k]);

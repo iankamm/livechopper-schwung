@@ -66,6 +66,35 @@ Extends SPEC "Crush"; the decision there becomes "Effect".
   drumCell's order: sample -> effect -> filter -> envelope.
 - Resume keeps the selected effect and all values; any change counts as
   unexported work.
+- Readout labels are short, to fit the bottom line (decided 2026-11-10);
+  the screen reader says Move's full names:
+
+  | Effect | Knob 7 | Knob 8 |
+  |---|---|---|
+  | Stretch | Factor | Grain |
+  | Loop | Offset | Loop Len |
+  | Pitch Env | Amount | Decay |
+  | Punch | Amount | Release |
+  | 8-Bit | Rate | Decay |
+  | FM | Amount | Freq |
+  | Ring Mod | Amount | Freq |
+  | Sub Osc | Amount | Freq |
+  | Noise | Amount | Color |
+
+- Stand-ins (decided 2026-11-10, "okay for now"), each a small per-voice
+  block before the filter:
+  - Punch: a gain boost of up to +12 dB at the voice's start, dying away
+    over Release.
+  - Pitch Env: a pitch offset of up to +-24 semitones (100%), decaying over
+    Decay.
+  - Sub Osc: a sine at Frequency, mixed in by Amount.
+  - Ring Mod: the sound times a sine at Frequency, blended in by Amount.
+  - FM: a sine at Frequency wobbles the playback rate, up to +-1 octave at
+    100%.
+  - Noise: noise low-passed at Color, following the sound's level, mixed in
+    by Amount.
+  - 8-Bit: today's, plus its Decay.
+  - Stretch and Loop: exported, played dry until step 3.
 
 ### Build order
 
@@ -76,22 +105,92 @@ Extends SPEC "Crush"; the decision there becomes "Effect".
    Hold; Shift on Knob 5 is Length while held (no Shift+tap, no fine steps
    on Decay or Length). Readout labels stay LiveChopper's short ones
    ("Freq", "Peak Gain") to fit the bottom line.
-2. The Effect knob (nine effects, no Off) with Knobs 7/8 on the knob model,
-   8-Bit's Decay on Knob 8, and stand-ins for Punch, Pitch Env (100% = 24
-   semitones for now), Sub Osc, Ring Mod, FM and Noise. These shape the
-   signal, so each stand-in is a small per-voice DSP block next to the
-   crush. Fixes the Loop Offset default. Selecting Stretch or Loop already
-   exports them; chop mode plays them dry.
-3. Stretch and Loop. These change how the sample is played back, so they
-   interact with the playhead a chop reads and with slice ends. Each needs
-   its own design here before building.
+2. Done (2026-11-10, see SPEC "Effect"): the Effect knob (nine effects,
+   no Off) with Knobs 7/8 on the knob model, 8-Bit's Decay on Knob 8, and
+   stand-ins for Punch, Pitch Env (100% = 24 semitones for now), Sub Osc,
+   Ring Mod, FM, Noise and 8-Bit's Decay. The Loop Offset default is fixed.
+   Stretch and Loop export, and play dry in chop mode. tests/knobs_test.mjs
+   checks every effect setting against Move's session 3 readouts.
+3. Done (2026-11-11, see SPEC "Effect"; design below): stand-ins for
+   Stretch and Loop, which change how the slice is read, so they interact
+   with the playhead a chop reads and with slice ends.
+4. Refine every preview against Move (below): the stand-ins so far are
+   LiveChopper's own designs, not Move's algorithms.
+
+### Step 3: Stretch and Loop
+
+Live's manual (Drum Sampler, 31.4.2 Playback Effects; the same device as
+Move's) is the only description: Stretch "changes the sample's length
+without altering its pitch", Factor being "a multiple of the original
+playback speed" and Grain Size the grain in ms; Loop "repeats a portion of
+the sample", Loop Offset setting "the loop start point relative to the
+sample start" and Loop Length its duration in ms.
+
+- Both run inside one voice path shared by the playing voice and the choke
+  tail (read, 8-Bit, effect, filter, advance), and each voice knows its
+  slice's start as well as its end, kept up to date when a chop, delete or
+  marker nudge changes the slice under it.
+- Stretch: at Factor 1.00 playback is exactly today's dry path (the
+  default, so nothing changes for existing chops). Otherwise the playhead
+  moves at 1/Factor of the normal speed, so a slice lasts about Factor times
+  as long, and the sound comes from two grains of Grain Size, half a grain
+  apart, each under a Hann window (the two always sum to 1). A grain starts
+  at the playhead and reads at the normal speed, so the pitch is kept, and
+  restarts at the playhead when it ends, or early enough to end inside the
+  slice (otherwise the last grains of a long stretch run into silence); the
+  voice ends when the playhead reaches the slice end, as today. The
+  envelope runs in real time, so a short Decay cuts a long stretch. Plain
+  grains drift the pitch a little where the grain is short (5 ms grains on a
+  441 Hz tone at Factor 20 read 423 Hz), lo-fi as Live's manual describes
+  Move's.
+- Loop: the loop starts Offset of the way through the slice and lasts Loop
+  Length (in the sample's own time, so Transpose shortens it), clamped to
+  the slice's end, and at least 10 ms or the whole slice. Playback starts at
+  the Offset, as on Move, and repeats the loop until the envelope ends: Hold and Decay in Trigger mode (with Hold at Inf, until
+  another pad cuts it), release and Decay in Gate mode. The level dips for
+  1.5 ms either side of each wrap, against clicks (a crossfade would need
+  audio from before the loop, which a loop at the very start doesn't
+  have). Turning the knobs moves the loop live; a playhead left behind the
+  new loop plays on into it.
+- Export is unchanged: both already write Move's fields.
+- Heard on the Move (2026-11-11): neither sounds like Move's own, which is
+  fine for stand-ins; step 4 tunes them.
+- Checked by ear on the Move (2026-11-11): Factor 2 plays twice as long,
+  and Loop starts at its Offset (LiveChopper first played from the slice
+  start into the loop, and was changed to match).
+
+### Step 4: refine the previews against Move
+
+What Live's manual says about each effect, against LiveChopper's stand-ins:
+
+| Effect | Live's manual | Stand-in today |
+|---|---|---|
+| Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | a boost of up to +12 dB at the start |
+| FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
+| Sub Osc, Noise | their envelope is the device's attack and decay | both go through the voice's envelope already; Noise also follows the sound's level, which Move may not |
+| Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | fixed (only Loop Length follows Transpose) |
+| 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
+| Pitch Env | -100 to 100 % | +-24 semitones at 100 %, a guess |
+
+Method:
+
+1. Test sounds on Move pads: a click train, a sine and a noise burst.
+2. Record Move's output for each effect at a few settings, using Move's
+   own sampling of its output (or another device's input if that can't),
+   and copy the WAVs to the host.
+3. Render the same sounds through plugin.c on the host (a small driver and
+   a compare script) and compare level envelopes and spectra.
+4. Tune each stand-in and record the decision here.
+
+Order: Punch, FM and Ring Mod's decay, Sub Osc and Noise's envelopes,
+following Transpose, Pitch Env's range, 8-Bit, Stretch, Loop.
 
 ### To settle on the Move first
 
 Answered by Sets 18 and 19: the Noise and Loop type strings, and the
 range of every effect setting. Loop Offset's default is 0.0 in both the
-909 Kit and Move's set fixture, so `src/drum_rack.mjs` writing 0.02 is a
-small existing bug to fix (it only matters once Loop is selectable).
+909 Kit and Move's set fixture; `src/drum_rack.mjs` wrote 0.02 until step
+2 fixed it.
 
 Nothing is open: screen sessions 1-4 (2026-11-09 and 10) answered the
 rest. See "Every knob follows Move".

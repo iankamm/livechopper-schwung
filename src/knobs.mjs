@@ -17,7 +17,9 @@ export var KNOB_CLICK = 10;
 
 /* curve: "log" = lo * (hi / lo)^p, or n = lo + (hi - lo) * p^n.
  * unit picks the readout: "s" (ms / s), "Hz" (Hz / kHz), "%" (of 0..1,
- * shown x100), "dB". top: what the readout says at the very top. */
+ * shown x100), "dB", "x" (two decimals, no unit). top: what the readout
+ * says at the very top. Ranges and curves from Move sets (PLAN.md "Knob
+ * curves"); the effects' settings are in the preset's units. */
 export var KNOBS = {
     attack:    { lo: 0.0001, hi: 20, curve: "log", unit: "s" },
     hold:      { lo: 0.001, hi: 60, curve: "log", unit: "s", top: "Inf" },
@@ -25,7 +27,24 @@ export var KNOBS = {
     rate:      { lo: 1000, hi: 30000, curve: "log", unit: "Hz" },
     frequency: { lo: 30, hi: 22000, curve: "log", unit: "Hz" },
     resonance: { lo: 0, hi: 0.9, curve: 1, unit: "%" },
-    peak:      { lo: -12, hi: 12, curve: 1, unit: "dB" }
+    peak:      { lo: -12, hi: 12, curve: 1, unit: "dB" },
+    crush_decay:    { lo: 0.01, hi: 5, curve: "log", unit: "s", top: "Off" },
+    stretch_factor: { lo: 1, hi: 20, curve: 2, unit: "x" },
+    stretch_grain:  { lo: 0.005, hi: 0.3, curve: 2, unit: "s" },
+    loop_offset:    { lo: 0, hi: 1, curve: 2, unit: "%" },
+    loop_length:    { lo: 0.01, hi: 0.5, curve: 2, unit: "s" },
+    pitch_amount:   { lo: -1, hi: 1, curve: 1, unit: "%" },
+    pitch_decay:    { lo: 0.005, hi: 2, curve: 3, unit: "s" },
+    punch_amount:   { lo: 0, hi: 1, curve: 1, unit: "%" },
+    punch_release:  { lo: 0.06, hi: 1, curve: 3, unit: "s" },
+    fm_amount:      { lo: 0, hi: 1, curve: 3, unit: "%" },
+    fm_freq:        { lo: 10, hi: 4500, curve: "log", unit: "Hz" },
+    ring_amount:    { lo: 0, hi: 1, curve: 1, unit: "%" },
+    ring_freq:      { lo: 1, hi: 5000, curve: 5, unit: "Hz" },
+    sub_amount:     { lo: 0, hi: 1, curve: 1, unit: "%" },
+    sub_freq:       { lo: 30, hi: 120, curve: "log", unit: "Hz" },
+    noise_amount:   { lo: 0, hi: 1, curve: 1, unit: "%" },
+    noise_color:    { lo: 180, hi: 15000, curve: 2, unit: "Hz" }
 };
 
 function clampPos(pos) {
@@ -83,6 +102,7 @@ export function formatKnob(spec, pos) {
     case "s":  return formatTime(v);
     case "Hz": return formatHz(v);
     case "%":  return formatSmall(v * 100) + " %";
+    case "x":  return v.toFixed(2);
     default:   return formatSmall(v) + " dB";
     }
 }

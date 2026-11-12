@@ -100,7 +100,7 @@ g.host_open_text_entry = o => {
 await import(pathToFileURL(path.join(dir, 'ui_under_test.mjs')).href);
 const tick = n => { for (let i = 0; i < n; i++) { printed = []; vlines = []; g.tick(); } };
 const midi = (s, d1, d2) => g.onMidiMessageInternal([s, d1, d2]);
-const READOUT = /^(Start|Length|Zoom|Gain|Attack|Hold|Decay|Transpose|Detune|Effect|Rate|Freq|Resonance|Peak Gain|Type|Mode): |^-$/;
+const READOUT = /^(Start|Length|Zoom|Gain|Attack|Hold|Decay|Transpose|Detune|Effect|Rate|Freq|Resonance|Peak Gain|Type|Mode|Factor|Grain|Offset|Loop Len|Amount|Release|Color): |^-$/;
 // Knobs by number (1-8): touch notes 0-7, CCs 71-78
 const shift = on => midi(0xB0, 49, on ? 127 : 0);
 const touch = (k, on) => midi(0x90, k - 1, on ? 127 : 0);
@@ -195,20 +195,19 @@ for (const pg of ['Main', 'Filter & Setup']) {
   if (pg === 'Main') { filterPage(); tick(70); }
 }
 // Put back what the loop changed that the tests below start from: Mode
-// (Gate), Type (Peak), Resonance; Effect (8-Bit). Gain stays at +1.5 dB.
+// (Gate), Type (Peak), Resonance; Effect (Punch, whose settings it turned:
+// they stay). Gain stays at +1.5 dB.
 turn(4, 127); turn(3, 126); turn(2, 125); tick(1);
 mainPage(); tick(1);
-turn(6, 127); tick(70);
+turn(6, 125); tick(70);
 
 // ---- Pages: Down is Filter & Setup, Up is Main ----
 check(lit(DOWN) && !lit(UP), 'Main page: Down lit (the other page), Up dark');
 // Knob LEDs: lit under the knobs that do something on this page
-check(litKnobs() === '123456', 'Main page, effect off: Knobs 1-6 lit: ' + litKnobs());
-turn(6, 1); tick(1);
-check(litKnobs() === '1234567', 'effect on: Knob 7 (Rate) lit too, 8 dark: ' + litKnobs());
+check(litKnobs() === '12345678', 'Main page: all eight knobs lit: ' + litKnobs());
 shift(true); tick(1);
-check(litKnobs() === '1234567', 'Main page with Shift: the same knobs lit: ' + litKnobs());
-shift(false); turn(6, 127); tick(70);
+check(litKnobs() === '12345678', 'Main page with Shift: the same knobs lit: ' + litKnobs());
+shift(false); tick(70);
 filterPage(); tick(1);
 check(printed.includes('Filter & Setup') && log.at(-1) === 'SAY: Filter and Setup page' && lit(UP) && !lit(DOWN),
       'Down: Filter & Setup page, Up lit, Down dark: ' + JSON.stringify(printed));
@@ -282,26 +281,58 @@ turn(1, 48); tick(1);
 check(printed.includes('Transpose: 0 st') && sets.at(-1) === 'transpose=0', 'transpose back to 0: ' + JSON.stringify(printed));
 touch(1, false); tick(70);
 
-// Knob 6 is the effect: Off / 8-Bit. Knob 7 is the 8-Bit rate, kept while
-// the effect is off; the knob loop left it 3 clicks above Move's 14.08 kHz.
+// Knob 6 is the effect: the drum sampler's nine, in Move's order, no Off.
+// Knobs 7 and 8 are the selected effect's two settings, each kept.
 const crushSets = () => sets.filter(x => x.startsWith('crush_hz='));
+const fxSets = () => sets.filter(x => x.startsWith('fx='));
 mark = sets.length;
 touch(6, true); tick(1);
-check(printed.includes('Effect: Off') && log.at(-1) === 'SAY: Effect off', 'Knob 6 shows the effect: ' + JSON.stringify(printed));
+check(printed.includes('Effect: Stretch') && log.at(-1) === 'SAY: Effect stretch', 'Knob 6 starts on Stretch: ' + JSON.stringify(printed));
+check(knobLed(6) === AMBER_LEVELS[0], 'Knob 6 LED dimmest on the first effect: ' + knobLed(6));
 turn(6, 127); tick(1);
-check(printed.includes('Effect: Off') && !sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'left of Off stays Off, sends nothing');
-touch(6, false); touch(7, true); tick(1);
-check(printed.includes('-') && log.at(-1) === 'SAY: 8-Bit rate, the effect is off', 'Knob 7 shows "-" while the effect is off');
-check(litKnobs() === '123456', 'Knob 7 dark while the effect is off: ' + litKnobs());
-turn(7, 5); tick(1);
-check(!sets.slice(mark).some(s => s.startsWith('crush_hz=')), 'Knob 7 does nothing while the effect is off');
-touch(7, false); touch(6, true); turn(6, 1); tick(1);
-check(printed.includes('Effect: 8-Bit') && crushSets().at(-1) === 'crush_hz=15222', 'on again at the rate it had: ' + crushSets().at(-1));
-const onSets = crushSets().length;
+check(printed.includes('Effect: Stretch') && !sets.slice(mark).some(s => s.startsWith('effect=')), 'left of Stretch stays there, sends nothing');
+{
+  const names = [];
+  for (let n = 0; n < 9; n++) { turn(6, 1); tick(1); names.push(printed.find(t => t.startsWith('Effect: '))); }
+  check(names.join() === ['Loop', 'Pitch Env', 'Punch', '8-Bit', 'FM', 'Ring Mod', 'Sub Osc', 'Noise', 'Noise'].map(n => 'Effect: ' + n).join(),
+        'one effect a click in Move\'s order, stopping at Noise: ' + names);
+  check(knobLed(6) === AMBER_LEVELS.at(-1), 'Knob 6 LED full on Noise: ' + knobLed(6));
+}
+turn(6, 120); tick(1);                      // 8 back: Stretch
+touch(6, false);
+for (const [k, want, say] of [[7, 'Factor: 1.00', 'SAY: Stretch factor 1.00'], [8, 'Grain: 100 ms', 'SAY: Grain size 100 milliseconds']]) {
+  touch(k, true); tick(1); touch(k, false);
+  check(printed.includes(want) && log.at(-1) === say, `Stretch Knob ${k}: ${want}: ` + JSON.stringify(printed) + ' ' + log.at(-1));
+}
+mark = sets.length;
+touch(7, true); turn(7, 1); tick(1); touch(7, false);
+check(printed.includes('Factor: 1.01'), 'Stretch Factor: a click shows the next value, 1.01: ' + JSON.stringify(printed));
+check(sets.slice(mark).some(s => /^fx=1\.0\d+ 0\.1\d*$/.test(s)), 'sends the effect\'s two settings as fx: ' + JSON.stringify(sets.slice(mark)));
+// Loop's Knob 7 is Offset and Knob 8 Loop Length, as on Move
+mark = sets.length;
 turn(6, 1); tick(1);
-check(crushSets().length === onSets && printed.includes('Effect: 8-Bit'), 'right of 8-Bit stays 8-Bit, sends nothing');
-touch(6, false); touch(7, true); tick(1);
-check(printed.includes('Rate: 15.2 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
+{
+  const sent = sets.slice(mark).filter(s => /^(effect|fx)=/.test(s));
+  check(sent[0] === 'effect=1' && /^fx=0 0\.3/.test(sent[1]), 'switching sends the effect, then its settings: ' + JSON.stringify(sent));
+}
+for (const [k, want] of [[7, 'Offset: 0.0 %'], [8, 'Loop Len: 300 ms']]) {
+  touch(k, true); tick(1); touch(k, false);
+  check(printed.includes(want), `Loop Knob ${k}: ${want}: ` + JSON.stringify(printed));
+}
+// Punch kept the settings the knob loop gave it
+turn(6, 2); tick(1);
+touch(7, true); tick(1); touch(7, false);
+check(printed.includes('Amount: 2.3 %') && log.at(-1) === 'SAY: Punch amount 2.3 percent', 'Punch kept its amount: ' + JSON.stringify(printed));
+touch(8, true); tick(1); touch(8, false);
+check(printed.includes('Release: 131 ms'), 'Punch kept its release: ' + JSON.stringify(printed));
+turn(6, 125); touch(7, true); tick(1); touch(7, false);   // Stretch kept its factor too
+check(printed.includes('Factor: 1.01'), 'Stretch kept its factor: ' + JSON.stringify(printed));
+// 8-Bit: Knob 7 is the rate, Knob 8 the Decay (Off at the top, Move's default)
+mark = sets.length;
+turn(6, 4); tick(1);
+check(crushSets().at(-1) === 'crush_hz=14080' && sets.slice(mark).includes('crush_decay=5'), '8-Bit sends its rate and decay: ' + JSON.stringify(sets.slice(mark)));
+touch(7, true); tick(1);
+check(printed.includes('Rate: 14.1 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
 turn(7, 63); tick(1);
 check(printed.includes('Rate: 30.0 kHz') && crushSets().at(-1) === 'crush_hz=30000', 'tops out at 30.0 kHz: ' + JSON.stringify(printed));
 check(knobLed(7) === AMBER_LEVELS.at(-1), 'Knob 7 LED full amber at the top: ' + knobLed(7));
@@ -315,15 +346,22 @@ shift(true); turn(7, 1); shift(false); tick(1);
 check(printed.includes('Rate: 1.04 kHz') && crushSets().at(-1) === 'crush_hz=1037', 'Shift: fine steps until the readout changes: ' + JSON.stringify(printed));
 turn(7, 63); turn(7, 8); tick(1);    // 71 clicks
 check(printed.includes('Rate: 6.57 kHz') && crushSets().at(-1) === 'crush_hz=6571', 'rate at 6.57 kHz: ' + JSON.stringify(printed));
-check(!sets.slice(mark).some(s => !/^(crush_hz|ui_state)=/.test(s)), 'Knobs 6 and 7 send only crush: ' + JSON.stringify(sets.slice(mark)));
 touch(7, false); tick(70);
 check(log.includes('SAY: 8-Bit rate 6.57 kilohertz'), 'rate announced: ' + log.slice(-3));
-// Knob 8 on the Main page is not used (8-Bit Decay stays at Move's default)
-mark = sets.length;
-touch(8, true); turn(8, 5); tick(1);
-check(printed.includes('-') && log.at(-1) === 'SAY: Not used' && sets.slice(mark).every(s => s.startsWith('ui_state=')),
-      'Main Knob 8 shows "-" and does nothing');
+touch(8, true); tick(1);
+check(printed.includes('Decay: Off') && log.at(-1) === 'SAY: 8-Bit decay Off', '8-Bit Decay starts Off: ' + JSON.stringify(printed) + ' ' + log.at(-1));
+turn(8, 127); tick(1);
+check(printed.includes('Decay: 4.77 s') && /^crush_decay=4\.76/.test(sets.filter(s => s.startsWith('crush_decay=')).at(-1)),
+      'a click down from Off: 4.77 s, as on Move: ' + JSON.stringify(printed));
+turn(8, 1); tick(1);
+check(printed.includes('Decay: Off') && sets.filter(s => s.startsWith('crush_decay=')).at(-1) === 'crush_decay=5', 'back to Off');
 touch(8, false); tick(70);
+// Leaving 8-Bit turns the crush off; coming back restores its rate
+mark = sets.length;
+turn(6, 1); tick(1);
+check(crushSets().at(-1) === 'crush_hz=0', 'another effect: crush off');
+turn(6, 127); tick(70);
+check(crushSets().at(-1) === 'crush_hz=6571', 'back on 8-Bit at its rate');
 
 // Top bar is just the pad; zoom, transpose and Start/End stay off it
 tick(1);
@@ -383,7 +421,7 @@ const p1 = presetDir + 'test loop Chop.ablpreset';
 const p2 = presetDir + 'test loop Chop 2.ablpreset';
 check(p1 in files, 'first export written to ' + p1);
 check(p2 in files, 'second export gets a new name ' + p2);
-// A crush change after exporting counts as unexported work
+// An effect change after exporting counts as unexported work
 midi(0xB0, 51, 127); tick(1);
 check(!printed.includes('Not exported'), 'just exported: no warning');
 midi(0xB0, 51, 127); tick(1);
@@ -565,8 +603,8 @@ dsp.chop = 7; tick(1);                            // unexported work
 mark = sets.length;
 midi(0xB0, 51, 127); click(); tick(1);       // the default: Keep for later
 const keptState = dsp.uiState;
-check(/^4 1 [\d.]+ 1( [\d.]+){7}$/.test(keptState) && !/^4 1 0 /.test(keptState) && keptState.endsWith(' 1297 0 654'),
-      'ui_state saved: zoom, page and the knob positions: ' + keptState);
+check(/^5 1 [\d.]+ 1( [\d.]+){24}$/.test(keptState) && !/^5 1 0 /.test(keptState) && keptState.split(' ')[8] === '1297',
+      'ui_state saved: zoom, page and every knob position: ' + keptState);
 check(log.includes('HIDE') && exits() === 2, 'Keep for later hides instead of exiting');
 check(sets.slice(mark).includes('stop=1'), 'Keep for later stops the voice');
 check(!lit(UNDO) && !lit(DELETE) && !lit(RECORD) && !lit(UP) && !lit(DOWN) && litKnobs() === '', 'hiding turns the buttons and knobs off');
@@ -577,6 +615,7 @@ async function freshUi(tag) {
 }
 await freshUi('resume');
 g.host_tool_reconnect = true;
+dsp.settings = '0 -1 50000 0 0 0 0 6571 1 209178 0 0 4 6570.69727 5 5';   // the DSP rounds what ui_state keeps exactly
 mark = sets.length;
 const logMark = log.length;
 g.init(); tick(2);
@@ -587,7 +626,9 @@ check(dsp.uiState === keptState, 'zoom, page, knob positions and unexported rest
 check(lit(RECORD) && lit(UP) && !lit(DOWN), 'buttons lit again after resuming, Up back to Main from the Filter & Setup page');
 touch(1, true); tick(1); touch(1, false);
 check(printed.includes('Freq: 20.8 kHz'), 'resumed on the Filter & Setup page, frequency exact: ' + JSON.stringify(printed));
-mainPage(); tick(70);
+mainPage(); touch(6, true); tick(1); touch(6, false); touch(7, true); tick(1); touch(7, false);
+check(printed.includes('Rate: 6.57 kHz'), 'resumed on 8-Bit at its rate: ' + JSON.stringify(printed));
+tick(70);
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'unexported work is still unexported after resuming');
 midi(0xB0, 51, 127); tick(1);
@@ -656,6 +697,26 @@ for (const [extra, what] of [[{}, 'no crushHz'], [{ crushHz: 0 }, 'crush 0']]) {
   const c = presetCell(extra);
   check(c.Effect_Type === 'Stretch' && c.Effect_StretchFactor === 1 && c.Effect_EightBitResamplingRate === 14080,
         `${what}: effect left at Move's default (Stretch at 1.0)`);
+}
+{
+  // Each effect writes Move's Effect_Type and its two fields; the rest stay at Move's defaults
+  const want = [['Stretch', 'Effect_StretchFactor', 'Effect_StretchGrainSize'], ['Loop', 'Effect_LoopOffset', 'Effect_LoopLength'],
+    ['Pitch Env', 'Effect_PitchEnvelopeAmount', 'Effect_PitchEnvelopeDecay'], ['Punch', 'Effect_PunchAmount', 'Effect_PunchTime'],
+    ['8-bit', 'Effect_EightBitResamplingRate', 'Effect_EightBitFilterDecay'], ['FM', 'Effect_FmAmount', 'Effect_FmFrequency'],
+    ['Ring Mod', 'Effect_RingModAmount', 'Effect_RingModFrequency'], ['Sub Osc', 'Effect_SubOscAmount', 'Effect_SubOscFrequency'],
+    ['Noise', 'Effect_NoiseAmount', 'Effect_NoiseFrequency']];
+  const dflt = presetCell({});
+  want.forEach(([type, a, b], index) => {
+    const lo = presetCell({ effect: { index, a: -1e9, b: -1e9 } }), c = presetCell({ effect: { index, a: 0.5, b: 0.25 } });
+    check(c.Effect_Type === type, `effect ${index} writes Effect_Type "${type}": ${c.Effect_Type}`);
+    check(lo[a] <= c[a] && lo[b] <= c[b] && lo[a] !== -1e9 && lo[b] !== -1e9, `effect ${index}: settings clamped to its ranges`);
+    const others = Object.keys(dflt).filter(k => k.startsWith('Effect_') && k !== a && k !== b && k !== 'Effect_Type');
+    check(others.every(k => c[k] === dflt[k]), `effect ${index}: the other effects' fields stay at Move's defaults`);
+  });
+  check(dflt.Effect_LoopOffset === 0 && dflt.Effect_Type === 'Stretch' && dflt.Effect_StretchFactor === 1,
+        'defaults: Stretch at 1.0, Loop Offset 0.0 as in Move\'s sets');
+  const loop = presetCell({ effect: { index: 1, a: 0.25, b: 0.2 } });
+  check(loop.Effect_LoopOffset === 0.25 && loop.Effect_LoopLength === 0.2, 'Loop: Knob 7 is Offset, Knob 8 Length');
 }
 check(presetCell({ crushHz: 99999 }).Effect_EightBitResamplingRate === 30000 &&
       presetCell({ crushHz: 5 }).Effect_EightBitResamplingRate === 1000, 'exported rate clamped to 1-30 kHz');
