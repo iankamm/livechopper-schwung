@@ -129,5 +129,43 @@ check(r.returncode == 1 and "FAIL" in r.stdout, "refs-check fails when a curve i
 r = run("refs", loud, "--dest", refs)
 check(r.returncode != 0, "refs refuses a Set that failed its check")
 
+# 5. A preview take (as Skipback records LiveChopper on the Move): pads of
+# the clean Set played into one take, at another level, with gaps.
+def preview_take(name, change=None):
+    """A take of clean's pads 1-3 rendered at 0.9, 0.8 s apart; split
+    --like clean:01,02,03 into OUT/<name>."""
+    parts = []
+    for k, (sample, p) in enumerate(PUNCH[:3]):
+        tmp = os.path.join(OUT, "tmp.wav")
+        fxlab.render_pad(sample, fxlab.dsp_settings(p), int(2.1 * fxlab.RATE), tmp, quiet=True)
+        v = fxlab.read_mono(tmp) * 0.9
+        if change:
+            v = change(k, v)
+        parts += [np.zeros(int(0.8 * fxlab.RATE)), v]
+    os.remove(tmp)
+    take = os.path.join(OUT, name + ".wav")
+    fxlab.write_mono(take, np.concatenate(parts + [np.zeros(int(0.5 * fxlab.RATE))]))
+    d = os.path.join(OUT, name)
+    shutil.rmtree(d, ignore_errors=True)
+    return run("split", take, "--like", clean + ":01,02,03", d), d
+
+
+r, prev = preview_take("preview")
+meta = json.load(open(os.path.join(prev, "pads.json")))
+check(r.returncode == 0 and [pc["params"] for pc in meta["pieces"]] == [p for _, p in PUNCH[:3]]
+      and meta["like"]["pieces"] == ["01_sine_441.wav", "02_sine_441.wav", "03_sine_441.wav"],
+      "split --like cuts the take into clean's pads 1-3:\n" + r.stdout)
+r = run("check", clean, "--ours-take", prev)
+res = json.load(open(os.path.join(clean, "check_vs_preview.json")))
+worst = max(m["stats"]["max"] for row in res["rows"] for m in row["metrics"].values() if m["stats"])
+check(r.returncode == 0 and len(res["rows"]) == 3 and worst < 0.05,
+      "check --ours-take passes a preview that matches, ~0 error (%.3f):\n%s" % (worst, r.stdout))
+r, prev_loud = preview_take("preview_loud", lambda k, x: x * 10 ** (1 / 20) if k == 2 else x)
+r = run("check", clean, "--ours-take", prev_loud)
+rows = json.load(open(os.path.join(clean, "check_vs_preview_loud.json")))["rows"]
+check(r.returncode == 1 and rows[2]["metrics"]["gain"]["verdict"] == "FAIL"
+      and rows[1]["metrics"]["gain"]["verdict"] == "PASS",
+      "check --ours-take fails +1 dB on the preview's pad 3:\n" + r.stdout)
+
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)

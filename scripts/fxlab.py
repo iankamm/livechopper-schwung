@@ -3,10 +3,11 @@
 step 4). Run with build/.venv/bin/python (scripts/setup_analysis_env.sh).
 
     fxlab.py split   <take.wav> <Song.abl> <outdir>
+    fxlab.py split   <take.wav> --like <outdir>:NN,NN,... <outdir>
     fxlab.py render  <outdir>
     fxlab.py compare <outdir> [--gain G]
     fxlab.py all     <take.wav> <Song.abl> <outdir> [--gain G]
-    fxlab.py check   <outdir> [--gain G]
+    fxlab.py check   <outdir> [--gain G] [--ours-take <preview outdir>]
     fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N]
     fxlab.py refs-check [tests/move_refs]
     fxlab.py accept-set <effect> --seed N [--pads 8]
@@ -123,10 +124,28 @@ def onsets(v):
     return out
 
 
-def cmd_split(take, song_path, outdir):
+def like_pads(spec):
+    """Pads copied from pieces of an existing split Set, for a take played
+    in LiveChopper (which has no Set): "<outdir>:NN,NN,..."."""
+    folder, _, which = spec.rpartition(":")
+    pieces = json.load(open(os.path.join(folder, "pads.json")))["pieces"]
+    pads, names = [], []
+    for k, nn in enumerate(which.split(",")):
+        match = [pc for pc in pieces if pc["piece"].startswith("%02d_" % int(nn))]
+        if not match:
+            sys.exit("split: %s has no piece %s" % (folder, nn))
+        pads.append((k + 1, match[0]["sample"], match[0]["params"]))
+        names.append(match[0]["piece"])
+    return pads, {"dir": os.path.abspath(folder), "pieces": names}
+
+
+def cmd_split(take, song_path, outdir, like=None):
     os.makedirs(outdir, exist_ok=True)
     v = read_mono(take)
-    pads = drum_pads(json.load(open(song_path)))
+    if like:
+        pads, like_meta = like_pads(like)
+    else:
+        pads, like_meta = drum_pads(json.load(open(song_path))), None
     # Only test sounds can be rendered: other samples (a kit's leftovers)
     # aren't expected in the take.
     for note, name, _ in pads:
@@ -168,8 +187,11 @@ def cmd_split(take, song_path, outdir):
             fname, note, start / RATE, len(piece) / RATE, params.get("Effect_Type"),
             "" if params.get("Voice_PitchToEnvelopeModulation") is None
             else ", PitchToEnvelopeModulation %s" % params["Voice_PitchToEnvelopeModulation"]))
-    json.dump({"take": os.path.abspath(take), "set": os.path.abspath(song_path), "pieces": pieces},
-              open(os.path.join(outdir, "pads.json"), "w"), indent=1)
+    meta = {"take": os.path.abspath(take), "set": os.path.abspath(song_path) if song_path else None,
+            "pieces": pieces}
+    if like_meta:
+        meta["like"] = like_meta
+    json.dump(meta, open(os.path.join(outdir, "pads.json"), "w"), indent=1)
 
 
 # ---------------------------------------------------------------- render
@@ -559,33 +581,70 @@ def measure(sample, params, x, ours, dry, end_ms):
     return out
 
 
-def load_pieces(outdir, gain_arg):
+def take_level(data, key):
+    """A take's level against the renders, from its dry pieces: (level,
+    found). d[key] is the take's piece, d[key + "_lag"] its lag."""
+    num = den = 0.0
+    for d in data:
+        if plain(d["pc"]["params"]) and d["pc"]["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
+            x, ours = d[key], shift(d["ours_raw"], d[key + "_lag"], len(d[key]))
+            sl = slice(EDGE, len(x) - EDGE)
+            num += float(np.dot(x[sl], ours[sl]))
+            den += float(np.dot(ours[sl], ours[sl]))
+    return (num / den, True) if den > 0 else (DEFAULT_GAIN, False)
+
+
+def load_pieces(outdir, gain_arg, ours_take=None):
     """A split, rendered Set: each piece with Move's take lined up on
-    ours (from note-on, at ours' level), and the level between them."""
+    ours (from note-on, at ours' level), and the level between them.
+    With ours_take (a split take of LiveChopper's preview, from split
+    --like on this Set), ours is that take's piece, lined up and levelled
+    the same way, instead of the render."""
     meta = json.load(open(os.path.join(outdir, "pads.json")))
+    pieces = meta["pieces"]
+    takes = None
+    if ours_take:
+        tmeta = json.load(open(os.path.join(ours_take, "pads.json")))
+        like = tmeta.get("like")
+        if not like or os.path.abspath(like["dir"]) != os.path.abspath(outdir):
+            sys.exit("check: %s wasn't split --like %s" % (ours_take, outdir))
+        byname = {pc["piece"]: pc for pc in pieces}
+        pieces = [byname[nm] for nm in like["pieces"]]
+        takes = tmeta["pieces"]
+        for pc, tp in zip(pieces, takes):
+            if not same_pad(pc, tp):
+                sys.exit("check: %s and %s aren't the same pad" % (pc["piece"], tp["piece"]))
     data = []
-    for pc in meta["pieces"]:
+    for k, pc in enumerate(pieces):
         move = read_mono(os.path.join(outdir, pc["piece"]))
         ours = read_mono(os.path.join(outdir, "ours_" + pc["piece"]))
         dry_path = os.path.join(outdir, "dry_" + pc["piece"])
         dry = read_mono(dry_path) if os.path.exists(dry_path) else None
-        data.append({"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "lag": align(move, ours)})
+        d = {"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "move_lag": align(move, ours)}
+        if takes:
+            d["take"] = read_mono(os.path.join(ours_take, takes[k]["piece"]))
+            d["take_lag"] = align(d["take"], ours)
+        data.append(d)
 
-    # The level: from the dry pieces when the Set has any.
-    num = den = 0.0
-    for d in data:
-        if plain(d["pc"]["params"]) and d["pc"]["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
-            move, ours = d["move"], shift(d["ours_raw"], d["lag"], len(d["move"]))
-            sl = slice(EDGE, len(move) - EDGE)
-            num += float(np.dot(move[sl], ours[sl]))
-            den += float(np.dot(ours[sl], ours[sl]))
-    gain = gain_arg if gain_arg else (num / den if den > 0 else DEFAULT_GAIN)
-    source = "given" if gain_arg else ("from the dry pieces" if den > 0 else "Set 28's")
+    found = False
+    gain = gain_arg
+    if not gain_arg:
+        gain, found = take_level(data, "move")
+    source = "given" if gain_arg else ("from the dry pieces" if found else "Set 28's")
+    if takes:
+        take_gain, found = take_level(data, "take")
+        if not found:
+            sys.exit("check: %s has no dry piece to set its level" % ours_take)
+        source += "; preview %.5f" % take_gain
 
     for d in data:
         n = len(d["move"])
+        d["lag"] = d["move_lag"]
         d["x"] = shift(d["move"], -d["lag"], n) / gain
-        d["ours"] = shift(d["ours_raw"], 0, n)
+        if takes:
+            d["ours"] = shift(d["take"], -d["take_lag"], n) / take_gain
+        else:
+            d["ours"] = shift(d["ours_raw"], 0, n)
         d["dry"] = shift(d["dry_raw"], 0, n) if d["dry_raw"] is not None else None
         d["end_ms"] = sound_end_ms(d["x"], d["ours"])
         d["m"] = measure(d["pc"]["sample"], d["pc"]["params"], d["x"], d["ours"], d["dry"], d["end_ms"])
@@ -750,11 +809,14 @@ def limits_with_floor(data):
     return lim, floors
 
 
-def cmd_check(outdir, gain_arg):
+def cmd_check(outdir, gain_arg, ours_take=None):
     """Today's plugin.c against a split acceptance Set: 0 if every pad
-    passes every metric that applies, 1 otherwise."""
+    passes every metric that applies, 1 otherwise. With ours_take, the
+    recorded preview take stands in for plugin.c's renders."""
     cmd_render(outdir, quiet=True)
-    meta, data, gain, source = load_pieces(outdir, gain_arg)
+    meta, data, gain, source = load_pieces(outdir, gain_arg, ours_take)
+    if ours_take:
+        print("Move's pieces against the preview take in %s" % ours_take)
     lim, floors = limits_with_floor(data)
     units = {name: unit for name, unit, _, _, _, _ in METRICS}
     print("level %.5f (%s). Limits rms/max:" % (gain, source) + "".join(
@@ -763,8 +825,10 @@ def cmd_check(outdir, gain_arg):
     if not floors:
         print("  note: no repeated pad, so no check of Move's own repeatability")
 
-    refdir = os.path.join(outdir, "refs")
-    os.makedirs(refdir, exist_ok=True)
+    # Against a preview take, the result has its own name and no references.
+    refdir = None if ours_take else os.path.join(outdir, "refs")
+    if refdir:
+        os.makedirs(refdir, exist_ok=True)
     rows, fails = [], 0
     for d in data:
         pc = d["pc"]
@@ -777,15 +841,18 @@ def cmd_check(outdir, gain_arg):
             cells.append("%s %s %s" % (name, "-" if st is None else "%.2f/%.2f" % (st["rms"], st["max"]), verdict))
         rows.append(row)
         print("%-22s %-9s %s" % (pc["piece"], row["effect"], "   ".join(cells)))
-        json.dump({"set": os.path.basename(os.path.dirname(meta.get("set", ""))) or None,
+        if refdir:
+            json.dump({"set": os.path.basename(os.path.dirname(meta.get("set", ""))) or None,
                    "piece": pc["piece"], "sample": pc["sample"], "params": pc["params"],
                    "settings": dsp_settings(pc["params"]), "frames": pc["frames"],
                    "end_ms": round(d["end_ms"], 3), "dry": d["dry"] is not None,
                    "metrics": {name: {"limits": lim[name], "move": ref} for name, (ref, _, _, _) in d["m"].items()}},
                   open(os.path.join(refdir, pc["piece"].rsplit(".", 1)[0] + ".json"), "w"))
     verdict = "PASS" if fails == 0 else "FAIL"
-    json.dump({"verdict": verdict, "level": gain, "limits": lim, "floors": floors, "rows": rows},
-              open(os.path.join(outdir, "check.json"), "w"), indent=1)
+    name = "check_vs_%s.json" % os.path.basename(os.path.normpath(ours_take)) if ours_take else "check.json"
+    json.dump({"verdict": verdict, "level": gain, "limits": lim, "floors": floors, "rows": rows,
+               "ours_take": os.path.abspath(ours_take) if ours_take else None},
+              open(os.path.join(outdir, name), "w"), indent=1)
     print("%s: %d of %d pads, %d failing metric(s)" % (
         verdict, sum(all(m["verdict"] == "PASS" for m in r["metrics"].values()) for r in rows), len(rows), fails))
     return 0 if fails == 0 else 1
@@ -974,12 +1041,14 @@ def cmd_device_check(outdirs, host):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("split"); s.add_argument("take"); s.add_argument("song"); s.add_argument("outdir")
+    s = sub.add_parser("split"); s.add_argument("take"); s.add_argument("rest", nargs="+", metavar="[song] outdir")
+    s.add_argument("--like", help="<outdir>:NN,NN,...: pads copied from an existing split Set, for a preview take")
     s = sub.add_parser("render"); s.add_argument("outdir")
     s = sub.add_parser("compare"); s.add_argument("outdir"); s.add_argument("--gain", type=float)
     s = sub.add_parser("all"); s.add_argument("take"); s.add_argument("song"); s.add_argument("outdir")
     s.add_argument("--gain", type=float)
     s = sub.add_parser("check"); s.add_argument("outdir"); s.add_argument("--gain", type=float)
+    s.add_argument("--ours-take", help="a preview take split --like outdir, in place of the renders")
     s = sub.add_parser("refs"); s.add_argument("outdir"); s.add_argument("--dest", default=REFS)
     s.add_argument("--seed", type=int)
     s = sub.add_parser("refs-check"); s.add_argument("folder", nargs="?", default=REFS)
@@ -988,14 +1057,21 @@ def main():
     s = sub.add_parser("device-check"); s.add_argument("outdir", nargs="+")
     s.add_argument("--host", default="root@192.168.4.45")
     a = ap.parse_args()
-    if a.cmd in ("split", "all"):
+    if a.cmd == "split":
+        if a.like and len(a.rest) == 1:
+            cmd_split(a.take, None, a.rest[0], like=a.like)
+        elif not a.like and len(a.rest) == 2:
+            cmd_split(a.take, a.rest[0], a.rest[1])
+        else:
+            sys.exit("split: <take> <song> <outdir>, or <take> --like <outdir>:NN,... <outdir>")
+    if a.cmd == "all":
         cmd_split(a.take, a.song, a.outdir)
     if a.cmd in ("render", "all"):
         cmd_render(a.outdir)
     if a.cmd in ("compare", "all"):
         cmd_compare(a.outdir, a.gain)
     if a.cmd == "check":
-        sys.exit(cmd_check(a.outdir, a.gain))
+        sys.exit(cmd_check(a.outdir, a.gain, a.ours_take))
     if a.cmd == "refs":
         cmd_refs(a.outdir, a.dest, a.seed)
     if a.cmd == "refs-check":

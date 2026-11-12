@@ -233,6 +233,22 @@ numpy, scipy and matplotlib, pinned in `scripts/requirements-analysis.txt`):
    passes (see "When an effect is done"); `fxlab.py refs <outdir> --seed
    <n>` then saves Move's curves to `tests/move_refs/`, and the seed goes
    here.
+8. Then check the preview as the Move plays it. In LiveChopper (a fresh
+   session, so the installed `dsp.so` loads), load the test sound and play
+   pad 1 once per setting, copying pads of a recorded Set (a dry one
+   first), about 3 s apart, then press Shift+Capture: Skipback saves the
+   last 30 s to `Samples/Schwung/Skipback/<date>/`. The Quantized Sampler
+   can't be used here: Schwung arms it only outside its own UI, so inside a
+   tool Shift+Sample reaches the tool (`schwung_shim.c`, the sampler's
+   `!shadow_display_mode`). Skipback's Shift+Capture is taken by the shim
+   everywhere, and a tool's DSP is mixed into the same capture. Then
+   `fxlab.py split <skipback.wav> --like <Set outdir>:NN,NN,...
+   <preview outdir>`, and two verdicts: `fxlab.py check <preview outdir>`
+   (the preview against plugin.c's render: the knobs and the output path)
+   and `fxlab.py check <Set outdir> --ours-take <preview outdir>` (Move's
+   own effect against the preview as heard on the Move).
+   `fxlab.py device-check <outdirs>` covers the rest: plugin.c built for the
+   Move computes the host's renders bit for bit.
 
 Move's dry path (Set 28, 2026-11-12: the six sounds at Stretch 1.00,
 Attack minimum, Hold Inf, Low-Pass 24 at 22 kHz, pad Volume -12 dB,
@@ -285,8 +301,13 @@ hearing thresholds:
   becomes one more fit Set, and the next try uses a new seed.
 - **Move's repeatability:** pad 1 is dry and the last pad repeats pad 2. A
   metric's limits rise to what Move's two takes differ by, if that's more.
-- **Ceiling:** acceptance sounds stay under Move's output ceiling (see
-  Punch, Set 29), unless the effect owns it.
+- **Capture ceiling:** with Move->Schwung On, Schwung rebuilds the mix and
+  soft-clips it above 29204 (-1.0 dBFS): y = 29204 + 3563 tanh((x -
+  29204) / 3563), `mix_soft_clip` in `schwung/src/host/mix_soft_clip.h`.
+  Move's takes and the preview's alike are bent above 29204, and full
+  scale comes out at exactly 31918, the "ceiling" Sets 29 and 30 hit.
+  Test material stays under 29204 in the capture. Check this before
+  drawing an acceptance Set.
 - **Afterwards:** `fxlab.py refs` saves Move's curves (a point a ms) and
   the limits to `tests/move_refs/<effect>/`, and `scripts/test.sh` runs
   `fxlab.py refs-check`, which renders each pad through plugin.c and
@@ -315,7 +336,7 @@ line a recording of Move's output up with a render of plugin.c.
 | position_ramp | a straight ramp, -16000 to +16000 over 2 s | the frame read at each moment: Stretch's grains, Loop's wrap, the read rate under Pitch Env and FM; usable only if Move's dry path passes it unbent |
 | sweep | 20 Hz-20 kHz log sweep, -6 dBFS, 4 s | 8-Bit's aliasing and filtering; any filtering in Move's neutral path |
 | sine_441_quiet | sine_441 at -30 dBFS | whether Punch depends on the input level, as a compressor would |
-| drum_synth | a kick-like hit: a sine falling from 150 to 50 Hz under a 250 ms decay, plus a 3 ms noise burst, -8 dBFS peak, 1 s | a realistic transient in every acceptance Set, on the bands metric (in place of a real kick or snare checked by ear); -8 dBFS leaves room for Punch's x2 makeup under the ceiling |
+| drum_synth | a kick-like hit: a sine falling from 150 to 50 Hz under a 250 ms decay, plus a 3 ms noise burst, -8 dBFS peak, 1 s | a realistic transient in every acceptance Set, on the bands metric (in place of a real kick or snare checked by ear); -8 dBFS leaves room for Punch's x2 makeup under the capture's soft-clip knee |
 
 Punch Set (planned 2026-11-12, Set 29): one Drum Rack, 15 pads in note
 order, the baseline below on each, played about 3 s apart (the sines last
@@ -358,10 +379,10 @@ note-on, nothing like the stand-in's boost at the start:
   Amounts.
 - Ceiling: at 100 % click_train settles at +2.4 dB, not +6, flat from 30
   Hz to 20 kHz: its clicks (-2.6 dBFS dry) come out at 31918 (-0.23
-  dBFS), and the ring after each is scaled the same, so it's a gain held
-  down, not a clip. At 50 % (+1 dB) the clicks pass in full. Whether
-  this limiter is part of Punch or after it isn't known yet. The track's
-  Saturator after the Drum Rack is at Dry/Wet 0, as in Set 28.
+  dBFS). At 50 % (+1 dB) the clicks pass in full. Explained after Set 30
+  (see the capture ceiling): Move clips the doubled click at full scale,
+  and Schwung's capture soft-clips that to 31918. The track's Saturator
+  after the Drum Rack is at Dry/Wet 0, as in Set 28.
 
 Still to measure: depth and attack against Amount (10, 25, 75, 90 %), the
 release's shape at more Release values, and where the ceiling sits.
@@ -407,12 +428,18 @@ Recorded 2026-11-12 (`.claude/recordings/set30/`; Amounts 9.86, 25.4,
   gain (nor in dB). The law is still to fit; with six Amounts measured, a
   table interpolated across Amount is a fallback.
 - Ceiling: pad 11 (no effect, Peak +12 dB) flattens at exactly 31918
-  (0.974 of full scale) with a soft knee, so the ceiling isn't Punch's.
-  The ring after a clipped click is 1.348 x dry at both 75 % and 100 %
-  Punch (pad 12, Set 29 pad 13), whatever the makeup, so the Drum Sampler
-  saturates before its filter as well as after. Outside Punch's
-  acceptance Set, which stays below it; matching it is a separate,
-  dry-path question.
+  with a soft knee, so the ceiling isn't Punch's. It is two clips (worked
+  out 2026-11-12):
+  - Move clips hard at full scale after the effect and before its
+    filter. The ring after a clipped click is 1.348 x dry at both 75 % and
+    100 % Punch (pad 12, Set 29 pad 13), which is 32767 / 24327: the
+    click clipped to full scale, then filtered.
+  - Schwung's capture then soft-clips above 29204, and maps full scale to
+    exactly 29204 + 3563 tanh(1) = 31918 (see "When an effect is done",
+    the capture ceiling).
+
+  LiveChopper also clips at full scale, but after its filter, which
+  matters only when the filter rings. Neither clip is part of Punch.
 
 Punch is done when, after tuning on Sets 29 and 30, an acceptance Set
 from `fxlab.py accept-set Punch --seed <n>` (sine_441, sine_441_quiet,
@@ -434,11 +461,12 @@ squares to all 14 sine pads of Sets 29 and 30 at once, through the same
   or a floor after the smoothing all fitted worse (worst 1.6-7 dB); a
   release stretched to R plus a few ms, unsmoothed, missed Move's
   exponential tail (its envelope falls ~0.64 every 5 ms after R).
-- `fxlab.py check` with it: every Punch pad below the ceiling passes on
-  Sets 29 and 30 (gain worst 0.86 dB, bands worst 0.60 dB). What fails is
-  the ceiling: Set 29's 100 % click pads (bands 1.36 dB, Move's soft
-  saturation at 0.974 against our hard clip at full scale), Set 30's 75 %
-  click pad on the limit (0.99 dB), and Set 30's Peak pad.
+- `fxlab.py check` with it: every Punch pad below the capture's soft-clip
+  knee passes on Sets 29 and 30 (gain worst 0.86 dB, bands worst 0.60 dB).
+  What fails is clipping: Set 29's 100 % click pads (bands 1.36 dB: the
+  clicks clip in both, but Move's take was soft-clipped by Schwung's
+  capture as well, and our render was not), Set 30's 75 % click pad on
+  the limit (0.99 dB), and Set 30's Peak pad.
 - Acceptance Set: `fxlab.py accept-set Punch --seed 1112`, drawn
   2026-11-12 after tuning (Set 31), plus two pads at Transpose +12 for
   whether Punch's times follow the pitch, as "Envelope Follows Pitch"
