@@ -383,6 +383,37 @@ can show 252 and 506 ms (the Set file records the exact values anyway).
 `compare` takes only fully dry pads (no effect, the low-pass open, no
 gain or transpose) as the level reference, so pad 11 doesn't count.
 
+Recorded 2026-11-12 (`.claude/recordings/set30/`; Amounts 9.86, 25.4,
+75.1, 90.1 %, Releases 252 and 506 ms):
+
+- Repeatable: pad 6 matches Set 29's pad 7 to 0.0006 dB rms (0.008 dB
+  max). Move's Punch is deterministic.
+- Makeup 1 + Amount³ holds at every Amount (+0.01, +0.14, +3.07, +4.76 dB
+  predicted; +0.0, +0.1, +3.0, +4.7 measured on the 2 ms start).
+- Model: gain = makeup x max(1 - Amount x env(t), 0.15), with env rising
+  from 0 to 1 at note-on and falling back to 0 over the Release. The
+  bottom against the makeup is 0.902, 0.750, 0.501, 0.248, 0.150, 0.150 at
+  9.9, 25, 50, 75, 90, 100 %: 1 - Amount down to the 0.15 clamp. The
+  clamp explains Set 29's flat bottom at 100 % and why 90 % ducks deeper
+  than 100 % in absolute terms (same clamp, less makeup).
+- Release: (1 - g/makeup) / Amount over t/Release is one curve at 1 s for
+  every Amount, to 0.02: 0.98 at 0.4 R, 0.95 at 0.5, 0.89 at 0.6, 0.79 at
+  0.7, 0.63 at 0.8, 0.40 at 0.9, 0.08 at 1.0, 0 by 1.05 R. At shorter
+  Releases its tail runs past R (env 0.14 at R for 506 ms, 0.24 for 252,
+  0.41 for 120, 0.54 for 60), as if a fixed smoothing of some ms acts on
+  top.
+- Attack: env reaches 0.14 at 10 ms and 0.97 at 50 ms at 9.9 %, but 0.38
+  at 10 ms at 100 %: faster with more Amount, so not one curve in linear
+  gain (nor in dB). The law is still to fit; with six Amounts measured, a
+  table interpolated across Amount is a fallback.
+- Ceiling: pad 11 (no effect, Peak +12 dB) flattens at exactly 31918
+  (0.974 of full scale) with a soft knee, so the ceiling isn't Punch's.
+  The ring after a clipped click is 1.348 x dry at both 75 % and 100 %
+  Punch (pad 12, Set 29 pad 13), whatever the makeup, so the Drum Sampler
+  saturates before its filter as well as after. Outside Punch's
+  acceptance Set, which stays below it; matching it is a separate,
+  dry-path question.
+
 Punch is done when, after tuning on Sets 29 and 30, an acceptance Set
 from `fxlab.py accept-set Punch --seed <n>` (sine_441, sine_441_quiet,
 drum_synth) passes `fxlab.py check`.
