@@ -326,6 +326,23 @@ note-on, nothing like the stand-in's boost at the start:
 Still to measure: depth and attack against Amount (10, 25, 75, 90 %), the
 release's shape at more Release values, and where the ceiling sits.
 
+Punch Set 2 (planned 2026-11-12, Set 30): the same baseline and timing as
+Set 29, 12 pads. Move's knob doesn't land on 10 %, so it's 9.9 %; Release
+can show 252 and 506 ms (the Set file records the exact values anyway).
+
+| Pads | Sound | Settings | For |
+|---|---|---|---|
+| 1 | sine_441 | dry | the level reference |
+| 2-5 | sine_441 | Punch 9.9 %, 25 %, 75 %, 90 %, Release 1.00 s | depth, makeup and the attack against Amount (1 s leaves the bottom flat) |
+| 6 | sine_441 | Punch 100 %, 1.00 s | Set 29's pad 7 again: do takes repeat |
+| 7-8 | sine_441 | Punch 50 %, 100 %, Release 252 ms | the release's shape |
+| 9-10 | sine_441 | Punch 50 %, 100 %, Release 506 ms | the release's shape |
+| 11 | sine_441 | no effect (Stretch 1.00), Filter Type Peak, Frequency 434 or 457 Hz, Peak Gain 12 dB | the ceiling without Punch: dry peaks of 13900 boosted ~4x. Held near 31900 with the ring of a gain: a limiter after the Drum Sampler; flat tops: plain clipping, so the ceiling belongs to Punch |
+| 12 | click_train | Punch 75 %, 1.00 s | the ceiling again: makeup 1.42 would take the clicks to ~34600 |
+
+`compare` takes only fully dry pads (no effect, the low-pass open, no
+gain or transpose) as the level reference, so pad 11 doesn't count.
+
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows
 for each setting (its knob steps rarely land on round numbers). Loop, and

@@ -232,6 +232,14 @@ def neutral(p):
     return rule is not None and abs(p.get(rule[0], -1) - rule[1]) < 1e-6
 
 
+def plain(p):
+    """Dry all through: no effect, a low-pass fully open, no gain or
+    transpose. Only these set the level reference."""
+    return (neutral(p) and p.get("Voice_Filter_Type", "Lowpass") in ("Lowpass", "Lowpass 12dB")
+            and p.get("Voice_Filter_Frequency", 22000.0) >= 21999.0
+            and abs(p.get("Voice_Gain", 1.0) - 1.0) < 1e-6 and p.get("Voice_Transpose", 0) == 0)
+
+
 def align(move, ours, max_lag=64, n=8192):
     """The lag (frames) that best lines ours up with move: the smallest
     residual once ours is scaled to fit, over the first n frames."""
@@ -409,7 +417,7 @@ def cmd_compare(outdir, gain_arg):
     # The level: from the dry pieces when the Set has any.
     num = den = 0.0
     for pc, move, ours, _ in data:
-        if neutral(pc["params"]) and pc["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
+        if plain(pc["params"]) and pc["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
             sl = slice(EDGE, len(move) - EDGE)
             num += float(np.dot(move[sl], ours[sl]))
             den += float(np.dot(ours[sl], ours[sl]))
