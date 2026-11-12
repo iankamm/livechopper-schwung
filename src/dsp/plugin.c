@@ -93,9 +93,12 @@
  * selected effect's two settings (Knobs 7 and 8) in the preset's units,
  * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
  * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
- * Each voice plays a stand-in, not an emulation, before the filter:
- * Punch boosts the start by up to +12 dB, dying away over its Release;
- * Pitch Env bends the pitch by up to +-24 semitones, decaying over its
+ * Each voice plays a stand-in, not an emulation, before the filter, except
+ * Punch, which follows Move's measured gain curve (docs/PLAN.md step 4):
+ * a makeup of 1 + Amount^3 with a duck under it, the duck's target
+ * 1 - Amount x (1 - (t/L)^n) floored at 0.15 and smoothed in dB by two
+ * one-poles of 10.4 ms, so the transient keeps the makeup and the duck
+ * is back by about the Release (L and n follow the Release); Pitch Env bends the pitch by up to +-24 semitones, decaying over its
  * Decay; FM wobbles the playback rate by up to +-1 octave at its
  * Frequency; Ring Mod multiplies by a sine; Sub Osc adds a sine; Noise adds
  * noise low-passed at its Color, following the sound's level; 8-Bit's
@@ -195,7 +198,14 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
     { 0.0f, 1000.0f }, { 0.0f, 1000.0f }, { 0.0f, 60.0f }, { 0.0f, 10000.0f },
 };
 #define FX_DECAY_K 4.6f             /* a decay reaches 1% at its time: ln 100 */
-#define PUNCH_MAX_BOOST 2.98107f    /* +12 dB on top of 1.0 */
+/* Punch, fitted to Move's gain curves (Sets 29 and 30: 14 pads, rms 0.06 dB,
+ * worst 0.9 dB): see fx_punch_settings and fx_frame. */
+#define PUNCH_FLOOR 0.15f           /* the duck's floor, against the makeup */
+#define PUNCH_SMOOTH_K 0.00217089f  /* a 10.434 ms one-pole at 44.1 kHz */
+#define PUNCH_LEN_C 35.65f          /* release length: R - 35.65 R^-0.308 (ms) */
+#define PUNCH_LEN_E (-0.308f)
+#define PUNCH_N0 3.975f             /* release shape: n = 3.975 + 0.555 ln R (s) */
+#define PUNCH_N1 0.555f
 #define PITCH_ENV_SEMIS 24.0f       /* Pitch Env at 100% (a guess: Move shows only %) */
 #define FM_MAX_OCT 1.0f
 #define SUB_OSC_LEVEL 16384.0f      /* -6 dBFS at 100% */
@@ -271,6 +281,7 @@ typedef struct {
     double grain_pos[2]; /* source frames; grain 1 is half a grain behind */
     int grain_age;      /* output frames into grain 0 */
     int loop_wrapped;
+    float punch_ln[2];  /* Punch's two smoothing stages, ln of the gain */
 } fx_state_t;
 
 /* Per-voice filter state: two SVF stages, two integrators per channel. */
@@ -328,6 +339,7 @@ typedef struct {
     float crush_decay;                          /* 8-Bit Decay, s; CRUSH_DECAY_OFF = off */
     int effect;                                 /* FX_STRETCH .. FX_NOISE */
     float fx_a, fx_b;                           /* its two settings, clamped */
+    float punch_len, punch_n;                   /* Punch's release, from fx_b */
     int filter_type;                            /* FILTER_LP12 .. FILTER_PEAK */
     int filter_hz10;                            /* cutoff, tenths of a Hz */
     int filter_res;                             /* thousandths, 0 to FILTER_RES_MAX */
@@ -1256,6 +1268,13 @@ static void set_fx(live_chopper_t *inst, float a, float b) {
     const float *r = FX_RANGE[inst->effect];
     inst->fx_a = clamp_f(a, r[0], r[1]);
     inst->fx_b = clamp_f(b, r[2], r[3]);
+    if (inst->effect == FX_PUNCH) {
+        /* The release ends a little before Release (10 ms at 60 ms, 4 ms
+         * at 1 s) and is steeper the longer it is. */
+        float ms = inst->fx_b * 1000.0f;
+        inst->punch_len = (ms - PUNCH_LEN_C * powf(ms, PUNCH_LEN_E)) * (MOVE_SAMPLE_RATE / 1000.0f);
+        inst->punch_n = PUNCH_N0 + PUNCH_N1 * logf(inst->fx_b);
+    }
 }
 
 /* Switching effect starts its settings at Move's defaults until "fx" says
@@ -1294,7 +1313,12 @@ static void fx_frame(const live_chopper_t *inst, fx_state_t *x, int t, float *l,
     switch (inst->effect) {
     case FX_PUNCH:
         if (a > 0.0f) {
-            v = 1.0f + a * PUNCH_MAX_BOOST * fx_decay(t, inst->fx_b);
+            float x_ = (float)t / inst->punch_len;
+            float u = 1.0f - a * (x_ >= 1.0f ? 0.0f : 1.0f - powf(x_, inst->punch_n));
+            n = logf(u > PUNCH_FLOOR ? u : PUNCH_FLOOR);
+            x->punch_ln[0] += PUNCH_SMOOTH_K * (n - x->punch_ln[0]);
+            x->punch_ln[1] += PUNCH_SMOOTH_K * (x->punch_ln[0] - x->punch_ln[1]);
+            v = (1.0f + a * a * a) * expf(x->punch_ln[1]);
             *l *= v;
             *r *= v;
         }

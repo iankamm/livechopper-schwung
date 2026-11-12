@@ -128,11 +128,14 @@ a Move drum rack preset or one WAV per slice.
   | Sub Osc | Amount, 0-100 % | Freq, 30.0-120 Hz |
   | Noise | Amount, 0-100 % | Color, 180 Hz-15.0 kHz |
 
-  Chop mode plays a stand-in for each, not an emulation, before the filter
+  Chop mode plays a stand-in for each (Punch excepted: it follows Move's
+  measured curve), before the filter
   (sample -> effect -> filter -> envelope, drumCell's order): 8-Bit samples
   and holds each voice at the rate (after repitching) and cuts it to 8
   bits, and its Decay closes a low-pass on that over the Decay time;
-  Punch boosts the start by up to +12 dB, dying away over the Release;
+  Punch matches Move's gain curve (docs/PLAN.md step 4): a makeup of
+  1 + Amount³ that the transient keeps, with the rest ducked to
+  1 - Amount of it (no lower than 0.15) and back by about the Release;
   Pitch Env bends the pitch by up to +-24 semitones at 100% (Move shows
   only a percentage), decaying over the Decay; FM wobbles the playback rate
   by up to +-1 octave at its Freq; Ring Mod multiplies by a sine; Sub Osc

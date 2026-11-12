@@ -165,7 +165,7 @@ What Live's manual says about each effect, against LiveChopper's stand-ins:
 
 | Effect | Live's manual | Stand-in today |
 |---|---|---|
-| Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | a boost of up to +12 dB at the start |
+| Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | matched to Move (2026-11-12, see "Punch" below) |
 | FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
 | Sub Osc, Noise | their envelope is "the device's attack and decay settings" (Hold isn't mentioned: they may decay even at Hold Inf) | both go through the voice's whole envelope, Hold included; Noise also follows the sound's level, which Move may not |
 | Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | fixed (only Loop Length follows Transpose) |
@@ -417,6 +417,30 @@ Recorded 2026-11-12 (`.claude/recordings/set30/`; Amounts 9.86, 25.4,
 Punch is done when, after tuning on Sets 29 and 30, an acceptance Set
 from `fxlab.py accept-set Punch --seed <n>` (sine_441, sine_441_quiet,
 drum_synth) passes `fxlab.py check`.
+
+Punch, tuned 2026-11-12 (`src/dsp/plugin.c`, `fx_frame`). Fitted by least
+squares to all 14 sine pads of Sets 29 and 30 at once, through the same
+100-frame window that measures Move (rms 0.061 dB, worst 0.89 dB):
+
+- gain = (1 + Amount³) x exp(S(ln T)), T = max(1 - Amount x (1 - (t/L)^n),
+  0.15), S two one-poles of 10.434 ms in series starting at 0 (0 dB) at
+  note-on, L = R - 35.65 R^-0.308 ms (R the Release in ms: 10 ms short at
+  60 ms, 4 ms at 1 s), n = 3.975 + 0.555 ln R (R in s: 2.4 at 60 ms, 4.0
+  at 1 s).
+- Smoothing in dB is what makes the attack faster at higher Amounts: a
+  deeper target is a bigger step in dB, so it gets further in the same
+  time. The fit put the smoothing domain at p = 0.07 when left free
+  (0 being dB). Linear smoothing, a smoothed attack only, a soft floor
+  or a floor after the smoothing all fitted worse (worst 1.6-7 dB); a
+  release stretched to R plus a few ms, unsmoothed, missed Move's
+  exponential tail (its envelope falls ~0.64 every 5 ms after R).
+- `fxlab.py check` with it: every Punch pad below the ceiling passes on
+  Sets 29 and 30 (gain worst 0.86 dB, bands worst 0.60 dB). What fails is
+  the ceiling: Set 29's 100 % click pads (bands 1.36 dB, Move's soft
+  saturation at 0.974 against our hard clip at full scale), Set 30's 75 %
+  click pad on the limit (0.99 dB), and Set 30's Peak pad.
+- Acceptance Set: `fxlab.py accept-set Punch --seed 1112`, drawn
+  2026-11-12 after tuning (Set 31).
 
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows

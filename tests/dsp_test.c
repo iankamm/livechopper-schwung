@@ -718,13 +718,34 @@ int main(void) {
         FX_SETTINGS();
         CHECK(eff == FX_NOISE, "effect clamps to Noise: %s", set);
 
+        /* Punch: Move's gain curve (docs/PLAN.md step 4), frame by frame
+         * against the model in double for 320 ms, and at three points
+         * against Move's own measurements (Sets 29 and 30). */
         int bad = 0;
-        FX_PLAY("3", "1 1");                   /* Punch: +12 dB at the start, dying over 1 s */
-        for (int i = 1; i < MOVE_FRAMES_PER_BLOCK; i++) {
-            float want = ref[i * 2] * (1.0f + PUNCH_MAX_BOOST * expf(-FX_DECAY_K * i / 44100.0f));
-            if (fabsf(out[i * 2] - want) > 1.5f) bad++;
+        for (int pass = 0; pass < 2; pass++) {
+            const double amt = pass ? 1.0 : 0.25, rel = 1.0, mk = 1.0 + amt * amt * amt;
+            const double len = (rel * 1000 - 35.65 * pow(rel * 1000, -0.308)) * 44.1;
+            const double nn = 3.975 + 0.555 * log(rel), k = 1 - exp(-1000 / (10.434 * 44100));
+            double s0 = 0, s1 = 0, at2ms = 0, at300ms = 0;
+            int wrong = 0;
+            FX_PLAY("3", pass ? "1 1" : "0.25 1");
+            for (int t = 0; t < 320 * 441 / 10; t++) {
+                if (t && t % MOVE_FRAMES_PER_BLOCK == 0) api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                double x = t / len, u = 1 - amt * (x >= 1 ? 0 : 1 - pow(x, nn));
+                s0 += k * (log(u > 0.15 ? u : 0.15) - s0);
+                s1 += k * (s0 - s1);
+                double dry = ramp(t, 0), want = dry * mk * exp(s1), got = out[(t % MOVE_FRAMES_PER_BLOCK) * 2];
+                if (fabs(got - want) > 1.5 + 0.002 * fabs(want)) wrong++;
+                if (t == 88) at2ms = got / dry / mk;
+                if (t == 13230) at300ms = got / dry / mk;
+            }
+            bad += wrong;
+            CHECK(wrong == 0, "Punch %.0f%% follows its model (%d frames wrong)", amt * 100, wrong);
+            CHECK(at2ms > 0.944 && at2ms < 1.001, "Punch %.0f%% keeps the transient within 0.5 dB of the makeup (%.3f at 2 ms)",
+                  amt * 100, at2ms);
+            CHECK(fabs(at300ms - (pass ? 0.15 : 0.75)) < 0.01, "Punch %.0f%% ducks to %s of the makeup (%.3f at 300 ms)",
+                  amt * 100, pass ? "the 0.15 floor" : "1 - Amount", at300ms);
         }
-        CHECK(bad == 0, "Punch boosts the start (%d wrong, out[100] = %d)", bad, out[200]);
         FX_PLAY("6", "1 1000");                /* Ring Mod: times a 1 kHz sine */
         bad = 0;
         for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
