@@ -10,6 +10,7 @@ step 4). Run with build/.venv/bin/python (scripts/setup_analysis_env.sh).
     fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N]
     fxlab.py refs-check [tests/move_refs]
     fxlab.py accept-set <effect> --seed N [--pads 8]
+    fxlab.py device-check <outdir>... [--host root@192.168.4.45]
 
 split cuts a take recorded with Schwung's Quantized Sampler (Move->Schwung
 on) into one piece per pad, in pad order, and saves each pad's Drum Sampler
@@ -22,13 +23,18 @@ check is the gate for "this effect matches Move" (docs/PLAN.md step 4,
 plugin.c and passes or fails every pad on every metric that applies. refs
 then saves Move's measured curves to tests/move_refs/, and refs-check (run
 by scripts/test.sh) holds plugin.c to them without the recordings.
-accept-set draws an acceptance Set's settings at random.
+accept-set draws an acceptance Set's settings at random. device-check
+renders the same pads on the Move with plugin.c built as build.sh builds
+dsp.so, and requires them to match the host's renders: what check measures
+on the host is then what the Move plays.
 """
 import argparse
 import json
 import math
 import os
 import random
+import shlex
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -907,6 +913,64 @@ def cmd_accept_set(effect, seed, pads):
     print("| %d | %s | a copy of pad 2 (Move's repeatability) |" % (pads + 2, sounds[0]))
 
 
+# ---------------------------------------------------------------- device-check
+
+DEVICE_DIR = "/data/UserData/livechopper-fxcheck"   # never /tmp on the Move (CLAUDE.md)
+DEVICE_TOLERANCE = 1                                # LSB
+
+
+def cmd_device_check(outdirs, host):
+    """Every pad of outdirs rendered on the Move and on the host: 0 if
+    they match within DEVICE_TOLERANCE."""
+    jobs = []
+    for outdir in outdirs:
+        for pc in json.load(open(os.path.join(outdir, "pads.json")))["pieces"]:
+            settings = dsp_settings(pc["params"])
+            where = os.path.join(*os.path.normpath(os.path.abspath(outdir)).split(os.sep)[-2:])
+            jobs.append((pc["sample"], settings, pc["frames"], "%s %s" % (where, pc["piece"])))
+            if gain_effect(pc["params"]):
+                jobs.append((pc["sample"], dry_settings(settings), pc["frames"], jobs[-1][3] + " (dry)"))
+    local = os.path.join(REPO, "build", "device_check")
+    shutil.rmtree(local, ignore_errors=True)
+    os.makedirs(os.path.join(local, "host"))
+    arm = os.path.join(REPO, "build", "fx_render_arm")
+    # build.sh's flags for dsp.so, as an executable linked to the Move's libm
+    subprocess.check_call(["aarch64-linux-gnu-gcc", "-std=c11", "-O2", "-march=armv8-a", "-mtune=cortex-a72",
+                           "-fomit-frame-pointer", "-fno-stack-protector", "-DNDEBUG",
+                           "-I" + os.path.join(REPO, "src", "dsp"), os.path.join(REPO, "scripts", "fx_render.c"),
+                           "-o", arm, "-lm", "-lpthread"])
+    build_render()
+    script = ["set -e", "cd " + DEVICE_DIR, "mkdir -p out"]
+    for k, (sample, settings, frames, _) in enumerate(jobs):
+        render_pad(sample, settings, frames, os.path.join(local, "host", "%03d.wav" % k), quiet=True)
+        script.append(" ".join(shlex.quote(a) for a in
+                               ["./fx_render", sample, "out/%03d.wav" % k, "%.6f" % (frames / RATE)] + settings)
+                      + " > /dev/null")
+    open(os.path.join(local, "run.sh"), "w").write("\n".join(script) + "\n")
+    samples = sorted({j[0] for j in jobs})
+    print("rendering %d pads on %s ..." % (len(jobs), host))
+    subprocess.check_call(["ssh", host, "rm -rf %s && mkdir -p %s" % (DEVICE_DIR, DEVICE_DIR)])
+    subprocess.check_call(["scp", "-q", arm, "%s:%s/fx_render" % (host, DEVICE_DIR)])
+    subprocess.check_call(["scp", "-q", os.path.join(local, "run.sh")] + [os.path.join(WAVS, x) for x in samples]
+                          + ["%s:%s/" % (host, DEVICE_DIR)])
+    subprocess.check_call(["ssh", host, "sh %s/run.sh" % DEVICE_DIR])
+    subprocess.check_call(["scp", "-q", "-r", "%s:%s/out" % (host, DEVICE_DIR), os.path.join(local, "device")])
+    subprocess.check_call(["ssh", host, "rm -rf %s" % DEVICE_DIR])
+    worst_all, fails = 0, 0
+    for k, (_, _, _, label) in enumerate(jobs):
+        a = wavfile.read(os.path.join(local, "host", "%03d.wav" % k))[1].astype(int)
+        b = wavfile.read(os.path.join(local, "device", "%03d.wav" % k))[1].astype(int)
+        worst = int(np.abs(a - b).max()) if a.shape == b.shape else None
+        ok = worst is not None and worst <= DEVICE_TOLERANCE
+        fails += not ok
+        worst_all = max(worst_all, worst or 0)
+        print("%-40s %s" % (label, "differs in length" if worst is None else "max %d LSB, %d frames differ %s" % (
+            worst, int(np.count_nonzero(np.any(a != b, axis=-1))) if a.ndim > 1 else int(np.count_nonzero(a != b)),
+            "PASS" if ok else "FAIL")))
+    print("%s: %d pads, worst %d LSB (limit %d)" % ("PASS" if fails == 0 else "FAIL", len(jobs), worst_all, DEVICE_TOLERANCE))
+    return 0 if fails == 0 else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -921,6 +985,8 @@ def main():
     s = sub.add_parser("refs-check"); s.add_argument("folder", nargs="?", default=REFS)
     s = sub.add_parser("accept-set"); s.add_argument("effect"); s.add_argument("--seed", type=int, required=True)
     s.add_argument("--pads", type=int, default=8)
+    s = sub.add_parser("device-check"); s.add_argument("outdir", nargs="+")
+    s.add_argument("--host", default="root@192.168.4.45")
     a = ap.parse_args()
     if a.cmd in ("split", "all"):
         cmd_split(a.take, a.song, a.outdir)
@@ -936,6 +1002,8 @@ def main():
         sys.exit(cmd_refs_check(a.folder))
     if a.cmd == "accept-set":
         cmd_accept_set(a.effect, a.seed, a.pads)
+    if a.cmd == "device-check":
+        sys.exit(cmd_device_check(a.outdir, a.host))
 
 
 if __name__ == "__main__":

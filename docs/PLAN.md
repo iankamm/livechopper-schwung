@@ -440,7 +440,30 @@ squares to all 14 sine pads of Sets 29 and 30 at once, through the same
   saturation at 0.974 against our hard clip at full scale), Set 30's 75 %
   click pad on the limit (0.99 dB), and Set 30's Peak pad.
 - Acceptance Set: `fxlab.py accept-set Punch --seed 1112`, drawn
-  2026-11-12 after tuning (Set 31).
+  2026-11-12 after tuning (Set 31), plus two pads at Transpose +12 for
+  whether Punch's times follow the pitch, as "Envelope Follows Pitch"
+  (`Voice_PitchToEnvelopeModulation`, on in Move's presets) might make
+  them. Both repeat Set 30 settings, so a halved time shows directly:
+
+  | Pad | Sound | Settings |
+  |---|---|---|
+  | 1 | sine_441 | dry (Stretch 1.00) |
+  | 2 | sine_441 | Punch Amount 28 %, Release 75.1 ms |
+  | 3 | sine_441_quiet | Punch Amount 75 %, Release 60.0 ms |
+  | 4 | drum_synth | Punch Amount 83 %, Release 420 ms |
+  | 5 | sine_441 | Punch Amount 57 %, Release 750 ms |
+  | 6 | sine_441_quiet | Punch Amount 17 %, Release 192 ms |
+  | 7 | drum_synth | Punch Amount 83 %, Release 823 ms |
+  | 8 | sine_441 | Punch Amount 6.9 %, Release 60.1 ms |
+  | 9 | sine_441_quiet | Punch Amount 69 %, Release 941 ms |
+  | 10 | sine_441 | a copy of pad 2 |
+  | 11 | sine_441 | Transpose 12 st, Punch Amount 100 %, Release 252 ms (Set 30 pad 8) |
+  | 12 | sine_441 | Transpose 12 st, Punch Amount 50 %, Release 506 ms (Set 30 pad 10) |
+
+- Device: `fxlab.py device-check` renders the pads of Sets 28-30 on the
+  Move (plugin.c built with build.sh's flags, the Move's libm) and
+  compares them with the host's: all 56 renders identical, bit for bit
+  (2026-11-12). What `check` measures on the host is what the Move plays.
 
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows
