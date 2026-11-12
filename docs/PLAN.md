@@ -174,8 +174,11 @@ What Live's manual says about each effect, against LiveChopper's stand-ins:
 
 Live's Drum Sampler reference also has "Envelope Follows Pitch", a
 context-menu option scaling the amplitude envelope with the pitch. Move
-has no such setting and the presets have no field for it; the Transpose
-+12 takes show whether Move's envelope follows pitch.
+has no knob for it, but its presets store it as
+`Voice_PitchToEnvelopeModulation`: true on every pad of Set 28 (Move's
+default), and LiveChopper's export writes true too (`src/drum_rack.mjs`).
+LiveChopper's envelope runs in output time, so it doesn't follow pitch;
+the Transpose +12 takes show what Move's does.
 
 Method (copies of Move's manual and of Live's Drum Sampler reference are
 in `.claude/ref/`, local only; the analysis runs with
@@ -195,16 +198,56 @@ numpy, scipy and matplotlib, pinned in `scripts/requirements-analysis.txt`):
    (`schwung/docs/ARCHITECTURE.md`, "Capture path"). Play the pads one at a
    time about a second apart, nothing else playing, then stop. The take
    starts on a bar; each test sound starts with a step or click, so the
-   take is split by onsets. Keep the volume up (headphones in) until the
-   first take confirms the capture doesn't depend on it. Fallback: Move's
-   own Resampling (Sampling mode), fetched from Move Manager's Recordings
-   page.
-4. Copy the takes to the host, split them, and match each to its pad
-   through the saved Set, which also has the exact effect values.
-5. Render the same sounds and settings through plugin.c on the host (a
-   small driver and a compare script; LiveChopper's side needs no
-   recording) and compare level envelopes and spectra.
+   take is split by onsets. Schwung's Global Settings -> Audio must have
+   Move->Schwung On (Move's Link on) and Spkr EQ Off, with no Schwung
+   Master FX: the take is then rebuilt from Move's per-track Link Audio
+   channels, before Move's master chain (Set 28's first two takes, without
+   it, went through the Set template's "Punch Glue" compressor, "Analog
+   Clip" and Limiter and Move's speaker enhancer: +6 dB at 150 Hz, a dip
+   at 500 Hz, the ramp reduced to a blip). The volume knob doesn't matter
+   (the same take at two volumes matched).
+4. Copy the take and the Set's `Song.abl` to the host, then
+   `build/.venv/bin/python scripts/fxlab.py all <take.wav> <Song.abl>
+   <outdir>`. It splits the take at onsets (the k-th onset is the k-th pad
+   with a sample, by note, so play the pads in order with at least 0.25 s
+   of silence between), saves each pad's settings, renders the same sound
+   and settings through plugin.c (`scripts/fx_render.c`, built into
+   `build/fx_render`), lines the two up and compares: level (5 ms RMS),
+   pitch (sine_441), read position (position_ramp, to ~0.2 ms), 1/3-octave
+   bands over time (noise_white, sweep) and the sample-exact residual.
+   Plots go to `<outdir>/plots/`, numbers to `<outdir>/compare.json`. The
+   level reference is fitted from the Set's dry pieces, else Set 28's.
+5. Read the plots and numbers for what each effect does differently.
 6. Tune each stand-in and record the decision here.
+
+Move's dry path (Set 28, 2026-11-12: the six sounds at Stretch 1.00,
+Attack minimum, Hold Inf, Low-Pass 24 at 22 kHz, pad Volume -12 dB,
+Velocity to Volume 0.5, Full Velocity; `.claude/recordings/set28/`, local
+only):
+
+- Gain -1.45 dB (0.8465) on every sound, the same in both volumes, and
+  flat to +-0.02 dB from 30 Hz to 19.5 kHz. It isn't the pad's -12 dB, so
+  each Set's dry take sets the reference level; effects are compared
+  relative to it.
+- Attack at its minimum (0.10 ms) is a linear ramp over the first 4
+  frames (0.25, 0.49, 0.76, 0.99), so a click on frame 0 almost vanishes.
+  LiveChopper's Attack 0 starts at full level.
+- The end of the sample fades out over its last ~417 frames (9.5 ms),
+  S-shaped (gain 0.79 300 frames before the end, 0.41 at 200, 0.10 at
+  100). LiveChopper's slices stop dead. Both are candidates for matching
+  in chop mode, apart from the effects.
+- Low-Pass 24 at 22 kHz is a real filter, not a bypass: a click is
+  followed by a ring at Nyquist (+-780 after a 24k click, alternating each
+  frame, falling ~2% a frame). Inaudible; LiveChopper bypasses it.
+- position_ramp passes cleanly: gain and offset alone fit it to 0.5 LSB
+  rms, so each value gives the frame read to ~2 frames. Usable for Loop,
+  Pitch Env and FM (not Stretch, whose crossfading grains mix two
+  positions; click_train shows its grains).
+- `scripts/fxlab.py` on this take (render of plugin.c at the same
+  settings): gain 0.8462, residual over the steady part 5.9 LSB (sine),
+  2.4 LSB (ramp), pitch 0.00 st, read position 0.18 ms rms, bands 0.00 dB.
+  What remains is the attack ramp, the end fade and the Nyquist ring
+  above.
 
 Order: Punch, FM and Ring Mod's decay, Sub Osc and Noise's envelopes,
 following Transpose, Pitch Env's range, 8-Bit, Stretch, Loop.
@@ -227,7 +270,11 @@ match.
 
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows
-for each setting (its knob steps rarely land on round numbers).
+for each setting (its knob steps rarely land on round numbers). Loop, and
+any pad whose sound would run into the next, needs a finite Hold (e.g. 2
+s): the pads of a Drum Rack don't cut each other off, and the split needs
+silence between them. Include one dry pad (Stretch 1.00, sine_441) in
+every Set as its level reference.
 
 | Effect | Files | Settings |
 |---|---|---|
