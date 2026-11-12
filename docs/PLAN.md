@@ -217,6 +217,14 @@ numpy, scipy and matplotlib, pinned in `scripts/requirements-analysis.txt`):
    bands over time (noise_white, sweep) and the sample-exact residual.
    Plots go to `<outdir>/plots/`, numbers to `<outdir>/compare.json`. The
    level reference is fitted from the Set's dry pieces, else Set 28's.
+   For Punch, it also renders each pad dry and plots the gain against that
+   over time, Move's and ours (sine: a 100-frame window every 10 frames;
+   click_train: each click from 100 ms on, since the attack ramp hides the
+   one on frame 0), with the deepest cut or boost, when the curve first
+   moves 0.5 dB, and how long it takes to come 63 % and 90 % of the way
+   back. Move's curve is also saved as `plots/<piece>_gain.txt`. Checked
+   on a synthetic take (a known -10 dB duck): depth and recovery times
+   come out within a window's width.
 5. Read the plots and numbers for what each effect does differently.
 6. Tune each stand-in and record the decision here.
 
@@ -264,9 +272,26 @@ line a recording of Move's output up with a render of plugin.c.
 | noise_white | white noise, -12 dBFS RMS, 2 s, seeded | 8-Bit Decay's low-pass closing and its bit-reduction floor |
 | position_ramp | a straight ramp, -16000 to +16000 over 2 s | the frame read at each moment: Stretch's grains, Loop's wrap, the read rate under Pitch Env and FM; usable only if Move's dry path passes it unbent |
 | sweep | 20 Hz-20 kHz log sweep, -6 dBFS, 4 s | 8-Bit's aliasing and filtering; any filtering in Move's neutral path |
+| sine_441_quiet | sine_441 at -30 dBFS | whether Punch depends on the input level, as a compressor would |
 
 Plus one real kick or snare, for a last check by ear once the numbers
 match.
+
+Punch Set (planned 2026-11-12, Set 29): one Drum Rack, 15 pads in note
+order, the baseline below on each, played about 3 s apart (the sines last
+2 s). Live's manual describes Punch as ducking, not the boost the stand-in
+plays: it should answer how deep the duck goes per Amount, how long the
+fixed attack leaves the transient alone, the release's shape and length
+against Release, whether each click of click_train ducks again (a
+compressor) or only the note-on, and whether the quiet sine ducks the same.
+
+| Pads | Sound | Punch |
+|---|---|---|
+| 1 | sine_441 | dry (Stretch 1.00): the level reference |
+| 2-7 | sine_441 | Amount 50 % and 100 %, each at Release 60 ms, 120 ms (default), 1.00 s |
+| 8-13 | click_train | the same six |
+| 14 | sine_441_quiet | dry |
+| 15 | sine_441_quiet | Amount 100 %, Release 120 ms |
 
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows
@@ -279,7 +304,7 @@ every Set as its level reference.
 | Effect | Files | Settings |
 |---|---|---|
 | none (Stretch 1.00) | all six | the dry path, once each: the reference for gain, filtering and alignment |
-| Punch | sine_441, click_train | Amount 50 %, 100 %; Release 60 ms, 120 ms, 1 s |
+| Punch | sine_441, click_train; sine_441_quiet | Amount 50 %, 100 %; Release 60 ms, 120 ms, 1 s; the quiet sine dry and at 100 %, 120 ms. See "Punch Set" |
 | Pitch Env | sine_441, position_ramp | Amount 100 %, 50 %, -100 %; Decay 300 ms, 2 s |
 | FM | sine_441, position_ramp | Amount 25 %, 100 %; Freq 10 Hz, 1 kHz; global Decay 100 ms and 60 s (with Hold short), for the modulation's decay |
 | Ring Mod | sine_441 | Amount 50 %, 100 %; Freq 5 Hz, 1 kHz; global Decay as for FM |

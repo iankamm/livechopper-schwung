@@ -209,6 +209,11 @@ def cmd_render(outdir):
         out = os.path.join(outdir, "ours_" + pc["piece"])
         subprocess.check_call([RENDER, os.path.join(WAVS, pc["sample"]), out,
                                "%.6f" % (pc["frames"] / RATE)] + settings)
+        if gain_effect(p):
+            # The same pad with no effect: what the gain curve divides by.
+            dry = [x for x in settings if not x.startswith(("effect=", "fx="))] + ["effect=0", "fx=1 0.1"]
+            subprocess.check_call([RENDER, os.path.join(WAVS, pc["sample"]),
+                                   os.path.join(outdir, "dry_" + pc["piece"]), "%.6f" % (pc["frames"] / RATE)] + dry)
         pc["settings"] = settings
         print("%-22s %s" % (pc["piece"], " ".join(settings[-3:])))
     json.dump(meta, open(os.path.join(outdir, "pads.json"), "w"), indent=1)
@@ -306,6 +311,66 @@ def interp_err(t1, y1, t2, y2):
     return np.interp(t, t1, y1) - np.interp(t, t2, y2)
 
 
+# ---------------------------------------------------------------- gain curves
+# Effects that only change the level (Punch): their gain over time, Move's
+# and ours, each against the same pad rendered dry by plugin.c.
+
+GAIN_EFFECTS = ("Punch",)
+GAIN_FLOOR = 1e-4           # -80 dB: the curve stops where dry is quieter than this
+
+
+def gain_effect(p):
+    return str(p.get("Effect_Type")) in GAIN_EFFECTS and not neutral(p)
+
+
+def gain_curve_sine(x, dry, lag, win=100, hop=10):
+    """x's gain against dry over one 441 Hz cycle (100 frames), so the
+    cosine's phase doesn't matter, every hop frames: (ms from note-on to
+    the window's centre, dB)."""
+    n = min(len(x), len(dry))
+
+    def rms(v):
+        c = np.concatenate([[0.0], np.cumsum(v[:n] ** 2)])
+        return np.sqrt((c[win::hop] - c[:-win:hop][:len(c[win::hop])]) / win)
+    rx, rd = rms(x), rms(dry)
+    ok = rd > GAIN_FLOOR * 32768
+    t = (np.arange(len(rd)) * hop + win / 2 - lag) / RATE * 1000
+    return t[ok], 20 * np.log10(np.maximum(rx[ok], 1e-9) / rd[ok])
+
+
+def gain_curve_clicks(x, dry, lag, half=24):
+    """x's gain against dry at each click: the RMS over the frames around
+    it (Move's Nyquist ring included): (ms, dB). The click on frame 0 is
+    lost under the attack ramp in both, so the curve starts at 100 ms: it
+    shows whether later clicks are ducked, the sine shows the onset."""
+    d = np.abs(dry)
+    big = np.flatnonzero(d > 0.25 * d.max())
+    peaks = [i for i in big if half <= i < len(dry) - half and d[i] == d[i - half:i + half + 1].max()]
+    t, g = [], []
+    for i in peaks:
+        a, b = x[i - half:i + half + 1], dry[i - half:i + half + 1]
+        t.append((i - lag) / RATE * 1000)
+        g.append(20 * np.log10(max(np.sqrt(np.mean(a ** 2)), 1e-9) / np.sqrt(np.mean(b ** 2))))
+    return np.array(t), np.array(g)
+
+
+def gain_shape(t, g):
+    """The curve's extreme (most cut or boost) and when it gets there, when
+    it first moves 0.5 dB, and how long after the extreme it takes to come
+    back 63 % and 90 % of the way to 0 dB."""
+    if len(g) < 2:
+        return None
+    k = int(np.argmax(np.abs(g)))
+    depth = float(g[k])
+    out = {"extreme_db": depth, "extreme_ms": float(t[k]), "end_db": float(g[-1])}
+    moved = np.flatnonzero(np.abs(g) > 0.5)
+    out["start_ms"] = float(t[moved[0]]) if len(moved) else None
+    for frac, key in ((0.63, "back63_ms"), (0.9, "back90_ms")):
+        back = np.flatnonzero(np.abs(g[k:]) <= (1 - frac) * abs(depth))
+        out[key] = float(t[k + back[0]] - t[k]) if len(back) and abs(depth) > 0.5 else None
+    return out
+
+
 def stats(e):
     if e is None or len(e) == 0:
         return None
@@ -321,6 +386,9 @@ def cmd_compare(outdir, gain_arg):
         move = read_mono(os.path.join(outdir, pc["piece"]))
         ours = read_mono(os.path.join(outdir, "ours_" + pc["piece"]))
         lag = align(move, ours)
+        dry_path = os.path.join(outdir, "dry_" + pc["piece"])
+        dry = shift(read_mono(dry_path), lag, len(move)) if os.path.exists(dry_path) else None
+        pc["dry"] = dry
         data.append((pc, move, shift(ours, lag, len(move)), lag))
 
     # The level: from the dry pieces when the Set has any.
@@ -375,6 +443,18 @@ def cmd_compare(outdir, gain_arg):
             row["bands_db"] = stats((bm - bo)[live])
             extra["bands"] = (bm, bo, tb)
             panels += ["bands_move", "bands_ours"]
+        if gain_effect(pc["params"]) and pc["dry"] is not None:
+            curve = gain_curve_clicks if name == "click_train" else gain_curve_sine
+            dry = pc["dry"]
+            gm = curve(move / gain, dry, lag)
+            go = curve(ours_raw, dry, lag)
+            row["gain"] = {"move": gain_shape(*gm), "ours": gain_shape(*go),
+                           "settings": [pc["params"].get(k) for k in EFFECTS[effect_index(pc["params"])][1:3]]}
+            row["gain_db"] = stats(interp_err(*gm, *go))
+            extra["gain"] = (gm, go, curve is gain_curve_clicks)
+            panels.append("gain")
+            np.savetxt(os.path.join(plots, pc["piece"].rsplit(".", 1)[0] + "_gain.txt"),
+                       np.column_stack(gm), fmt="%.3f", header="Move: ms from note-on, dB against dry")
         rows.append(row)
 
         fig, axes = plt.subplots(len(panels), 1, figsize=(12, 2.4 * len(panels)))
@@ -405,6 +485,17 @@ def cmd_compare(outdir, gain_arg):
                 ax.plot(t[on], pm[on], ",", ms=1)
                 ax.plot(t[on], po[on], ",", ms=1, alpha=0.7)
                 ax.set_ylabel("source ms", fontsize=7)
+            elif kind == "gain":
+                (tm, gm), (to, go), points = extra["gain"]
+                style = dict(marker="o", ms=3, lw=0.8) if points else dict(lw=0.8)
+                ax.plot(tm, gm, label="Move", **style)
+                ax.plot(to, go, alpha=0.7, label="ours", **style)
+                ax.axhline(0, color="k", lw=0.5)
+                ax.set_xscale("symlog", linthresh=10)
+                ax.set_xlim(left=0)
+                ax.set_xlabel("ms from note-on", fontsize=7)
+                ax.set_ylabel("dB against dry", fontsize=7)
+                ax.legend(loc="lower right", fontsize=7)
             elif kind in ("bands_move", "bands_ours"):
                 bm, bo, tb = extra["bands"]
                 b = bm if kind == "bands_move" else bo
@@ -426,6 +517,18 @@ def cmd_compare(outdir, gain_arg):
         print("%-22s %-9s %4d %16s %10.1f LSB %16s %16s %14s" % (
             r["piece"], r["effect"], r["lag"], f(r["level_db"], " dB"), r["residual_lsb"],
             f(r.get("pitch_st"), " st"), f(r.get("position_ms"), " ms"), f(r.get("bands_db"), " dB")))
+    shaped = [r for r in rows if "gain" in r]
+    if shaped:
+        def g(s, k, fmt):
+            return "-" if not s or s.get(k) is None else fmt % s[k]
+        print("\ngain against dry (Move / ours): extreme dB at ms, first 0.5 dB, back 63 % and 90 % after the extreme")
+        print("%-22s %-17s %15s %15s %15s %15s %15s" % ("piece", "settings", "extreme dB", "at ms", "start ms", "back63 ms", "back90 ms"))
+        for r in shaped:
+            m, o = r["gain"]["move"], r["gain"]["ours"]
+            print("%-22s %-17s" % (r["piece"], " ".join("%.4g" % v for v in r["gain"]["settings"])) + "".join(
+                " %15s" % ("%s / %s" % (g(m, k, f), g(o, k, f))) for k, f in (
+                    ("extreme_db", "%.1f"), ("extreme_ms", "%.0f"), ("start_ms", "%.1f"),
+                    ("back63_ms", "%.0f"), ("back90_ms", "%.0f"))))
     json.dump({"gain": gain, "rows": rows}, open(os.path.join(outdir, "compare.json"), "w"), indent=1)
     print("plots in", plots)
 

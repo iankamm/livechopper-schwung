@@ -37,6 +37,13 @@ def sine_441():
     return fade_out([a * math.cos(2 * math.pi * 441 * i / RATE) for i in range(2 * RATE)])
 
 
+def sine_441_quiet():
+    """sine_441 at -30 dBFS: whether Punch depends on the input level (a
+    compressor would duck it less than sine_441; a fixed envelope the same)."""
+    a = db(-30)
+    return fade_out([a * math.cos(2 * math.pi * 441 * i / RATE) for i in range(2 * RATE)])
+
+
 def click_train():
     """One-frame clicks at -1 dBFS every 100 ms, 2 s. Loop's Offset and
     Length, Stretch's grains, 8-Bit's rate and its Decay's low-pass."""
@@ -87,7 +94,7 @@ def sweep():
     return fade_out(v)
 
 
-SOUNDS = [sine_441, click_train, silence_click, noise_white, position_ramp, sweep]
+SOUNDS = [sine_441, click_train, silence_click, noise_white, position_ramp, sweep, sine_441_quiet]
 
 
 def write(path, v):
