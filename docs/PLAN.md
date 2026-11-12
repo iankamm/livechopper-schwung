@@ -167,23 +167,81 @@ What Live's manual says about each effect, against LiveChopper's stand-ins:
 |---|---|---|
 | Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | a boost of up to +12 dB at the start |
 | FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
-| Sub Osc, Noise | their envelope is the device's attack and decay | both go through the voice's envelope already; Noise also follows the sound's level, which Move may not |
+| Sub Osc, Noise | their envelope is "the device's attack and decay settings" (Hold isn't mentioned: they may decay even at Hold Inf) | both go through the voice's whole envelope, Hold included; Noise also follows the sound's level, which Move may not |
 | Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | fixed (only Loop Length follows Transpose) |
 | 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
 | Pitch Env | -100 to 100 % | +-24 semitones at 100 %, a guess |
 
-Method:
+Live's Drum Sampler reference also has "Envelope Follows Pitch", a
+context-menu option scaling the amplitude envelope with the pitch. Move
+has no such setting and the presets have no field for it; the Transpose
++12 takes show whether Move's envelope follows pitch.
 
-1. Test sounds on Move pads: a click train, a sine and a noise burst.
-2. Record Move's output for each effect at a few settings, using Move's
-   own sampling of its output (or another device's input if that can't),
-   and copy the WAVs to the host.
-3. Render the same sounds through plugin.c on the host (a small driver and
-   a compare script) and compare level envelopes and spectra.
-4. Tune each stand-in and record the decision here.
+Method (copies of Move's manual and of Live's Drum Sampler reference are
+in `.claude/ref/`, local only; the analysis runs with
+`build/.venv/bin/python`, set up by `scripts/setup_analysis_env.sh`:
+numpy, scipy and matplotlib, pinned in `scripts/requirements-analysis.txt`):
+
+1. Copy the test sounds (below) to the Move, into
+   `/data/UserData/UserLibrary/Samples/LiveChopper Tests/`.
+2. Build test Sets on Move: each pad gets a test sound and one row's
+   settings from "What to record" (each pad keeps its own effect settings,
+   so one Drum Rack holds a group of takes).
+3. Record with Schwung's Quantized Sampler (Shift+Sample, source
+   Resample): a digital copy of Move's output at unity gain, independent
+   of the volume knob, without the metronome, saved as stereo 16-bit
+   44.1 kHz WAVs to
+   `/data/UserData/UserLibrary/Samples/Schwung/Resampler/<date>/`
+   (`schwung/docs/ARCHITECTURE.md`, "Capture path"). Play the pads one at a
+   time about a second apart, nothing else playing, then stop. The take
+   starts on a bar; each test sound starts with a step or click, so the
+   take is split by onsets. Keep the volume up (headphones in) until the
+   first take confirms the capture doesn't depend on it. Fallback: Move's
+   own Resampling (Sampling mode), fetched from Move Manager's Recordings
+   page.
+4. Copy the takes to the host, split them, and match each to its pad
+   through the saved Set, which also has the exact effect values.
+5. Render the same sounds and settings through plugin.c on the host (a
+   small driver and a compare script; LiveChopper's side needs no
+   recording) and compare level envelopes and spectra.
+6. Tune each stand-in and record the decision here.
 
 Order: Punch, FM and Ring Mod's decay, Sub Osc and Noise's envelopes,
 following Transpose, Pitch Env's range, 8-Bit, Stretch, Loop.
+
+Test sounds: `scripts/make_test_wavs.py` writes them to `build/test_wavs/`,
+mono, 44.1 kHz, 16-bit. Each starts with a step or click at frame 0, to
+line a recording of Move's output up with a render of plugin.c.
+
+| File | What it is | What it measures |
+|---|---|---|
+| sine_441 | 441 Hz (100 frames a cycle), -6 dBFS, 2 s, cosine phase | pitch over time (Pitch Env, FM, Stretch); Ring Mod's sidebands; Sub Osc's added tone; Punch's gain curve on a steady level |
+| click_train | one-frame clicks every 100 ms, 2 s | Loop's Offset and Length; Stretch's grain size and window; 8-Bit's rate (a click held one rate period) and its Decay's low-pass |
+| silence_click | one click, then 2 s of silence | Sub Osc and Noise alone: envelope, level, Noise Color; whether Noise follows the sound's level |
+| noise_white | white noise, -12 dBFS RMS, 2 s, seeded | 8-Bit Decay's low-pass closing and its bit-reduction floor |
+| position_ramp | a straight ramp, -16000 to +16000 over 2 s | the frame read at each moment: Stretch's grains, Loop's wrap, the read rate under Pitch Env and FM; usable only if Move's dry path passes it unbent |
+| sweep | 20 Hz-20 kHz log sweep, -6 dBFS, 4 s | 8-Bit's aliasing and filtering; any filtering in Move's neutral path |
+
+Plus one real kick or snare, for a last check by ear once the numbers
+match.
+
+What to record. Baseline for every take: Attack at its minimum, Hold Inf,
+the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows
+for each setting (its knob steps rarely land on round numbers).
+
+| Effect | Files | Settings |
+|---|---|---|
+| none (Stretch 1.00) | all six | the dry path, once each: the reference for gain, filtering and alignment |
+| Punch | sine_441, click_train | Amount 50 %, 100 %; Release 60 ms, 120 ms, 1 s |
+| Pitch Env | sine_441, position_ramp | Amount 100 %, 50 %, -100 %; Decay 300 ms, 2 s |
+| FM | sine_441, position_ramp | Amount 25 %, 100 %; Freq 10 Hz, 1 kHz; global Decay 100 ms and 60 s (with Hold short), for the modulation's decay |
+| Ring Mod | sine_441 | Amount 50 %, 100 %; Freq 5 Hz, 1 kHz; global Decay as for FM |
+| Sub Osc | silence_click, sine_441 | Amount 100 %; Freq 30, 60, 120 Hz; Attack 0 and 100 ms, Hold short, Decay 100 ms; and Hold Inf with Decay 100 ms, for whether Hold applies |
+| Noise | silence_click, sine_441 | Amount 100 %; Color 180 Hz, 1 kHz, 15 kHz; envelope as for Sub Osc |
+| 8-Bit | click_train, noise_white, sweep | Rate 1 kHz, 14.1 kHz; Decay Off, 100 ms, 1 s |
+| Stretch | click_train, position_ramp, sine_441 | Factor 2, 20; Grain 5 ms, 100 ms, 300 ms |
+| Loop | click_train, position_ramp | Offset 0, 25 %; Length 10 ms, 300 ms, 500 ms |
+| Transpose +12 | sine_441 | Ring Mod 1 kHz, Sub Osc 60 Hz, Noise 1 kHz, FM 100 Hz, Stretch 2 / 100 ms, Loop 100 ms: which settings follow the pitch; and no effect with Hold 200 ms, Decay 200 ms: whether the envelope follows it |
 
 ### To settle on the Move first
 
