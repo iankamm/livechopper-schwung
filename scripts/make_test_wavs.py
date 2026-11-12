@@ -94,7 +94,25 @@ def sweep():
     return fade_out(v)
 
 
-SOUNDS = [sine_441, click_train, silence_click, noise_white, position_ramp, sweep, sine_441_quiet]
+def drum_synth():
+    """A kick-like hit, 1 s: a sine falling from 150 Hz to 50 Hz under an
+    exponential decay, plus a short noise burst, -8 dBFS peak, a step at
+    frame 0. A realistic transient for every acceptance Set's spectrum
+    check (docs/PLAN.md step 4, "When an effect is done"), in place of a
+    check by ear. -8 dBFS leaves room for Punch's makeup (x2) under Move's
+    output ceiling."""
+    rnd = random.Random(33333)
+    v, ph = [], 0.0
+    for i in range(RATE):
+        t = i / RATE
+        body = math.cos(ph) * math.exp(-t / 0.25)
+        ph += 2 * math.pi * (50 + 100 * math.exp(-t / 0.04)) / RATE
+        v.append(body + db(-12) * (2 * rnd.random() - 1) * math.exp(-t / 0.003))
+    a = db(-8) / max(abs(x) for x in v)
+    return fade_out([a * x for x in v])
+
+
+SOUNDS = [sine_441, click_train, silence_click, noise_white, position_ramp, sweep, sine_441_quiet, drum_synth]
 
 
 def write(path, v):

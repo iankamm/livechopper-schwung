@@ -227,6 +227,12 @@ numpy, scipy and matplotlib, pinned in `scripts/requirements-analysis.txt`):
    come out within a window's width.
 5. Read the plots and numbers for what each effect does differently.
 6. Tune each stand-in and record the decision here.
+7. When it looks right, prove it: `fxlab.py accept-set <effect> --seed
+   <n>` draws a held-out acceptance Set, which is recorded and split as
+   above, then `fxlab.py check <outdir>`. The effect is done when that
+   passes (see "When an effect is done"); `fxlab.py refs <outdir> --seed
+   <n>` then saves Move's curves to `tests/move_refs/`, and the seed goes
+   here.
 
 Move's dry path (Set 28, 2026-11-12: the six sounds at Stretch 1.00,
 Attack minimum, Hold Inf, Low-Pass 24 at 22 kHz, pad Volume -12 dB,
@@ -257,6 +263,42 @@ only):
   What remains is the attack ramp, the end fade and the Nyquist ring
   above.
 
+### When an effect is done
+
+Decided 2026-11-12: an effect is done when a held-out acceptance Set
+passes `fxlab.py check`, which means every pad passes every metric that
+applies to it. Listening plays no part. Each metric is a curve over time from
+note-on, Move's against ours, from 1 ms (past the attack ramp) to 20 ms
+before the sound ends (clear of Move's end fade), with limits from
+hearing thresholds:
+
+| Metric | What it compares | rms | max | Applies to |
+|---|---|---|---|---|
+| gain | gain against the same pad rendered dry, a 100-frame window every 10 frames | 0.5 dB | 1.5 dB | sine_441(_quiet) under Punch, or Ring Mod below 20 Hz |
+| pitch | pitch between zero crossings | 5 ct | 15 ct | sine_441(_quiet) dry, under Punch, Pitch Env, or FM below 20 Hz |
+| position | the frame read, from position_ramp's value | 1 ms | 2 ms | position_ramp dry, under Loop, Pitch Env, or FM below 20 Hz |
+| bands | 1/3-octave levels over time (4096-frame windows, hop 1024), cells within 40 dB of the loudest and above -80 dB full scale; both sides clamped at that floor | 1 dB | 3 dB | every pad: the catch-all |
+
+- **Held out:** `accept-set` draws each setting at a random whole number
+  of knob clicks (so Move's curves apply), on the effect's test sounds plus
+  drum_synth, after tuning, from a seed recorded here. A Set that fails
+  becomes one more fit Set, and the next try uses a new seed.
+- **Move's repeatability:** pad 1 is dry and the last pad repeats pad 2. A
+  metric's limits rise to what Move's two takes differ by, if that's more.
+- **Ceiling:** acceptance sounds stay under Move's output ceiling (see
+  Punch, Set 29), unless the effect owns it.
+- **Afterwards:** `fxlab.py refs` saves Move's curves (a point a ms) and
+  the limits to `tests/move_refs/<effect>/`, and `scripts/test.sh` runs
+  `fxlab.py refs-check`, which renders each pad through plugin.c and
+  holds it to them. It also runs `tests/fxlab_selftest.py`, which shows that
+  plugin.c's own render passes and that +1 dB or 10 cents fail. Both need the
+  analysis venv; without it (CI) they are skipped.
+- **Shown so far:** Set 28's dry pads pass every metric with room to spare
+  (bands 0.01 dB, pitch 0.85 ct max, position 0.35 ms max), so the dry
+  path's leftover differences (attack ramp, end fade, Nyquist ring) don't
+  need matching first. Set 29 fails Punch on gain (up to 18 dB) and bands
+  on every sine pad.
+
 Order: Punch, FM and Ring Mod's decay, Sub Osc and Noise's envelopes,
 following Transpose, Pitch Env's range, 8-Bit, Stretch, Loop.
 
@@ -273,9 +315,7 @@ line a recording of Move's output up with a render of plugin.c.
 | position_ramp | a straight ramp, -16000 to +16000 over 2 s | the frame read at each moment: Stretch's grains, Loop's wrap, the read rate under Pitch Env and FM; usable only if Move's dry path passes it unbent |
 | sweep | 20 Hz-20 kHz log sweep, -6 dBFS, 4 s | 8-Bit's aliasing and filtering; any filtering in Move's neutral path |
 | sine_441_quiet | sine_441 at -30 dBFS | whether Punch depends on the input level, as a compressor would |
-
-Plus one real kick or snare, for a last check by ear once the numbers
-match.
+| drum_synth | a kick-like hit: a sine falling from 150 to 50 Hz under a 250 ms decay, plus a 3 ms noise burst, -8 dBFS peak, 1 s | a realistic transient in every acceptance Set, on the bands metric (in place of a real kick or snare checked by ear); -8 dBFS leaves room for Punch's x2 makeup under the ceiling |
 
 Punch Set (planned 2026-11-12, Set 29): one Drum Rack, 15 pads in note
 order, the baseline below on each, played about 3 s apart (the sines last
@@ -342,6 +382,10 @@ can show 252 and 506 ms (the Set file records the exact values anyway).
 
 `compare` takes only fully dry pads (no effect, the low-pass open, no
 gain or transpose) as the level reference, so pad 11 doesn't count.
+
+Punch is done when, after tuning on Sets 29 and 30, an acceptance Set
+from `fxlab.py accept-set Punch --seed <n>` (sine_441, sine_441_quiet,
+drum_synth) passes `fxlab.py check`.
 
 What to record. Baseline for every take: Attack at its minimum, Hold Inf,
 the filter Low-Pass 24 fully open, Transpose 0. Note the value Move shows

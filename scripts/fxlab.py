@@ -6,17 +6,29 @@ step 4). Run with build/.venv/bin/python (scripts/setup_analysis_env.sh).
     fxlab.py render  <outdir>
     fxlab.py compare <outdir> [--gain G]
     fxlab.py all     <take.wav> <Song.abl> <outdir> [--gain G]
+    fxlab.py check   <outdir> [--gain G]
+    fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N]
+    fxlab.py refs-check [tests/move_refs]
+    fxlab.py accept-set <effect> --seed N [--pads 8]
 
 split cuts a take recorded with Schwung's Quantized Sampler (Move->Schwung
 on) into one piece per pad, in pad order, and saves each pad's Drum Sampler
 settings from the Set. render plays the same test sound with the same
 settings through plugin.c (scripts/fx_render.c). compare measures both the
 same way and writes plots and a summary.
+
+check is the gate for "this effect matches Move" (docs/PLAN.md step 4,
+"When an effect is done"): it renders a split acceptance Set with today's
+plugin.c and passes or fails every pad on every metric that applies. refs
+then saves Move's measured curves to tests/move_refs/, and refs-check (run
+by scripts/test.sh) holds plugin.c to them without the recordings.
+accept-set draws an acceptance Set's settings at random.
 """
 import argparse
 import json
 import math
 import os
+import random
 import subprocess
 import sys
 import urllib.parse
@@ -204,7 +216,17 @@ def build_render():
                            "-o", RENDER, "-lm", "-lpthread"])
 
 
-def cmd_render(outdir):
+def dry_settings(settings):
+    """The same plugin.c settings with no effect."""
+    return [x for x in settings if not x.startswith(("effect=", "fx="))] + ["effect=0", "fx=1 0.1"]
+
+
+def render_pad(sample, settings, frames, out, quiet=False):
+    subprocess.check_call([RENDER, os.path.join(WAVS, sample), out, "%.6f" % (frames / RATE)] + settings,
+                          stdout=subprocess.DEVNULL if quiet else None)
+
+
+def cmd_render(outdir, quiet=False):
     build_render()
     meta = json.load(open(os.path.join(outdir, "pads.json")))
     for pc in meta["pieces"]:
@@ -212,16 +234,13 @@ def cmd_render(outdir):
         if p.get("Voice_Envelope_Mode") == "A-S-R":
             print("  warning: %s is gated; the release time isn't in the take, so ours never releases" % pc["piece"])
         settings = dsp_settings(p)
-        out = os.path.join(outdir, "ours_" + pc["piece"])
-        subprocess.check_call([RENDER, os.path.join(WAVS, pc["sample"]), out,
-                               "%.6f" % (pc["frames"] / RATE)] + settings)
+        render_pad(pc["sample"], settings, pc["frames"], os.path.join(outdir, "ours_" + pc["piece"]))
         if gain_effect(p):
             # The same pad with no effect: what the gain curve divides by.
-            dry = [x for x in settings if not x.startswith(("effect=", "fx="))] + ["effect=0", "fx=1 0.1"]
-            subprocess.check_call([RENDER, os.path.join(WAVS, pc["sample"]),
-                                   os.path.join(outdir, "dry_" + pc["piece"]), "%.6f" % (pc["frames"] / RATE)] + dry)
+            render_pad(pc["sample"], dry_settings(settings), pc["frames"], os.path.join(outdir, "dry_" + pc["piece"]))
         pc["settings"] = settings
-        print("%-22s %s" % (pc["piece"], " ".join(settings[-3:])))
+        if not quiet:
+            print("%-22s %s" % (pc["piece"], " ".join(settings[-3:])))
     json.dump(meta, open(os.path.join(outdir, "pads.json"), "w"), indent=1)
 
 
@@ -315,26 +334,32 @@ def band_levels(v, nfft=4096, hop=1024):
     return out, np.arange(frames) * hop / RATE
 
 
-def interp_err(t1, y1, t2, y2):
-    if len(t1) < 2 or len(t2) < 2:
+def stats(e):
+    if e is None or len(e) == 0:
         return None
-    lo, hi = max(t1[0], t2[0]), min(t1[-1], t2[-1])
-    if hi <= lo:
-        return None
-    t = np.linspace(lo, hi, 400)
-    return np.interp(t, t1, y1) - np.interp(t, t2, y2)
+    return {"rms": float(np.sqrt(np.mean(e ** 2))), "max": float(np.max(np.abs(e)))}
+
+
+def effect_name(p):
+    return EFFECTS[effect_index(p)][0]
+
+
+def fx_value(p, which):
+    """The effect's first (0) or second (1) setting."""
+    return p.get(EFFECTS[effect_index(p)][1 + which], 0.0)
 
 
 # ---------------------------------------------------------------- gain curves
-# Effects that only change the level (Punch): their gain over time, Move's
-# and ours, each against the same pad rendered dry by plugin.c.
+# Effects that only change the level: their gain over time, Move's and
+# ours, each against the same pad rendered dry by plugin.c.
 
-GAIN_EFFECTS = ("Punch",)
 GAIN_FLOOR = 1e-4           # -80 dB: the curve stops where dry is quieter than this
+SLOW_HZ = 20                # Ring Mod and FM below this are a level or pitch wobble
 
 
 def gain_effect(p):
-    return str(p.get("Effect_Type")) in GAIN_EFFECTS and not neutral(p)
+    name = effect_name(p)
+    return not neutral(p) and (name == "Punch" or (name == "Ring Mod" and fx_value(p, 1) < SLOW_HZ))
 
 
 def gain_curve_sine(x, dry, lag, win=100, hop=10):
@@ -394,41 +419,200 @@ def gain_shape(t, g, end_ms):
     return out
 
 
-def stats(e):
-    if e is None or len(e) == 0:
-        return None
-    return {"rms": float(np.sqrt(np.mean(e ** 2))), "max": float(np.max(np.abs(e)))}
+# ---------------------------------------------------------------- metrics
+# What "matches Move" means (docs/PLAN.md step 4, "When an effect is
+# done"): each metric is a curve over time from note-on, Move's against
+# ours, with rms and max limits from hearing: level 0.5 dB, pitch 5
+# cents, timing 1 ms, spectrum 1 dB per 1/3-octave band.
+
+SINES = ("sine_441.wav", "sine_441_quiet.wav")
+START_MS = 1.0              # metrics start past the attack ramp (4 frames)
+END_MARGIN_MS = 20          # ... and stop this long before the sound does (Move's end fade)
+STORE_MS = 1.0              # stored curves keep a point a ms
+BAND_NFFT, BAND_HOP = 4096, 1024
+BAND_LIVE_DB = 40           # bands compared: within this of the loudest,
+BAND_FLOOR_DB = 80          # ... and no quieter than this below a full-scale sine
 
 
-def cmd_compare(outdir, gain_arg):
+def uses_gain(p, sample):
+    return sample in SINES and gain_effect(p)
+
+
+def uses_pitch(p, sample):
+    name = effect_name(p)
+    return sample in SINES and (neutral(p) or name in ("Punch", "Pitch Env")
+                                or (name == "FM" and fx_value(p, 1) < SLOW_HZ))
+
+
+def uses_position(p, sample):
+    name = effect_name(p)
+    return sample == "position_ramp.wav" and (neutral(p) or name in ("Loop", "Pitch Env")
+                                              or (name == "FM" and fx_value(p, 1) < SLOW_HZ))
+
+
+def curve_gain(x, c):
+    return gain_curve_sine(x, c["dry"], 0)
+
+
+def curve_pitch(x, c):
+    s, st = pitch_track(x)
+    return s * 1000, st * 100
+
+
+def curve_position(x, c):
+    v = ramp_position_ms(x, 1.0, c["n_src"])
+    return np.arange(len(v)) / RATE * 1000, v
+
+
+def curve_bands(x, c):
+    b, tb = band_levels(x, BAND_NFFT, BAND_HOP)
+    return tb * 1000, b
+
+
+# name, unit, rms limit, max limit, applies(params, sample), curve(x, context)
+METRICS = [
+    ("gain", "dB", 0.5, 1.5, uses_gain, curve_gain),
+    ("pitch", "ct", 5.0, 15.0, uses_pitch, curve_pitch),
+    ("position", "ms", 1.0, 2.0, uses_position, curve_position),
+    ("bands", "dB", 1.0, 3.0, lambda p, s: True, curve_bands),
+]
+
+_band_fs = []
+
+
+def band_fs_db():
+    """The band level of a full-scale sine, for the bands' floor."""
+    if not _band_fs:
+        x = 32767 * np.sin(2 * np.pi * 1000 * np.arange(BAND_NFFT + BAND_HOP) / RATE)
+        _band_fs.append(float(band_levels(x, BAND_NFFT, BAND_HOP)[0].max()))
+    return _band_fs[0]
+
+
+def store_curve(name, t, v, end_ms):
+    """A curve as saved: from START_MS (bands: from note-on) to end_ms, a
+    point a ms (bands: every frame whose window ends by end_ms)."""
+    if name == "bands":
+        keep = t + BAND_NFFT / RATE * 1000 <= end_ms
+        return {"t": np.round(t[keep], 3).tolist(), "v": np.round(v[:, keep], 2).tolist()}
+    keep = (t >= START_MS) & (t <= end_ms)
+    t, v = t[keep], v[keep]
+    if len(t):
+        first = np.flatnonzero(np.diff(np.floor(t / STORE_MS), prepend=-1) > 0)
+        t, v = t[first], v[first]
+    return {"t": np.round(t, 3).tolist(), "v": np.round(v, 3).tolist()}
+
+
+def curve_error(name, ref, t, v):
+    """A stored (Move) curve minus a full one (ours, or Move's repeat), at
+    the stored curve's points."""
+    rt, rv = np.array(ref["t"]), np.array(ref["v"])
+    if name == "bands":
+        if rv.size == 0:
+            return np.array([])
+        n = min(rv.shape[1], v.shape[1])
+        rb, ob = rv[:, :n], v[:, :n]
+        top = np.maximum(rb, ob)
+        # Both sides clamped at the floor: a component one has and the
+        # other lacks counts as at most BAND_LIVE_DB, not as -240 dB.
+        floor = max(top.max() - BAND_LIVE_DB, band_fs_db() - BAND_FLOOR_DB)
+        return (np.maximum(rb, floor) - np.maximum(ob, floor))[top > floor]
+    if len(rt) == 0 or len(t) < 2:
+        return np.array([])
+    m = (rt >= t[0]) & (rt <= t[-1])
+    return rv[m] - np.interp(rt[m], t, v)
+
+
+def sound_end_ms(*xs):
+    """Where the first of xs stops sounding, less END_MARGIN_MS."""
+    ends = [np.flatnonzero(np.abs(x) > 50)[-1] if np.any(np.abs(x) > 50) else len(x) for x in xs]
+    return min(ends) / RATE * 1000 - END_MARGIN_MS
+
+
+def judge(name, err, rms_limit, max_limit):
+    """A metric's verdict on an error array: (stats, PASS/FAIL). No
+    points at all fails, except for bands, where it means both are silent."""
+    st = stats(err)
+    if st is None:
+        return None, "PASS" if name == "bands" else "FAIL"
+    return st, "PASS" if st["rms"] <= rms_limit and st["max"] <= max_limit else "FAIL"
+
+
+def measure(sample, params, x, ours, dry, end_ms):
+    """Every metric that applies to a pad: {name: (Move's curve stored,
+    Move's full curve, ours full curve, error)}. x is Move's piece at
+    ours' level from note-on; ours and dry are plugin.c's renders."""
+    c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, sample)))}
+    out = {}
+    for name, _, _, _, applies, curve in METRICS:
+        if not applies(params, sample) or (name == "gain" and dry is None):
+            continue
+        mt, mv = curve(x, c)
+        ot, ov = curve(ours, c)
+        ref = store_curve(name, mt, mv, end_ms)
+        out[name] = (ref, (mt, mv), (ot, ov), curve_error(name, ref, ot, ov))
+    return out
+
+
+def load_pieces(outdir, gain_arg):
+    """A split, rendered Set: each piece with Move's take lined up on
+    ours (from note-on, at ours' level), and the level between them."""
     meta = json.load(open(os.path.join(outdir, "pads.json")))
-    plots = os.path.join(outdir, "plots")
-    os.makedirs(plots, exist_ok=True)
     data = []
     for pc in meta["pieces"]:
         move = read_mono(os.path.join(outdir, pc["piece"]))
         ours = read_mono(os.path.join(outdir, "ours_" + pc["piece"]))
-        lag = align(move, ours)
         dry_path = os.path.join(outdir, "dry_" + pc["piece"])
-        dry = shift(read_mono(dry_path), lag, len(move)) if os.path.exists(dry_path) else None
-        pc["dry"] = dry
-        data.append((pc, move, shift(ours, lag, len(move)), lag))
+        dry = read_mono(dry_path) if os.path.exists(dry_path) else None
+        data.append({"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "lag": align(move, ours)})
 
     # The level: from the dry pieces when the Set has any.
     num = den = 0.0
-    for pc, move, ours, _ in data:
-        if plain(pc["params"]) and pc["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
+    for d in data:
+        if plain(d["pc"]["params"]) and d["pc"]["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
+            move, ours = d["move"], shift(d["ours_raw"], d["lag"], len(d["move"]))
             sl = slice(EDGE, len(move) - EDGE)
             num += float(np.dot(move[sl], ours[sl]))
             den += float(np.dot(ours[sl], ours[sl]))
     gain = gain_arg if gain_arg else (num / den if den > 0 else DEFAULT_GAIN)
-    print("gain %.5f (%.2f dB, %s)" % (gain, 20 * math.log10(gain),
-          "given" if gain_arg else ("from the dry pieces" if den > 0 else "Set 28's")))
+    source = "given" if gain_arg else ("from the dry pieces" if den > 0 else "Set 28's")
+
+    for d in data:
+        n = len(d["move"])
+        d["x"] = shift(d["move"], -d["lag"], n) / gain
+        d["ours"] = shift(d["ours_raw"], 0, n)
+        d["dry"] = shift(d["dry_raw"], 0, n) if d["dry_raw"] is not None else None
+        d["end_ms"] = sound_end_ms(d["x"], d["ours"])
+        d["m"] = measure(d["pc"]["sample"], d["pc"]["params"], d["x"], d["ours"], d["dry"], d["end_ms"])
+    return meta, data, gain, source
+
+
+def same_pad(a, b):
+    """Two pieces with the same sound and settings (a repeat)."""
+    if a["sample"] != b["sample"]:
+        return False
+    pa, pb = a["params"], b["params"]
+    for k in set(pa) | set(pb):
+        va, vb = pa.get(k), pb.get(k)
+        if isinstance(va, float) and isinstance(vb, float):
+            if abs(va - vb) > 1e-3 * max(1.0, abs(va), abs(vb)):
+                return False
+        elif va != vb:
+            return False
+    return True
+
+
+# ---------------------------------------------------------------- compare
+
+def cmd_compare(outdir, gain_arg):
+    meta, data, gain, source = load_pieces(outdir, gain_arg)
+    plots = os.path.join(outdir, "plots")
+    os.makedirs(plots, exist_ok=True)
+    print("gain %.5f (%.2f dB, %s)" % (gain, 20 * math.log10(gain), source))
 
     rows = []
-    for pc, move, ours_raw, lag in data:
-        ours = ours_raw * gain
-        name = pc["sample"].rsplit(".", 1)[0]
+    for d in data:
+        pc, move, lag = d["pc"], d["move"], d["lag"]
+        ours = shift(d["ours_raw"], lag, len(move)) * gain
         row = {"piece": pc["piece"], "effect": pc["params"].get("Effect_Type"), "lag": lag}
         lm, tl = level_db(move)
         lo, _ = level_db(ours)
@@ -440,49 +624,28 @@ def cmd_compare(outdir, gain_arg):
                    for x in (move, ours))
         sl = slice(EDGE, max(EDGE + 1, last - EDGE))
         row["residual_lsb"] = float(np.sqrt(np.mean((move[sl] - ours[sl]) ** 2)))
+        for name, (_, _, _, err) in d["m"].items():
+            row[name] = stats(err)
 
-        panels = ["wave", "zoom", "level"]
-        extra = {}
-        if name == "sine_441":
-            extra["pitch"] = (pitch_track(move), pitch_track(ours))
-            row["pitch_st"] = stats(interp_err(*extra["pitch"][0], *extra["pitch"][1]))
-            panels.append("pitch")
-        if name == "position_ramp":
-            n_src = len(read_mono(os.path.join(WAVS, pc["sample"])))
-            pm = ramp_position_ms(move, gain, n_src)
-            po = ramp_position_ms(ours_raw, 1.0, n_src)
-            # Away from the attack and Move's end fade (PLAN "Move's dry path").
-            on = np.zeros(len(move), bool)
-            sounding = np.flatnonzero(np.abs(move) > 50)
-            if len(sounding):
-                on[sounding[0] + 10:max(sounding[0] + 10, sounding[-1] - 600)] = True
-            row["position_ms"] = stats((pm - po)[on]) if on.any() else None
-            extra["position"] = (pm, po, on)
-            panels.append("position")
-        if name in ("noise_white", "sweep"):
-            bm, tb = band_levels(move)
-            bo, _ = band_levels(ours)
-            live = np.maximum(bm, bo) > max(bm.max(), bo.max()) - 60
-            row["bands_db"] = stats((bm - bo)[live])
-            extra["bands"] = (bm, bo, tb)
-            panels += ["bands_move", "bands_ours"]
-        if gain_effect(pc["params"]) and pc["dry"] is not None:
-            curve = gain_curve_clicks if name == "click_train" else gain_curve_sine
-            dry = pc["dry"]
-            gm = curve(move / gain, dry, lag)
-            go = curve(ours_raw, dry, lag)
-            # Up to 20 ms before the sound ends, clear of Move's end fade.
-            loud = np.flatnonzero(np.abs(dry) > 50)
-            end_ms = ((loud[-1] if len(loud) else len(dry)) - lag) / RATE * 1000 - 20
-            row["gain"] = {"move": gain_shape(*gm, end_ms), "ours": gain_shape(*go, end_ms),
-                           "settings": [pc["params"].get(k) for k in EFFECTS[effect_index(pc["params"])][1:3]]}
-            row["gain_db"] = stats(interp_err(*gm, *go))
-            extra["gain"] = (gm, go, curve is gain_curve_clicks)
-            panels.append("gain")
+        # Punch's shape, and on click_train its gain at each click.
+        diag = None
+        if gain_effect(pc["params"]) and d["dry"] is not None:
+            if "gain" in d["m"]:
+                gm, go = d["m"]["gain"][1], d["m"]["gain"][2]
+            else:
+                gm = gain_curve_clicks(d["x"], d["dry"], 0)
+                go = gain_curve_clicks(d["ours"], d["dry"], 0)
+            row["gain_shape"] = {"move": gain_shape(*gm, d["end_ms"]), "ours": gain_shape(*go, d["end_ms"]),
+                                 "settings": [fx_value(pc["params"], 0), fx_value(pc["params"], 1)]}
+            diag = (gm, go, "gain" not in d["m"])
             np.savetxt(os.path.join(plots, pc["piece"].rsplit(".", 1)[0] + "_gain.txt"),
                        np.column_stack(gm), fmt="%.3f", header="Move: ms from note-on, dB against dry")
         rows.append(row)
 
+        panels = ["wave", "zoom", "level"] + [k for k in ("pitch", "position") if k in d["m"]]
+        if diag:
+            panels.append("gain")
+        panels += ["bands_move", "bands_ours"]
         fig, axes = plt.subplots(len(panels), 1, figsize=(12, 2.4 * len(panels)))
         t = np.arange(len(move)) / RATE
         for ax, kind in zip(axes, panels):
@@ -501,18 +664,17 @@ def cmd_compare(outdir, gain_arg):
                 ax.plot(tl, lo, lw=0.6, alpha=0.7)
                 ax.set_ylabel("dBFS", fontsize=7)
                 ax.set_ylim(max(-100, min(lm.min(), lo.min()) - 3), 3)
-            elif kind == "pitch":
-                (tm, sm), (to, so) = extra["pitch"]
-                ax.plot(tm, sm, lw=0.6)
-                ax.plot(to, so, lw=0.6, alpha=0.7)
-                ax.set_ylabel("st from 441 Hz", fontsize=7)
-            elif kind == "position":
-                pm, po, on = extra["position"]
-                ax.plot(t[on], pm[on], ",", ms=1)
-                ax.plot(t[on], po[on], ",", ms=1, alpha=0.7)
-                ax.set_ylabel("source ms", fontsize=7)
+            elif kind in ("pitch", "position"):
+                (mt, mv), (ot, ov) = d["m"][kind][1], d["m"][kind][2]
+                on = (mt >= START_MS) & (mt <= d["end_ms"])
+                oo = (ot >= START_MS) & (ot <= d["end_ms"])
+                style = dict(lw=0.6) if kind == "pitch" else dict(ls="", marker=",")
+                ax.plot(mt[on], mv[on], **style)
+                ax.plot(ot[oo], ov[oo], alpha=0.7, **style)
+                ax.set_ylabel("cents from 441 Hz" if kind == "pitch" else "source ms", fontsize=7)
+                ax.set_xlabel("ms from note-on", fontsize=7)
             elif kind == "gain":
-                (tm, gm), (to, go), points = extra["gain"]
+                (tm, gm), (to, go), points = diag
                 style = dict(marker="o", ms=3, lw=0.8) if points else dict(lw=0.8)
                 ax.plot(tm, gm, label="Move", **style)
                 ax.plot(to, go, alpha=0.7, label="ours", **style)
@@ -523,12 +685,13 @@ def cmd_compare(outdir, gain_arg):
                 ax.set_ylabel("dB against dry", fontsize=7)
                 ax.legend(loc="lower right", fontsize=7)
             elif kind in ("bands_move", "bands_ours"):
-                bm, bo, tb = extra["bands"]
+                (tb, bm), (_, bo) = d["m"]["bands"][1], d["m"]["bands"][2]
                 b = bm if kind == "bands_move" else bo
                 ax.imshow(b, aspect="auto", origin="lower", vmin=bm.max() - 60, vmax=bm.max(),
-                          extent=[tb[0], tb[-1] + 1024 / RATE, 0, len(BANDS)])
+                          extent=[tb[0], tb[-1] + BAND_HOP / RATE * 1000, 0, len(BANDS)])
                 ax.set_yticks([0, 10, 20, 29], ["%d" % BANDS[i] for i in (0, 10, 20, 29)])
                 ax.set_ylabel(("Move" if kind == "bands_move" else "ours") + " Hz", fontsize=7)
+                ax.set_xlabel("ms from note-on", fontsize=7)
             ax.tick_params(labelsize=7)
             ax.grid(alpha=0.3)
         plt.tight_layout()
@@ -537,13 +700,13 @@ def cmd_compare(outdir, gain_arg):
 
     def f(s, unit):
         return "-" if not s else "%.2f/%.2f%s" % (s["rms"], s["max"], unit)
-    print("%-22s %-9s %4s %16s %12s %16s %16s %14s" % (
-        "piece", "effect", "lag", "level rms/max", "residual", "pitch rms/max", "position", "bands"))
+    print("%-22s %-9s %4s %16s %12s %16s %16s %16s %16s" % (
+        "piece", "effect", "lag", "level rms/max", "residual", "gain", "pitch", "position", "bands"))
     for r in rows:
-        print("%-22s %-9s %4d %16s %10.1f LSB %16s %16s %14s" % (
+        print("%-22s %-9s %4d %16s %10.1f LSB %16s %16s %16s %16s" % (
             r["piece"], r["effect"], r["lag"], f(r["level_db"], " dB"), r["residual_lsb"],
-            f(r.get("pitch_st"), " st"), f(r.get("position_ms"), " ms"), f(r.get("bands_db"), " dB")))
-    shaped = [r for r in rows if "gain" in r]
+            f(r.get("gain"), " dB"), f(r.get("pitch"), " ct"), f(r.get("position"), " ms"), f(r.get("bands"), " dB")))
+    shaped = [r for r in rows if "gain_shape" in r]
     if shaped:
         def g(s, k, fmt):
             return "-" if not s or s.get(k) is None else fmt % s[k]
@@ -553,11 +716,195 @@ def cmd_compare(outdir, gain_arg):
                 ("down50_ms", "%.0f"), ("up50_ms", "%.0f"), ("up90_ms", "%.0f"))
         print("%-22s %-15s" % ("piece", "settings") + "".join(" %13s" % k for k, _ in cols))
         for r in shaped:
-            m, o = r["gain"]["move"], r["gain"]["ours"]
-            print("%-22s %-15s" % (r["piece"], " ".join("%.4g" % v for v in r["gain"]["settings"])) + "".join(
+            m, o = r["gain_shape"]["move"], r["gain_shape"]["ours"]
+            print("%-22s %-15s" % (r["piece"], " ".join("%.4g" % v for v in r["gain_shape"]["settings"])) + "".join(
                 " %13s" % ("%s / %s" % (g(m, k, f), g(o, k, f))) for k, f in cols))
     json.dump({"gain": gain, "rows": rows}, open(os.path.join(outdir, "compare.json"), "w"), indent=1)
     print("plots in", plots)
+
+
+# ---------------------------------------------------------------- check
+
+def limits_with_floor(data):
+    """Each metric's limits, raised to what Move's repeated pads differ by."""
+    lim = {name: [r, m] for name, _, r, m, _, _ in METRICS}
+    floors = {}
+    for i, a in enumerate(data):
+        for b in data[i + 1:]:
+            if not same_pad(a["pc"], b["pc"]):
+                continue
+            for name in set(a["m"]) & set(b["m"]):
+                st = stats(curve_error(name, a["m"][name][0], *b["m"][name][1]))
+                if st:
+                    fl = floors.setdefault(name, {"rms": 0.0, "max": 0.0, "pairs": []})
+                    fl["rms"], fl["max"] = max(fl["rms"], st["rms"]), max(fl["max"], st["max"])
+                    fl["pairs"].append([a["pc"]["piece"], b["pc"]["piece"]])
+    for name, fl in floors.items():
+        lim[name] = [max(lim[name][0], fl["rms"]), max(lim[name][1], fl["max"])]
+    return lim, floors
+
+
+def cmd_check(outdir, gain_arg):
+    """Today's plugin.c against a split acceptance Set: 0 if every pad
+    passes every metric that applies, 1 otherwise."""
+    cmd_render(outdir, quiet=True)
+    meta, data, gain, source = load_pieces(outdir, gain_arg)
+    lim, floors = limits_with_floor(data)
+    units = {name: unit for name, unit, _, _, _, _ in METRICS}
+    print("level %.5f (%s). Limits rms/max:" % (gain, source) + "".join(
+        " %s %.2g/%.2g %s%s" % (n, lim[n][0], lim[n][1], units[n], " (raised by a repeat)" if n in floors else "")
+        for n in lim))
+    if not floors:
+        print("  note: no repeated pad, so no check of Move's own repeatability")
+
+    refdir = os.path.join(outdir, "refs")
+    os.makedirs(refdir, exist_ok=True)
+    rows, fails = [], 0
+    for d in data:
+        pc = d["pc"]
+        row = {"piece": pc["piece"], "effect": pc["params"].get("Effect_Type"), "metrics": {}}
+        cells = []
+        for name, (ref, _, _, err) in d["m"].items():
+            st, verdict = judge(name, err, *lim[name])
+            fails += verdict == "FAIL"
+            row["metrics"][name] = {"stats": st, "verdict": verdict, "limits": lim[name]}
+            cells.append("%s %s %s" % (name, "-" if st is None else "%.2f/%.2f" % (st["rms"], st["max"]), verdict))
+        rows.append(row)
+        print("%-22s %-9s %s" % (pc["piece"], row["effect"], "   ".join(cells)))
+        json.dump({"set": os.path.basename(os.path.dirname(meta.get("set", ""))) or None,
+                   "piece": pc["piece"], "sample": pc["sample"], "params": pc["params"],
+                   "settings": dsp_settings(pc["params"]), "frames": pc["frames"],
+                   "end_ms": round(d["end_ms"], 3), "dry": d["dry"] is not None,
+                   "metrics": {name: {"limits": lim[name], "move": ref} for name, (ref, _, _, _) in d["m"].items()}},
+                  open(os.path.join(refdir, pc["piece"].rsplit(".", 1)[0] + ".json"), "w"))
+    verdict = "PASS" if fails == 0 else "FAIL"
+    json.dump({"verdict": verdict, "level": gain, "limits": lim, "floors": floors, "rows": rows},
+              open(os.path.join(outdir, "check.json"), "w"), indent=1)
+    print("%s: %d of %d pads, %d failing metric(s)" % (
+        verdict, sum(all(m["verdict"] == "PASS" for m in r["metrics"].values()) for r in rows), len(rows), fails))
+    return 0 if fails == 0 else 1
+
+
+# ---------------------------------------------------------------- refs
+
+REFS = os.path.join(REPO, "tests", "move_refs")
+
+
+def cmd_refs(outdir, dest, seed):
+    """Save a passing acceptance Set's Move curves as tests/move_refs/<effect>/."""
+    chk = json.load(open(os.path.join(outdir, "check.json")))
+    if chk["verdict"] != "PASS":
+        sys.exit("refs: %s didn't pass its check" % outdir)
+    meta = json.load(open(os.path.join(outdir, "pads.json")))
+    effects = sorted({effect_name(pc["params"]) for pc in meta["pieces"] if not neutral(pc["params"])})
+    if len(effects) != 1:
+        sys.exit("refs: an acceptance Set tests one effect, this one has %s" % (effects or "none"))
+    folder = os.path.join(dest, effects[0].lower().replace(" ", "_"))
+    os.makedirs(folder, exist_ok=True)
+    for old in sorted(os.listdir(folder)):
+        if old.endswith(".json"):
+            print("  replacing", os.path.join(folder, old))
+            os.remove(os.path.join(folder, old))
+    for pc in meta["pieces"]:
+        name = pc["piece"].rsplit(".", 1)[0] + ".json"
+        ref = json.load(open(os.path.join(outdir, "refs", name)))
+        ref["seed"] = seed
+        json.dump(ref, open(os.path.join(folder, name), "w"), separators=(",", ":"))
+    print("%d references in %s" % (len(meta["pieces"]), folder))
+
+
+def cmd_refs_check(folder):
+    """plugin.c against every saved reference: 0 if all pass."""
+    files = sorted(os.path.join(r, f) for r, _, fs in os.walk(folder) for f in fs if f.endswith(".json")) \
+        if os.path.isdir(folder) else []
+    if not files:
+        print("no Move references in %s yet" % folder)
+        return 0
+    build_render()
+    tmp = os.path.join(REPO, "build", "refs_check")
+    os.makedirs(tmp, exist_ok=True)
+    fails = 0
+    for path in files:
+        ref = json.load(open(path))
+        ours_path, dry_path = os.path.join(tmp, "ours.wav"), os.path.join(tmp, "dry.wav")
+        render_pad(ref["sample"], ref["settings"], ref["frames"], ours_path, quiet=True)
+        dry = None
+        if ref["dry"]:
+            render_pad(ref["sample"], dry_settings(ref["settings"]), ref["frames"], dry_path, quiet=True)
+            dry = read_mono(dry_path)
+        ours = read_mono(ours_path)
+        c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, ref["sample"])))}
+        cells = []
+        for name, _, _, _, _, curve in METRICS:
+            if name not in ref["metrics"]:
+                continue
+            r = ref["metrics"][name]
+            st, verdict = judge(name, curve_error(name, r["move"], *curve(ours, c)), *r["limits"])
+            fails += verdict == "FAIL"
+            cells.append("%s %s %s" % (name, "-" if st is None else "%.2f/%.2f" % (st["rms"], st["max"]), verdict))
+        print("%-40s %s" % (os.path.relpath(path, folder), "   ".join(cells)))
+    print("%s: %d reference pad(s), %d failing metric(s)" % ("PASS" if fails == 0 else "FAIL", len(files), fails))
+    return 0 if fails == 0 else 1
+
+
+# ---------------------------------------------------------------- accept-set
+
+# Each effect's settings: (knob in src/knobs.mjs, Move's name for it).
+KNOBS_FOR = {
+    "Stretch": (("stretch_factor", "Stretch Factor"), ("stretch_grain", "Grain Size")),
+    "Loop": (("loop_offset", "Loop Offset"), ("loop_length", "Loop Length")),
+    "Pitch Env": (("pitch_amount", "Pitch Env Amount"), ("pitch_decay", "Pitch Env Decay")),
+    "Punch": (("punch_amount", "Punch Amount"), ("punch_release", "Punch Release")),
+    "8-bit": (("rate", "8-Bit Rate"), ("crush_decay", "8-Bit Decay")),
+    "FM": (("fm_amount", "FM Amount"), ("fm_freq", "FM Frequency")),
+    "Ring Mod": (("ring_amount", "Ring Mod Amt"), ("ring_freq", "Ring Mod Freq")),
+    "Sub Osc": (("sub_amount", "Sub Amount"), ("sub_freq", "Sub Frequency")),
+    "Noise": (("noise_amount", "Noise Amount"), ("noise_color", "Noise Color")),
+}
+# The test sounds each effect's acceptance Set plays (PLAN "What to record"),
+# kept under Move's output ceiling; drum_synth is added to every Set.
+ACCEPT_SOUNDS = {
+    "Stretch": ["click_train", "position_ramp", "sine_441"],
+    "Loop": ["click_train", "position_ramp"],
+    "Pitch Env": ["sine_441", "position_ramp"],
+    "Punch": ["sine_441", "sine_441_quiet"],
+    "8-bit": ["click_train", "noise_white", "sweep"],
+    "FM": ["sine_441", "position_ramp"],
+    "Ring Mod": ["sine_441"],
+    "Sub Osc": ["silence_click", "sine_441"],
+    "Noise": ["silence_click", "sine_441"],
+}
+
+
+def cmd_accept_set(effect, seed, pads):
+    match = [e for e in KNOBS_FOR if e.lower() == effect.lower()]
+    if not match:
+        sys.exit("accept-set: no effect %r (one of %s)" % (effect, ", ".join(KNOBS_FOR)))
+    effect = match[0]
+    i = [e[0] for e in EFFECTS].index(effect)
+    rule = EFFECTS[i][3]
+    rng = random.Random(seed)
+    sounds = ACCEPT_SOUNDS[effect] + ["drum_synth"]
+    knobs = KNOBS_FOR[effect]
+    drawn = []
+    while len(drawn) < pads:
+        req = [[k, rng.random()] for k, _ in knobs]
+        out = json.loads(subprocess.check_output(
+            ["node", os.path.join(REPO, "scripts", "knob_readout.mjs"), json.dumps(req)]))
+        values = {EFFECTS[i][1]: out[0][1], EFFECTS[i][2]: out[1][1]}
+        if rule is not None and abs(values.get(rule[0], -1) - rule[1]) < 1e-6:
+            continue                    # the effect would do nothing: draw again
+        drawn.append(out)
+    print("Acceptance Set for %s, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % (effect, seed))
+    print("Every pad: Attack at its minimum, Hold Inf, Low-Pass 24 fully open, Transpose 0, Full Velocity.")
+    print("Play the pads in order about 3 s apart, then split and run fxlab.py check.\n")
+    print("| Pad | Sound | Settings |")
+    print("|---|---|---|")
+    print("| 1 | sine_441 | dry (Stretch 1.00) |")
+    for k, out in enumerate(drawn):
+        print("| %d | %s | %s |" % (k + 2, sounds[k % len(sounds)],
+                                    ", ".join("%s %s" % (label, out[j][0]) for j, (_, label) in enumerate(knobs))))
+    print("| %d | %s | a copy of pad 2 (Move's repeatability) |" % (pads + 2, sounds[0]))
 
 
 def main():
@@ -568,6 +915,12 @@ def main():
     s = sub.add_parser("compare"); s.add_argument("outdir"); s.add_argument("--gain", type=float)
     s = sub.add_parser("all"); s.add_argument("take"); s.add_argument("song"); s.add_argument("outdir")
     s.add_argument("--gain", type=float)
+    s = sub.add_parser("check"); s.add_argument("outdir"); s.add_argument("--gain", type=float)
+    s = sub.add_parser("refs"); s.add_argument("outdir"); s.add_argument("--dest", default=REFS)
+    s.add_argument("--seed", type=int)
+    s = sub.add_parser("refs-check"); s.add_argument("folder", nargs="?", default=REFS)
+    s = sub.add_parser("accept-set"); s.add_argument("effect"); s.add_argument("--seed", type=int, required=True)
+    s.add_argument("--pads", type=int, default=8)
     a = ap.parse_args()
     if a.cmd in ("split", "all"):
         cmd_split(a.take, a.song, a.outdir)
@@ -575,6 +928,14 @@ def main():
         cmd_render(a.outdir)
     if a.cmd in ("compare", "all"):
         cmd_compare(a.outdir, a.gain)
+    if a.cmd == "check":
+        sys.exit(cmd_check(a.outdir, a.gain))
+    if a.cmd == "refs":
+        cmd_refs(a.outdir, a.dest, a.seed)
+    if a.cmd == "refs-check":
+        sys.exit(cmd_refs_check(a.folder))
+    if a.cmd == "accept-set":
+        cmd_accept_set(a.effect, a.seed, a.pads)
 
 
 if __name__ == "__main__":
