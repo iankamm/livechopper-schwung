@@ -767,10 +767,27 @@ int main(void) {
             if (abs(out[i * 2] - ref[i * 2]) > 2 * 3 * i + 2) wild++;
         }
         CHECK(differ > MOVE_FRAMES_PER_BLOCK / 2 && wild == 0, "Noise adds noise no louder than the sound (%d differ, %d too loud)", differ, wild);
-        FX_PLAY("2", "1 2");                   /* Pitch Env up: reads faster */
-        CHECK(out[128] > 3 * ref[128], "Pitch Env +100%% starts up to 2 octaves higher: %d vs %d", out[128], ref[128]);
-        FX_PLAY("2", "-1 2");
-        CHECK(out[128] * 3 < ref[128], "Pitch Env -100%% starts lower: %d vs %d", out[128], ref[128]);
+        /* Pitch Env: Move's bend (docs/NOTES.md, "Pitch Env"), frame by
+         * frame for 40 ms against the model in double: Amount x 48
+         * semitones, falling to 1/1000 at Decay, one frame in on the first
+         * frame. The test sound is a ramp of 3 a frame, so each frame shows
+         * where it was read. */
+        const struct { double amt, dec; const char *v; } pe[] = {
+            { 1.0, 0.0502, "1 0.0502" }, { -1.0, 0.3, "-1 0.3" }, { 0.5, 0.005, "0.5 0.005" },
+        };
+        for (int i = 0; i < 3; i++) {
+            int wrong = 0;
+            double pos = 0;
+            FX_PLAY("2", pe[i].v);
+            for (int t = 0; t < 40 * 441 / 10; t++) {
+                if (t && t % MOVE_FRAMES_PER_BLOCK == 0) api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                double got = out[(t % MOVE_FRAMES_PER_BLOCK) * 2];
+                if (fabs(got - 3 * pos) > 1.5 + 0.001 * 3 * pos) wrong++;
+                double r = pow(2, pe[i].amt * 4 * exp(-log(1000) * (t + 1) / (pe[i].dec * 44100)));
+                pos += r;
+            }
+            CHECK(wrong == 0, "Pitch Env %s follows its model (%d frames wrong)", pe[i].v, wrong);
+        }
         FX_PLAY("5", "1 4500");                /* FM: wobbles the rate */
         differ = 0;
         for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) if (out[i * 2] != ref[i * 2]) differ++;

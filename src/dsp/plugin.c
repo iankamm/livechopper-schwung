@@ -94,11 +94,13 @@
  * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
  * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
  * Each voice plays a stand-in, not an emulation, before the filter, except
- * Punch, which follows Move's measured gain curve (docs/NOTES.md, "Punch"):
+ * Punch and Pitch Env, which follow Move's measured curves (docs/NOTES.md,
+ * "Punch" and "Pitch Env"). Punch:
  * a makeup of 1 + Amount^3 with a duck under it, the duck's target
  * 1 - Amount x (1 - (t/L)^n) floored at 0.15 and smoothed in dB by two
  * one-poles of 10.4 ms, so the transient keeps the makeup and the duck
- * is back by about the Release (L and n follow the Release); Pitch Env bends the pitch by up to +-24 semitones, decaying over its
+ * is back by about the Release (L and n follow the Release); Pitch Env
+ * bends the pitch by Amount x 48 semitones, falling to 1/1000 at its
  * Decay; FM wobbles the playback rate by up to +-1 octave at its
  * Frequency; Ring Mod multiplies by a sine; Sub Osc adds a sine; Noise adds
  * noise low-passed at its Color, following the sound's level; 8-Bit's
@@ -206,7 +208,12 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define PUNCH_LEN_E (-0.308f)
 #define PUNCH_N0 3.975f             /* release shape: n = 3.975 + 0.555 ln R (s) */
 #define PUNCH_N1 0.555f
-#define PITCH_ENV_SEMIS 24.0f       /* Pitch Env at 100% (a guess: Move shows only %) */
+/* Pitch Env, fitted to Move's pitch curves (Set 32): 48 semitones at 100%,
+ * linear in Amount on both sides, decaying exponentially in semitones to
+ * 1/1000 at Decay, already one frame in on the first frame. Decay doesn't
+ * follow Transpose. */
+#define PITCH_ENV_SEMIS 48.0f
+#define PITCH_ENV_DECAY_K 6.9077553f /* ln 1000 */
 #define FM_MAX_OCT 1.0f
 #define SUB_OSC_LEVEL 16384.0f      /* -6 dBFS at 100% */
 #define NOISE_FOLLOW_RELEASE 0.9995f /* the level follower falls ~70 ms to 1/e */
@@ -1300,7 +1307,8 @@ static float fx_osc(fx_state_t *x, float hz) {
  * Pitch Env and FM bend it, the others leave it at 1. */
 static double fx_rate(const live_chopper_t *inst, fx_state_t *x, int t) {
     if (inst->effect == FX_PITCH_ENV && inst->fx_a != 0.0f)
-        return exp2f(inst->fx_a * PITCH_ENV_SEMIS / 12.0f * fx_decay(t, inst->fx_b));
+        return exp2f(inst->fx_a * PITCH_ENV_SEMIS / 12.0f
+                     * expf(-PITCH_ENV_DECAY_K * ((float)t + 1.0f) / (inst->fx_b * MOVE_SAMPLE_RATE)));
     if (inst->effect == FX_FM && inst->fx_a > 0.0f)
         return exp2f(inst->fx_a * FM_MAX_OCT * fx_osc(x, inst->fx_b));
     return 1.0;

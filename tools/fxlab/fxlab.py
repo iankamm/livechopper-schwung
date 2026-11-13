@@ -581,17 +581,38 @@ def measure(sample, params, x, ours, dry, end_ms):
     return out
 
 
+def attack_us(params):
+    return int(round(params.get("Voice_Envelope_Attack", 0.0) * 1e6))
+
+
 def take_level(data, key):
-    """A take's level against the renders, from its dry pieces: (level,
-    found). d[key] is the take's piece, d[key + "_lag"] its lag."""
-    num = den = 0.0
+    """A take's level against the renders, from its dry pieces, by Attack:
+    Move's dry level depends on it (0.8465 at 0.1 ms, 0.9311 at 1.0 ms;
+    NOTES "Move's dry path"). ({attack_us: level, None: all}, found).
+    d[key] is the take's piece, d[key + "_lag"] its lag."""
+    sums = {}
     for d in data:
         if plain(d["pc"]["params"]) and d["pc"]["sample"] in ("sine_441.wav", "position_ramp.wav", "sweep.wav"):
             x, ours = d[key], shift(d["ours_raw"], d[key + "_lag"], len(d[key]))
             sl = slice(EDGE, len(x) - EDGE)
-            num += float(np.dot(x[sl], ours[sl]))
-            den += float(np.dot(ours[sl], ours[sl]))
-    return (num / den, True) if den > 0 else (DEFAULT_GAIN, False)
+            num, den = float(np.dot(x[sl], ours[sl])), float(np.dot(ours[sl], ours[sl]))
+            for k in (attack_us(d["pc"]["params"]), None):
+                n0, d0 = sums.get(k, (0.0, 0.0))
+                sums[k] = (n0 + num, d0 + den)
+    levels = {k: n / dd for k, (n, dd) in sums.items() if dd > 0}
+    return (levels, True) if levels else ({None: DEFAULT_GAIN}, False)
+
+
+def piece_level(levels, params):
+    """The level for one piece: its Attack's dry pieces, else all of them."""
+    return levels.get(attack_us(params), levels[None])
+
+
+def levels_text(levels):
+    by = sorted(k for k in levels if k is not None)
+    if len(by) < 2:
+        return ""
+    return ", by Attack: " + ", ".join("%g ms %.5f" % (k / 1000, levels[k]) for k in by)
 
 
 def load_pieces(outdir, gain_arg, ours_take=None):
@@ -627,22 +648,24 @@ def load_pieces(outdir, gain_arg, ours_take=None):
         data.append(d)
 
     found = False
-    gain = gain_arg
+    levels = {None: gain_arg}
     if not gain_arg:
-        gain, found = take_level(data, "move")
-    source = "given" if gain_arg else ("from the dry pieces" if found else "Set 28's")
+        levels, found = take_level(data, "move")
+    gain = levels[None]
+    source = "given" if gain_arg else ("from the dry pieces" + levels_text(levels) if found else "Set 28's")
     if takes:
-        take_gain, found = take_level(data, "take")
+        take_levels, found = take_level(data, "take")
         if not found:
             sys.exit("check: %s has no dry piece to set its level" % ours_take)
-        source += "; preview %.5f" % take_gain
+        source += "; preview %.5f%s" % (take_levels[None], levels_text(take_levels))
 
     for d in data:
         n = len(d["move"])
         d["lag"] = d["move_lag"]
-        d["x"] = shift(d["move"], -d["lag"], n) / gain
+        d["gain"] = piece_level(levels, d["pc"]["params"])
+        d["x"] = shift(d["move"], -d["lag"], n) / d["gain"]
         if takes:
-            d["ours"] = shift(d["take"], -d["take_lag"], n) / take_gain
+            d["ours"] = shift(d["take"], -d["take_lag"], n) / piece_level(take_levels, d["pc"]["params"])
         else:
             d["ours"] = shift(d["ours_raw"], 0, n)
         d["dry"] = shift(d["dry_raw"], 0, n) if d["dry_raw"] is not None else None
@@ -677,7 +700,7 @@ def cmd_compare(outdir, gain_arg):
     rows = []
     for d in data:
         pc, move, lag = d["pc"], d["move"], d["lag"]
-        ours = shift(d["ours_raw"], lag, len(move)) * gain
+        ours = shift(d["ours_raw"], lag, len(move)) * d["gain"]
         row = {"piece": pc["piece"], "effect": pc["params"].get("Effect_Type"), "lag": lag}
         lm, tl = level_db(move)
         lo, _ = level_db(ours)
@@ -716,7 +739,7 @@ def cmd_compare(outdir, gain_arg):
         for ax, kind in zip(axes, panels):
             if kind == "wave":
                 ax.plot(t, move, lw=0.4, label="Move")
-                ax.plot(t, ours, lw=0.4, alpha=0.7, label="ours x %.3f" % gain)
+                ax.plot(t, ours, lw=0.4, alpha=0.7, label="ours x %.3f" % d["gain"])
                 ax.legend(loc="upper right", fontsize=7)
                 ax.set_title("%s  (%s)" % (pc["piece"], ", ".join(pc.get("settings", [])[-3:])), fontsize=9)
             elif kind == "zoom":

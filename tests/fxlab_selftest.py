@@ -172,19 +172,17 @@ check(r.returncode == 1 and rows[2]["metrics"]["gain"]["verdict"] == "FAIL"
       and rows[1]["metrics"]["gain"]["verdict"] == "PASS",
       "check --ours-take fails +1 dB on the preview's pad 3:\n" + r.stdout)
 
-# 6. Pitch Env (PLAN "Pitch Env Set"): the zero-crossing pitch lags a fast
+# 6. Pitch Env (NOTES "Pitch Env"): the zero-crossing pitch lags a fast
 # bend by up to hundreds of cents, but Move's take and ours go through the
 # same tracker, so a take that differs only as Move's capture does (the
-# 4-frame attack ramp, Low-Pass 24 at 22 kHz, half a frame late) passes,
-# and a real difference fails: 23 st for 24, or a 5 ms Decay at 5.5 ms,
-# which only the pitch metric sees.
+# 4-frame attack ramp, Low-Pass 24 at 22 kHz) passes, and a real
+# difference fails: 47 st for 48, or a 5 ms Decay at 5.5 ms, which only the
+# pitch metric sees. Move's capture is whole frames late: Set 32's dry sine
+# leaves 5 LSB at lag 31, where half a frame would leave ~300.
 def movelike(k, x):
     x = x.copy()
     x[:4] *= [0.25, 0.49, 0.76, 0.99]
-    x = signal.sosfilt(signal.butter(4, 22000 / 22050, output="sos"), x)
-    n = 1 << int(np.ceil(np.log2(len(x) + 4096)))
-    f = np.fft.rfft(x, n)
-    return np.fft.irfft(f * np.exp(-1j * np.pi * np.arange(len(f)) / n), n)[:len(x)]
+    return signal.sosfilt(signal.butter(4, 22000 / 22050, output="sos"), x)
 
 
 PITCH_ENV = [("sine_441.wav", params()),
@@ -197,13 +195,13 @@ r = run("check", pe)
 v, rows = verdicts(pe)
 check(r.returncode == 0, "Pitch Env against a Move-like copy of itself passes:\n" + r.stdout)
 off = make_set("pitch_env_off", PITCH_ENV, movelike,
-               {1: params("Pitch Env", 23 / 24, 2.0), 2: params("Pitch Env", 1.0, 0.0055),
-                4: params("Pitch Env", 23 / 24, 0.3)})
+               {1: params("Pitch Env", 47 / 48, 2.0), 2: params("Pitch Env", 1.0, 0.0055),
+                4: params("Pitch Env", 47 / 48, 0.3)})
 r = run("check", off)
 v, _ = verdicts(off)
 check(r.returncode == 1 and v[1]["pitch"] == "FAIL" and v[2]["pitch"] == "FAIL"
       and v[3]["pitch"] == "PASS" and v[4]["position"] == "FAIL",
-      "23 st for 24, and Decay 5.5 ms for 5 ms, fail: %s" % v)
+      "47 st for 48, and Decay 5.5 ms for 5 ms, fail: %s" % v)
 
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)

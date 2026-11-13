@@ -19,9 +19,14 @@ LiveChopper's own designs, not Move's algorithms.
 
 - Done: Punch (2026-11-12). Acceptance Set 31, seed 1112, references in
   `tests/move_refs/punch/`; measurements and model in NOTES "Punch".
-- Next: Pitch Env, starting with Set 32 (below).
+- Pitch Env: fitted on Set 32 (NOTES "Pitch Env"), 15 of 16 pass; the
+  one that fails is Transpose's, through the Attack (below). Next: its
+  acceptance Set, `fxlab.py accept-set "Pitch Env" --seed <n>`.
 - Then, in this order: FM and Ring Mod's decay, Sub Osc and Noise's
   envelopes, following Transpose, 8-Bit, Stretch, Loop.
+- Following Transpose, already seen: Move's Attack follows it (Set 32 pad
+  15: 1.0 ms at +12 st ramps in ~22 frames), Pitch Env's Decay and
+  Punch's times don't. Hold and Decay are unchecked.
 
 ### What Live's manual says
 
@@ -32,7 +37,7 @@ description of each effect, against LiveChopper's stand-ins:
 |---|---|---|
 | Stretch | "changes the sample's length without altering its pitch"; Factor "a multiple of the original playback speed", Grain Size in ms | two Hann grains half a grain apart (NOTES "Stretch and Loop stand-ins") |
 | Loop | "repeats a portion of the sample"; Offset "the loop start point relative to the sample start", Length in ms | repeats from Offset, a 1.5 ms dip at each wrap |
-| Pitch Env | -100 to 100 % | +-24 semitones at 100 %, a guess |
+| Pitch Env | -100 to 100 % | matched to Move (48 semitones at 100 %) |
 | Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | matched to Move |
 | 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
 | FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
@@ -45,8 +50,9 @@ has no knob for it, but its presets store it as
 `Voice_PitchToEnvelopeModulation`: true on every pad of Set 28 (Move's
 default), and LiveChopper's export writes true too (`src/drum_rack.mjs`).
 LiveChopper's envelope runs in output time, so it doesn't follow pitch.
-Punch's times don't follow Transpose (Set 31); the Transpose +12 takes of
-"What to record" show whether anything else does.
+Punch's times don't follow Transpose (Set 31), nor does Pitch Env's Decay,
+but the Attack does (Set 32, NOTES "Pitch Env"); the Transpose +12 takes
+of "What to record" show what else does.
 
 ### Method
 
@@ -161,6 +167,9 @@ hearing thresholds:
   analysis venv; without it (CI) they are skipped.
 - **Shown so far:** Set 28's dry pads pass every metric with room to spare
   (NOTES "Move's dry path"), and Punch passed on Set 31.
+- **Attack:** Move's dry level depends on it (NOTES "Move's dry path"), so
+  every pad keeps Attack at its minimum, and a Set with other Attacks
+  needs a dry pad at each.
 
 ### Test sounds
 
@@ -192,7 +201,7 @@ reference.
 
 | Effect | Files | Settings |
 |---|---|---|
-| Pitch Env | sine_441, position_ramp | see "Pitch Env Set" |
+| Pitch Env | sine_441, position_ramp | Set 32 (NOTES "Pitch Env") |
 | FM | sine_441, position_ramp | Amount 25 %, 100 %; Freq 10 Hz, 1 kHz; global Decay 100 ms and 60 s (with Hold short), for the modulation's decay |
 | Ring Mod | sine_441 | Amount 50 %, 100 %; Freq 5 Hz, 1 kHz; global Decay as for FM |
 | Sub Osc | silence_click, sine_441 | Amount 100 %; Freq 30, 60, 120 Hz; Attack 0 and 100 ms, Hold short, Decay 100 ms; and Hold Inf with Decay 100 ms, for whether Hold applies |
@@ -201,56 +210,6 @@ reference.
 | Stretch | click_train, position_ramp, sine_441 | Factor 2, 20; Grain 5 ms, 100 ms, 300 ms |
 | Loop | click_train, position_ramp | Offset 0, 25 %; Length 10 ms, 300 ms, 500 ms |
 | Transpose +12 | sine_441 | Ring Mod 1 kHz, Sub Osc 60 Hz, Noise 1 kHz, FM 100 Hz, Stretch 2 / 100 ms, Loop 100 ms: which settings follow the pitch; and no effect with Hold 200 ms, Decay 200 ms: whether the envelope follows it |
-
-### Pitch Env Set (Set 32)
-
-Planned 2026-11-12: one Drum Rack, 16 pads in note order, the baseline
-above on each, played about 4 s apart (a downward bend reads the 2 s
-sounds slower, so they outlast 2 s). Punch needed a second Set because
-its first had two Amounts and only long Releases, so this one covers the
-Amount law and the short end of Decay from the start. It should answer:
-
-- how many semitones 100 % is, and whether semitones are linear in Amount,
-  on both sides;
-- the bend's shape against Decay (exponential in semitones, linear, or
-  something else), down to the 5 ms minimum, where Punch hid a fixed
-  smoothing;
-- whether Decay follows Transpose ("Envelope Follows Pitch").
-
-| Pad | Sound | Pitch Env | For |
-|---|---|---|---|
-| 1 | sine_441 | dry (Stretch 1.00) | the level reference |
-| 2-5 | sine_441 | Amount 100 %, 50 %, 25 %, 10 %, Decay 2.00 s | semitones against Amount: a slow decay leaves the start nearly flat |
-| 6-7 | sine_441 | Amount -100 %, -25 %, Decay 2.00 s | the negative side: the same law mirrored? |
-| 8-10 | sine_441 | Amount 100 %, Decay 300 ms (default), 50 ms, 5.00 ms | the shape against Decay |
-| 11 | position_ramp | dry | the read-position reference |
-| 12 | position_ramp | Amount 100 %, Decay 300 ms | pad 8 by the position metric (the read rate, integrated) |
-| 13 | position_ramp | Amount -100 %, Decay 300 ms | the same downward |
-| 14 | position_ramp | Amount 50 %, Decay 2.00 s | the long tail; it reads ahead of real time, so the ramp may end before the bend does |
-| 15 | position_ramp | Transpose 12 st, Amount 100 %, Decay 300 ms | pad 12 an octave up: a halved Decay shows directly |
-| 16 | sine_441 | a copy of pad 8 | Move's repeatability |
-
-The pitch metric holds for Pitch Env (checked 2026-11-12 on renders of
-plugin.c; `tests/fxlab_selftest.py` part 6 keeps it so):
-
-- On its own, the zero-crossing pitch lags a fast bend: against the exact
-  pitch, worst 1.8 ct at 100 %/2 s, 11 ct at 300 ms, 68 ct at 50 ms,
-  444 ct at 5 ms, 114 ct at -100 %/300 ms. So Move's stored pitch curve
-  isn't its true pitch on a fast bend.
-- That cancels in `check`: both takes go through the same tracker. A
-  render against a Move-like copy of itself (the attack ramp, Low-Pass 24
-  at 22 kHz, half a frame late) passes every setting, worst 3.6 ct pitch,
-  0.5 ms position.
-- Real differences fail: 23 st for 24 on both metrics, Decay 300 ms or
-  50 ms off by 10 % on both, but Decay 5 ms off by 10 % on pitch only
-  (position 0.25 ms). Pitch is the metric for the short end; position
-  backs it up on longer bends.
-
-So when fitting: read semitones against Amount from the 2 s pads (the
-tracker is within 2 ct of the truth there), and fit the short Decays by
-rendering candidates through plugin.c and comparing through the same
-metric, as Punch was fitted through Move's own window, never by fitting
-the stored pitch curve to a formula.
 
 ### Open
 

@@ -306,6 +306,10 @@ Full Velocity (`.claude/recordings/set28/`):
   flat to +-0.02 dB from 30 Hz to 19.5 kHz. It isn't the pad's -12 dB, so
   each Set's dry take sets the reference level; effects are compared
   relative to it.
+- That level depends on Attack: 0.8465 at the 0.10 ms minimum, 0.9311
+  (-0.62 dB, +0.83 dB on the minimum) at 1.0 ms, in both Set 31 and Set 32
+  (whose position_ramp pads had 1.0 ms). `fxlab.py` sets each pad's level
+  from the dry pads with the same Attack.
 - Attack at its minimum (0.10 ms) is a linear ramp over the first 4
   frames (0.25, 0.49, 0.76, 0.99), so a click on frame 0 almost vanishes.
   LiveChopper's Attack 0 starts at full level.
@@ -464,3 +468,55 @@ repeat Set 30 settings, so a halved time would show directly:
   Move (plugin.c built with build.sh's flags, the Move's libm) and
   compares them with the host's: all 56 renders identical, bit for bit.
   What `check` measures on the host is what the Move plays.
+
+### Pitch Env (Set 32)
+
+Fitted 2026-11-13 on Set 32 (`.claude/recordings/set32/`): one Drum Rack,
+16 pads in note order, about 4 s apart (a downward bend reads the 2 s
+sounds slower, so they outlast 2 s), Attack at its minimum except on the
+position_ramp pads (1.0 ms, read from the Set).
+
+| Pad | Sound | Pitch Env |
+|---|---|---|
+| 1 | sine_441 | dry (Stretch 1.00): the level reference |
+| 2-5 | sine_441 | Amount 100 %, 50 %, 25 %, 10 %, Decay 2.00 s |
+| 6-7 | sine_441 | Amount -100 %, -25 %, Decay 2.00 s |
+| 8-10 | sine_441 | Amount 100 %, Decay 300 ms, 50.2 ms (50.0 isn't a step on Move), 5.00 ms |
+| 11 | position_ramp | dry: the read-position reference |
+| 12-13 | position_ramp | Amount 100 %, -100 %, Decay 300 ms |
+| 14 | position_ramp | Amount 50 %, Decay 2.00 s |
+| 15 | position_ramp | Transpose 12 st, Amount 100 %, Decay 300 ms |
+| 16 | sine_441 | a copy of pad 8 |
+
+- **Depth:** 100 % is 48 semitones, linear in Amount and mirrored below
+  zero. An exponential fitted to each 2 s pad's pitch from 100 ms on
+  starts at 48.0-48.9 semitones per 100 % (pads 2-7).
+- **Shape:** exponential in semitones, falling to 1/1000 at the Decay:
+  the same fits give a time constant of Decay / 6.90-6.92 (ln 1000 is
+  6.908) on every 2 s pad, and 300 ms gives 43.7 ms (Decay / 6.87).
+- **One frame in:** Move's envelope has already taken one frame's step on
+  the first frame. Without that, every +100 % pad reads ~15 frames less
+  than ours by the end of the bend (r(0) - 1 at 16x), whatever the Decay,
+  and Decay 5 ms fails pitch by 494 ct max; with it, 1.2 ct. An offset of
+  0.75 or 1.25 frames is clearly worse.
+- **Transpose:** Decay doesn't follow it (pad 15 rendered at 300 ms
+  matches Move to 0.6 LSB past the attack; at 150-250 ms it is off by
+  94-286 ms). But
+  Move's Attack does: pad 15's 1.0 ms Attack ramps in ~22 frames, half
+  of pad 12's 44, so the voice envelope's times follow Transpose
+  (Voice_PitchToEnvelopeModulation is on). LiveChopper's don't yet (PLAN
+  "following Transpose"), and that mismatch in the first 0.5 ms is all
+  that fails pad 15: past 400 frames it matches to 0.6 LSB at lag 31.
+- **Repeatable:** pad 16 gives exactly pad 8's numbers.
+- `fxlab.py check` with this model: 15 of 16 pass (pad 15 above), pitch
+  worst 2.4 ct (pad 9), position worst 0.13 ms.
+
+The pitch metric on a fast bend: the zero-crossing pitch lags it (Move's
+stored pitch curve isn't its true pitch there), but both takes go through
+the same tracker, so it cancels in `check`. `tests/fxlab_selftest.py`
+part 6 keeps that so: a render against a copy of itself with Move's
+capture differences (the 4-frame attack ramp, Low-Pass 24 at 22 kHz)
+passes, and 47 semitones for 48 or Decay 5.5 ms for 5 ms fail. So the
+semitones were read from the 2 s pads, and the short end was fitted by
+rendering candidates through plugin.c and the metric, not by fitting the
+stored curve.

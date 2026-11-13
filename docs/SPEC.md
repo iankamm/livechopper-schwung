@@ -149,8 +149,9 @@ a Move drum rack preset or one WAV per slice.
     the level for ~1.5 ms either side against clicks. The knobs move the
     loop live, and a chop or marker nudge under a looping voice moves its
     loop with the slice.
-  - Pitch Env: bends the pitch by up to +-24 semitones at 100% (Move shows
-    only a percentage), decaying over the Decay.
+  - Pitch Env: Move's bend (NOTES.md "Pitch Env"): Amount x 48 semitones
+    at the start, decaying exponentially in semitones to 1/1000 at the
+    Decay. The Decay doesn't follow Transpose.
   - Punch: Move's gain curve (NOTES.md "Punch"): a makeup of 1 + Amount³
     that the transient keeps, with the rest ducked to 1 - Amount of it (no
     lower than 0.15) and back by about the Release.
