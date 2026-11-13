@@ -219,11 +219,11 @@ check(lit(UP) && log.at(-1) === 'SAY: Filter and Setup page', 'Down again stays 
 const gainSets = () => sets.filter(x => x.startsWith('gain_db10='));
 touch(8, true); tick(1);
 turn(8, 127); tick(1);                       // knob loop left it at +1.5 dB
-check(printed.includes('Gain: +1.0 dB') && gainSets().at(-1) === 'gain_db10=10', 'one step down is 0.5 dB: ' + JSON.stringify(printed));
+check(printed.includes('Gain: 1.0 dB') && gainSets().at(-1) === 'gain_db10=10', 'one step down is 0.5 dB: ' + JSON.stringify(printed));
 shift(true); turn(8, 1); shift(false); tick(1);
-check(printed.includes('Gain: +1.1 dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(printed));
+check(printed.includes('Gain: 1.1 dB'), 'Shift: 0.1 dB steps: ' + JSON.stringify(printed));
 turn(8, 63); tick(1);
-check(printed.includes('Gain: +24.0 dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
+check(printed.includes('Gain: 24.0 dB') && gainSets().at(-1) === 'gain_db10=240', 'tops out at +24 dB');
 check(knobLed(8) === AMBER_LEVELS.at(-1), 'Knob 8 LED full amber at +24 dB: ' + knobLed(8));
 turn(8, 65); turn(8, 65); tick(1);   // 126 steps down
 check(printed.includes('Gain: -70.0 dB') && gainSets().at(-1) === 'gain_db10=-700', 'bottoms out at -70 dB: ' + JSON.stringify(printed));
@@ -666,16 +666,16 @@ const fileCount2 = Object.keys(files).length;
 dsp.normGain = '127';
 tools(); click(); tick(1);
 check(gainSets().at(-1) === 'gain_db10=127', 'Normalize sets the gain: ' + gainSets().at(-1));
-check(printed.includes('Gain: +12.7 dB'), 'new gain shown: ' + JSON.stringify(printed));
-check(log.at(-1) === 'SAY: Normalized, gain plus 12.7 decibels', 'normalize announced: ' + log.at(-1));
+check(printed.includes('Gain: 12.7 dB'), 'new gain shown: ' + JSON.stringify(printed));
+check(log.at(-1) === 'SAY: Normalized, gain 12.7 decibels', 'normalize announced: ' + log.at(-1));
 check(Object.keys(files).length === fileCount2, 'no file written');
 midi(0xB0, 51, 127); tick(1);
 check(prompt(), 'normalizing counts as unexported');
 midi(0xB0, 51, 127); tick(1);
 filterPage(); touch(8, true); tick(1);
-check(printed.includes('Gain: +12.7 dB'), 'the Gain knob shows the normalized gain');
+check(printed.includes('Gain: 12.7 dB'), 'the Gain knob shows the normalized gain');
 turn(8, 1); tick(1);
-check(printed.includes('Gain: +13.2 dB'), 'and turns on from it');
+check(printed.includes('Gain: 13.2 dB'), 'and turns on from it');
 turn(8, 127); touch(8, false); mainPage(); tick(70);
 exportPreset();
 const newestPreset = () => JSON.parse(files[Object.keys(files).filter(f => f.startsWith(presetDir)).at(-1)] || '{}');

@@ -628,7 +628,7 @@ function knobRole(i) {
 }
 
 /* Knob i's value as 0..1 for its LED, or null while turning it does nothing
- * (no role, or Rate with the effect off): the LED is dark then. */
+ * (no role on this page): the LED is dark then. */
 function knobLevel(i) {
     switch (knobRole(i)) {
     case "transpose": return (transpose - TRANSPOSE_MIN) / (TRANSPOSE_MAX - TRANSPOSE_MIN);
@@ -839,11 +839,11 @@ function gainLinear(db10) {
 }
 
 function formatGain(db10) {
-    return (db10 > 0 ? "+" : db10 < 0 ? "-" : "") + (Math.abs(db10) / 10).toFixed(1) + " dB";
+    return (db10 < 0 ? "-" : "") + (Math.abs(db10) / 10).toFixed(1) + " dB";
 }
 
 function spokenGain(db10) {
-    return (db10 > 0 ? "plus " : db10 < 0 ? "minus " : "") + (Math.abs(db10) / 10).toFixed(1) + " decibels";
+    return (db10 < 0 ? "minus " : "") + (Math.abs(db10) / 10).toFixed(1) + " decibels";
 }
 
 /* One knob step up (dir 1) or down (dir -1) from db10. */

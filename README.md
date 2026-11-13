@@ -90,7 +90,9 @@ where each version's notes say what changed:
 
 ## AI Disclosure
 
-This was created with Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with C, JavaScript, and embedded development. I understand some of the source code logic and general development/testing process, but I did not write any of this code by hand.
+> Development is heavily assisted by Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with C, JavaScript, and embedded development. I understand some of the source code logic and general development/testing process, but I did not write any code here by hand or manually review most lines. Every release was tested by me on my Ableton Move.
+
+\- Human
 
 ## License
 

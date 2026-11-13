@@ -30,14 +30,14 @@ description of each effect, against LiveChopper's stand-ins:
 
 | Effect | Live's manual | Stand-in today |
 |---|---|---|
+| Stretch | "changes the sample's length without altering its pitch"; Factor "a multiple of the original playback speed", Grain Size in ms | two Hann grains half a grain apart (NOTES "Stretch and Loop stand-ins") |
+| Loop | "repeats a portion of the sample"; Offset "the loop start point relative to the sample start", Length in ms | repeats from Offset, a 1.5 ms dip at each wrap |
+| Pitch Env | -100 to 100 % | +-24 semitones at 100 %, a guess |
 | Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | matched to Move |
+| 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
 | FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
 | Sub Osc, Noise | their envelope is "the device's attack and decay settings" (Hold isn't mentioned: they may decay even at Hold Inf) | both go through the voice's whole envelope, Hold included; Noise also follows the sound's level, which Move may not |
 | Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | fixed (only Loop Length follows Transpose) |
-| 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
-| Pitch Env | -100 to 100 % | +-24 semitones at 100 %, a guess |
-| Stretch | "changes the sample's length without altering its pitch"; Factor "a multiple of the original playback speed", Grain Size in ms | two Hann grains half a grain apart (NOTES "Stretch and Loop stand-ins") |
-| Loop | "repeats a portion of the sample"; Offset "the loop start point relative to the sample start", Length in ms | repeats from Offset, a 1.5 ms dip at each wrap |
 
 Live's Drum Sampler reference also has "Envelope Follows Pitch", a
 context-menu option scaling the amplitude envelope with the pitch. Move
@@ -66,7 +66,9 @@ pinned in `scripts/requirements-analysis.txt`).
    44.1 kHz WAVs to
    `/data/UserData/UserLibrary/Samples/Schwung/Resampler/<date>/`
    (`schwung/docs/ARCHITECTURE.md`, "Capture path"). Play the pads one at a
-   time about a second apart, nothing else playing, then stop. The take
+   time, in note order, nothing else playing, each after the last has
+   ended and at least 0.25 s of silence (about 3 s apart for the 2 s
+   sounds), then stop. The take
    starts on a bar; each test sound starts with a step or click, so the
    take is split by onsets. Schwung's Global Settings -> Audio must have
    Move->Schwung On (Move's Link on) and Spkr EQ Off, with no Schwung
@@ -107,7 +109,8 @@ pinned in `scripts/requirements-analysis.txt`).
    pad 1 once per setting, copying pads of a recorded Set (a dry one
    first), about 3 s apart, then press Shift+Capture: Skipback saves the
    last 30 s (Schwung's default; its settings can lengthen it) to
-   `Samples/Schwung/Skipback/<date>/`. The Quantized Sampler
+   `Samples/Schwung/Skipback/<date>/`. At 3 s apart that holds about 10
+   pads, so a longer list takes two Skipback takes. The Quantized Sampler
    can't be used here: Schwung arms it only outside its own UI, so inside a
    tool Shift+Sample reaches the tool (`schwung_shim.c`, the sampler's
    `!shadow_display_mode`). Skipback's Shift+Capture is taken by the shim
@@ -265,5 +268,3 @@ the pitch metric's limits for it need rethinking before an acceptance Set.
 
 - A weekly scheduled CI run, so a new Schwung release is tested even while
   this repo is idle.
-- A release: nothing is tagged since v0.6.2, so steps 1-3, Punch and the
-  help.json fix are all unreleased.
