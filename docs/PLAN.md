@@ -230,12 +230,27 @@ Amount law and the short end of Decay from the start. It should answer:
 | 15 | position_ramp | Transpose 12 st, Amount 100 %, Decay 300 ms | pad 12 an octave up: a halved Decay shows directly |
 | 16 | sine_441 | a copy of pad 8 | Move's repeatability |
 
-Before fitting, check the pitch metric on a known bend: render sine_441
-through plugin.c's Pitch Env and compare `fxlab.py`'s zero-crossing pitch
-with the exact pitch the render played. It reads one value per cycle, so
-during a fast bend it averages over a cycle. If its own error comes near
-5 cents, position (pads 12-15) is the metric to trust for Pitch Env, and
-the pitch metric's limits for it need rethinking before an acceptance Set.
+The pitch metric holds for Pitch Env (checked 2026-11-12 on renders of
+plugin.c; `tests/fxlab_selftest.py` part 6 keeps it so):
+
+- On its own, the zero-crossing pitch lags a fast bend: against the exact
+  pitch, worst 1.8 ct at 100 %/2 s, 11 ct at 300 ms, 68 ct at 50 ms,
+  444 ct at 5 ms, 114 ct at -100 %/300 ms. So Move's stored pitch curve
+  isn't its true pitch on a fast bend.
+- That cancels in `check`: both takes go through the same tracker. A
+  render against a Move-like copy of itself (the attack ramp, Low-Pass 24
+  at 22 kHz, half a frame late) passes every setting, worst 3.6 ct pitch,
+  0.5 ms position.
+- Real differences fail: 23 st for 24 on both metrics, Decay 300 ms or
+  50 ms off by 10 % on both, but Decay 5 ms off by 10 % on pitch only
+  (position 0.25 ms). Pitch is the metric for the short end; position
+  backs it up on longer bends.
+
+So when fitting: read semitones against Amount from the 2 s pads (the
+tracker is within 2 ct of the truth there), and fit the short Decays by
+rendering candidates through plugin.c and comparing through the same
+metric, as Punch was fitted through Move's own window, never by fitting
+the stored pitch curve to a formula.
 
 ### Open
 

@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 import numpy as np
+from scipy import signal
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
@@ -42,9 +43,10 @@ def params(effect="Stretch", a=None, b=None):
     return p
 
 
-def make_set(name, pads, change=None):
+def make_set(name, pads, change=None, move_params=None):
     """A split Set: each pad's "Move" piece is ours at Move's level, LAG
-    frames late; change(k, piece) may alter pad k's."""
+    frames late; change(k, piece) may alter pad k's, and move_params[k]
+    renders pad k's piece at other settings than the pad records."""
     d = os.path.join(OUT, name)
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d)
@@ -53,7 +55,8 @@ def make_set(name, pads, change=None):
     for k, (sample, p) in enumerate(pads):
         frames = int(2.1 * fxlab.RATE)
         tmp = os.path.join(d, "tmp.wav")
-        fxlab.render_pad(sample, fxlab.dsp_settings(p), frames, tmp, quiet=True)
+        rp = (move_params or {}).get(k, p)
+        fxlab.render_pad(sample, fxlab.dsp_settings(rp), frames, tmp, quiet=True)
         v = fxlab.read_mono(tmp) * fxlab.DEFAULT_GAIN
         if change:
             v = change(k, v)
@@ -168,6 +171,39 @@ rows = json.load(open(os.path.join(clean, "check_vs_preview_loud.json")))["rows"
 check(r.returncode == 1 and rows[2]["metrics"]["gain"]["verdict"] == "FAIL"
       and rows[1]["metrics"]["gain"]["verdict"] == "PASS",
       "check --ours-take fails +1 dB on the preview's pad 3:\n" + r.stdout)
+
+# 6. Pitch Env (PLAN "Pitch Env Set"): the zero-crossing pitch lags a fast
+# bend by up to hundreds of cents, but Move's take and ours go through the
+# same tracker, so a take that differs only as Move's capture does (the
+# 4-frame attack ramp, Low-Pass 24 at 22 kHz, half a frame late) passes,
+# and a real difference fails: 23 st for 24, or a 5 ms Decay at 5.5 ms,
+# which only the pitch metric sees.
+def movelike(k, x):
+    x = x.copy()
+    x[:4] *= [0.25, 0.49, 0.76, 0.99]
+    x = signal.sosfilt(signal.butter(4, 22000 / 22050, output="sos"), x)
+    n = 1 << int(np.ceil(np.log2(len(x) + 4096)))
+    f = np.fft.rfft(x, n)
+    return np.fft.irfft(f * np.exp(-1j * np.pi * np.arange(len(f)) / n), n)[:len(x)]
+
+
+PITCH_ENV = [("sine_441.wav", params()),
+             ("sine_441.wav", params("Pitch Env", 1.0, 2.0)),
+             ("sine_441.wav", params("Pitch Env", 1.0, 0.005)),
+             ("sine_441.wav", params("Pitch Env", -1.0, 0.3)),
+             ("position_ramp.wav", params("Pitch Env", 1.0, 0.3))]
+pe = make_set("pitch_env", PITCH_ENV, movelike)
+r = run("check", pe)
+v, rows = verdicts(pe)
+check(r.returncode == 0, "Pitch Env against a Move-like copy of itself passes:\n" + r.stdout)
+off = make_set("pitch_env_off", PITCH_ENV, movelike,
+               {1: params("Pitch Env", 23 / 24, 2.0), 2: params("Pitch Env", 1.0, 0.0055),
+                4: params("Pitch Env", 23 / 24, 0.3)})
+r = run("check", off)
+v, _ = verdicts(off)
+check(r.returncode == 1 and v[1]["pitch"] == "FAIL" and v[2]["pitch"] == "FAIL"
+      and v[3]["pitch"] == "PASS" and v[4]["position"] == "FAIL",
+      "23 st for 24, and Decay 5.5 ms for 5 ms, fail: %s" % v)
 
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)
