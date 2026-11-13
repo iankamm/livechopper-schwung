@@ -842,7 +842,7 @@ def cmd_check(outdir, gain_arg, ours_take=None):
         rows.append(row)
         print("%-22s %-9s %s" % (pc["piece"], row["effect"], "   ".join(cells)))
         if refdir:
-            json.dump({"set": os.path.basename(os.path.dirname(meta.get("set", ""))) or None,
+            json.dump({"set": os.path.basename(os.path.dirname(meta.get("set") or "")) or None,
                    "piece": pc["piece"], "sample": pc["sample"], "params": pc["params"],
                    "settings": dsp_settings(pc["params"]), "frames": pc["frames"],
                    "end_ms": round(d["end_ms"], 3), "dry": d["dry"] is not None,

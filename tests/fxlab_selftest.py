@@ -155,6 +155,8 @@ meta = json.load(open(os.path.join(prev, "pads.json")))
 check(r.returncode == 0 and [pc["params"] for pc in meta["pieces"]] == [p for _, p in PUNCH[:3]]
       and meta["like"]["pieces"] == ["01_sine_441.wav", "02_sine_441.wav", "03_sine_441.wav"],
       "split --like cuts the take into clean's pads 1-3:\n" + r.stdout)
+r = run("check", prev)
+check(r.returncode == 0, "check on the preview take alone (against the render) passes:\n" + r.stdout)
 r = run("check", clean, "--ours-take", prev)
 res = json.load(open(os.path.join(clean, "check_vs_preview.json")))
 worst = max(m["stats"]["max"] for row in res["rows"] for m in row["metrics"].values() if m["stats"])

@@ -237,7 +237,8 @@ numpy, scipy and matplotlib, pinned in `scripts/requirements-analysis.txt`):
    session, so the installed `dsp.so` loads), load the test sound and play
    pad 1 once per setting, copying pads of a recorded Set (a dry one
    first), about 3 s apart, then press Shift+Capture: Skipback saves the
-   last 30 s to `Samples/Schwung/Skipback/<date>/`. The Quantized Sampler
+   last 30 s (Schwung's default; its settings can lengthen it) to
+   `Samples/Schwung/Skipback/<date>/`. The Quantized Sampler
    can't be used here: Schwung arms it only outside its own UI, so inside a
    tool Shift+Sample reaches the tool (`schwung_shim.c`, the sampler's
    `!shadow_display_mode`). Skipback's Shift+Capture is taken by the shim
@@ -443,7 +444,9 @@ Recorded 2026-11-12 (`.claude/recordings/set30/`; Amounts 9.86, 25.4,
 
 Punch is done when, after tuning on Sets 29 and 30, an acceptance Set
 from `fxlab.py accept-set Punch --seed <n>` (sine_441, sine_441_quiet,
-drum_synth) passes `fxlab.py check`.
+drum_synth) passes `fxlab.py check`. Done 2026-11-13: Set 31 passed (12
+of 12 pads), its curves are `tests/move_refs/punch/`, and the preview as
+the Move plays it passed too (below).
 
 Punch, tuned 2026-11-12 (`src/dsp/plugin.c`, `fx_frame`). Fitted by least
 squares to all 14 sine pads of Sets 29 and 30 at once, through the same
@@ -488,6 +491,21 @@ squares to all 14 sine pads of Sets 29 and 30 at once, through the same
   | 11 | sine_441 | Transpose 12 st, Punch Amount 100 %, Release 252 ms (Set 30 pad 8) |
   | 12 | sine_441 | Transpose 12 st, Punch Amount 50 %, Release 506 ms (Set 30 pad 10) |
 
+  Recorded 2026-11-13 with two departures: pad 5's Release is 751 ms
+  (750 isn't a step on Move), and every pad's Attack is 1.0 ms, not the
+  minimum (the render reads both from the Set, so the comparison holds).
+  `fxlab.py check`: 12 of 12 pass, gain worst 0.97 dB (pad 11), bands
+  worst 1.04 dB (pad 4, drum_synth), pitch under 1 cent. Pads 11 and 12
+  pass with Punch's times unchanged by Transpose, so they don't follow
+  the pitch. `fxlab.py refs .claude/recordings/set31/punch --seed 1112`
+  saved them as `tests/move_refs/punch/`, which `test.sh` checks.
+- Preview on the Move (2026-11-13, `.claude/recordings/preview1/`, a
+  Skipback take of LiveChopper playing sine_441 at Set 30 pads 1, 8, 10
+  and 2): against plugin.c's render, 4 of 4 pass (gain worst 0.28 dB,
+  bands 0.06 dB, pitch 0); Move's own Set 30 pads against it, 4 of 4
+  pass (gain worst 0.47 dB, bands 0.26 dB). The preview plays at unity,
+  1.45 dB above Move's dry level (0.8465); `check` compares each take at
+  its own level, so this isn't part of the verdict.
 - Device: `fxlab.py device-check` renders the pads of Sets 28-30 on the
   Move (plugin.c built with build.sh's flags, the Move's libm) and
   compares them with the host's: all 56 renders identical, bit for bit
