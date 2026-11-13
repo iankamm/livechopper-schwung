@@ -49,5 +49,9 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
   tests/ui_smoke.mjs runs ui.js under node with a fake host and DSP, checking
   the exported preset too. Add checks there for each new feature.
 - Do not deploy to the device or run ssh commands without asking first.
+- Guide the git flow: speak up at natural checkpoints (tests green, a feature
+  or PLAN step done, a device check passed, before a risky refactor) and
+  recommend the next step: commit, push, tag a release, branch, merge. Propose
+  the message, tag or branch name. Do not run any of it without approval.
 - Logs on device: /data/UserData/schwung/debug.log (see ../schwung/CLAUDE.md
   "Testing" for how to enable).
