@@ -65,11 +65,14 @@ a Move drum rack preset or one WAV per slice.
   two settings. Filter & Setup: 1 Frequency, 2 Resonance (Peak Gain on
   Peak), 3 Type, 4 Envelope Mode, 5-7 not used (chop mode always chokes; no
   velocity), 8 Gain (Pan's slot; Move has no gain knob here). Unused knobs
-  show "-". The LED under each knob is lit while turning it does something
-  on this page, brighter the higher its value (the framework's
-  knob_leds.mjs, as its parameter pages use: Knobs 1-4 white, 5-8 amber,
-  never fully dark while lit). Unused knobs stay dark, and every knob is
-  dark in a menu. The page is kept for a resume and reset on a fresh start.
+  show "-". The list knobs (Effect, Type, Envelope Mode) move one item
+  every 4 detents, as Schwung's own parameter pages do; turning back drops
+  a partial turn, and with Shift each detent is an item. The LED under
+  each knob is lit while turning it does something on this page, brighter
+  the higher its value (the framework's knob_leds.mjs, as its parameter
+  pages use: Knobs 1-4 white, 5-8 amber, never fully dark while lit).
+  Unused knobs stay dark, and every knob is dark in a menu. The page is
+  kept for a resume and reset on a fresh start.
   Jog, Left/Right and the buttons work the same on both pages.
 - Knob model: every knob that mirrors a Move control steps, fine-steps and
   reads out as Move's own does (src/knobs.mjs, measured on a Move; see
@@ -111,12 +114,12 @@ a Move drum rack preset or one WAV per slice.
   Applied to playback (ramped over a block, so no clicks; boosts clip at
   full scale). The waveform is drawn at the gained level.
 - Effect: one global setting that sets the drum sampler's playback effect
-  on every pad. Main Knob 6 steps through Move's nine, one a click, in
-  Move's order: Stretch (the default, at factor 1.00: what Move's own
-  default exports, a no-op), Loop, Pitch Env, Punch, 8-Bit, FM, Ring Mod,
-  Sub Osc, Noise. There is no Off, as on Move. Main Knobs 7 and 8 are the
-  selected effect's two settings on the knob model, with Move's ranges,
-  curves and defaults, and each effect keeps its own while you switch
+  on every pad. Main Knob 6 steps through Move's nine, one every 4
+  detents, in Move's order: Stretch (the default, at factor 1.00: what
+  Move's own default exports, a no-op), Loop, Pitch Env, Punch, 8-Bit, FM,
+  Ring Mod, Sub Osc, Noise. There is no Off, as on Move. Main Knobs 7 and
+  8 are the selected effect's two settings on the knob model, with Move's
+  ranges, curves and defaults, and each effect keeps its own while you switch
   (labels shortened to fit the bottom line; the screen reader says Move's
   names):
 

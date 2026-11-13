@@ -115,6 +115,11 @@ var MINIMAP_Y = 49;
 var ZOOM_MAX = 14;
 var ZOOM_STEP = 0.25;
 var FINE_DIVISOR = 16;          /* Shift: 1/16 of a coarse step */
+/* List knobs (Effect, Filter Type, Envelope Mode) move one item every 4
+ * detents, Schwung's own list gate (knob_engine.mjs ENUM_DELTA_DIV): a Move
+ * knob sends ~210 detents a rotation, so one a detent ran the nine effects
+ * by in about 15 degrees. Shift lifts the gate: one item a detent. */
+var LIST_DETENTS = 4;
 var EDGE_MARGIN = 0.05;         /* recenter when a marker is this close to the edge */
 var ANNOUNCE_SETTLE_TICKS = 20;
 var OVERLAY_TICKS = 60;
@@ -282,6 +287,7 @@ var pendingSettings = {};   /* key -> value, sent once per tick */
 var overlayText = "";       /* footer readout while a sound knob moves */
 var overlayTimer = 0;
 var touchedKnob = -1;       /* 0-7 while a knob is touched */
+var listAccum = [0, 0, 0, 0, 0, 0, 0, 0];   /* detents banked toward a list knob's next item */
 var page = PAGE_MAIN;
 var settingAnnounce = "";
 var settingAnnounceTimer = 0;
@@ -732,6 +738,7 @@ function sayKnob(i) {
 function onKnobTouch(i, touched) {
     if (!touched) {
         if (touchedKnob === i) touchedKnob = -1;
+        listAccum[i] = 0;
         return;
     }
     if (loadState !== "ready") return;
@@ -762,8 +769,20 @@ function setShift(held) {
 function setPage(p) {
     if (loadState !== "ready" || sliceCount === 0) return;
     page = p;
+    for (var k = 0; k < listAccum.length; k++) listAccum[k] = 0;
     showMessage(PAGE_NAMES[page], OVERLAY_TICKS);
     announce(PAGE_SPOKEN[page]);
+}
+
+/* Items a list knob moves for ticks detents: one per LIST_DETENTS, the rest
+ * banked; turning back drops the bank. Shift: one a detent. */
+function listSteps(i, ticks) {
+    if (shiftHeld) return ticks;
+    if (listAccum[i] !== 0 && (listAccum[i] > 0) !== (ticks > 0)) listAccum[i] = 0;
+    listAccum[i] += ticks;
+    var steps = Math.trunc(listAccum[i] / LIST_DETENTS);
+    listAccum[i] -= steps * LIST_DETENTS;
+    return steps;
 }
 
 /* Turn knob i by ticks detents: whatever its role is right now. */
@@ -797,7 +816,7 @@ function turnKnob(i, ticks) {
         }
         break;
     case "effect":
-        v = clampInt(effect + ticks, 0, EFFECTS.length - 1);
+        v = clampInt(effect + listSteps(i, ticks), 0, EFFECTS.length - 1);
         if (v !== effect) setEffect(v);
         break;
     case "fxa": case "fxb":
@@ -809,14 +828,15 @@ function turnKnob(i, ticks) {
         }
         break;
     case "type":
-        v = clampInt(filterType + ticks, 0, FILTER_TYPE_NAMES.length - 1);
+        v = clampInt(filterType + listSteps(i, ticks), 0, FILTER_TYPE_NAMES.length - 1);
         if (v !== filterType) {
             filterType = v;
             pendingSettings.filter_type = filterType;
         }
         break;
     case "mode":
-        if ((ticks > 0) !== gated) setGate(ticks > 0);
+        v = listSteps(i, ticks);
+        if (v !== 0 && (v > 0) !== gated) setGate(v > 0);
         break;
     case "gain":
         v = gainDb10;

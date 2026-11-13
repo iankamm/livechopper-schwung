@@ -168,11 +168,20 @@ rule anyway: no "+" (decided 2026-11-12).
 | Shift Main 2 Zoom | LiveChopper's own (decided 2026-11-09) | Move has two levels | - |
 | Main 3-5 Attack, Hold, Decay | 0.10 ms-20.0 s / 1.00 ms-Inf / 1.00 ms-60.0 s | log, 131 steps, one value a click (Sets 21, 23) | 3 significant figures: "0.10 ms", "10.6 ms", "110 ms", "1.03 s", "20.0 s"; Hold's top is "Inf" |
 | Main 5 Length (Move: Shift) | 0-100% of the sample | Move: linear, 0.7645% of the sample a click, no skipping (Set 23). LiveChopper keeps 1 screen column a click (decided 2026-11-09) | "0.0 %"-"9.9 %", then "11 %"-"100 %"; over the waveform |
-| Main 6 Effect | nine effects, no Off | one effect a click | "Playback Effect", the effect's name, and a bar for its place in the list |
+| Main 6 Effect | nine effects, no Off | one effect every 4 detents (see below) | "Playback Effect", the effect's name, and a bar for its place in the list |
 | Main 7-8 effect settings | see "Effect fields" | see "Knob curves" | see screen session 3 |
 | Filter 1 Frequency | 30 Hz-22 kHz | log (Set 21) | "Filter Frequency", "30.0 Hz"-"22.0 kHz" |
 | Filter 2 Resonance / Peak Gain | 0-0.9 / -12 to +12 dB | both linear (Peak Gain linear in dB), 131 steps (Set 25) | "Filter Resonance" "0.0 %"-"90 %"; "Filter Gain" "-12 dB"-"12 dB" |
-| Filter 3 Type, 4 Envelope Mode | four types / Trigger, Gate | one item a click | "Filter Type": Low-Pass 12, Low-Pass 24, High-Pass 24, Peak; "Envelope Mode": Trigger, Gate |
+| Filter 3 Type, 4 Envelope Mode | four types / Trigger, Gate | one item every 4 detents | "Filter Type": Low-Pass 12, Low-Pass 24, High-Pass 24, Peak; "Envelope Mode": Trigger, Gate |
+
+The list knobs (Effect, Type, Envelope Mode) move one item every 4
+detents (decided 2026-11-13). This is Schwung's own list gate
+(knob_engine.mjs ENUM_DELTA_DIV): turning back drops a partial turn, and
+Shift lifts the gate to one item a detent. A Move knob sends about 210
+detents a rotation (Schwung's EC4_SURFACE.md), so at one item a detent all
+nine effects went by in about 15 degrees. Move's own rate for its lists is
+unmeasured: the screen captures have frames but no encoder counts, and a
+Set only keeps the end value.
 
 Shift's fine step (the manual mentions it for Attack, Hold, Filter
 Frequency and Resonance): on Attack and Hold it is a tenth of a knob step,

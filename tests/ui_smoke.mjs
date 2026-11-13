@@ -105,6 +105,11 @@ const READOUT = /^(Start|Length|Zoom|Gain|Attack|Hold|Decay|Transpose|Detune|Eff
 const shift = on => midi(0xB0, 49, on ? 127 : 0);
 const touch = (k, on) => midi(0x90, k - 1, on ? 127 : 0);
 const turn = (k, v) => midi(0xB0, 70 + k, v);
+// Turn by n detents (CC values 1-63 up, 65-127 down)
+const turnBy = (k, n) => { while (n !== 0) { const d = Math.max(-63, Math.min(63, n)); turn(k, d > 0 ? d : 128 + d); n -= d; } };
+// List knobs (Effect, Filter Type, Envelope Mode) move an item every 4 detents
+const LIST_DETENTS = 4;
+const turnList = (k, items) => turnBy(k, items * LIST_DETENTS);
 const DOWN = 54;
 const UP = 55;
 const filterPage = () => midi(0xB0, DOWN, 127);
@@ -186,7 +191,8 @@ for (const pg of ['Main', 'Filter & Setup']) {
   for (let k = 1; k <= 8; k++) {
     touch(k, true); tick(1);
     const shown = printed.find(t => READOUT.test(t));
-    turn(k, 3); tick(1);
+    const list = pg === 'Main' ? k === 6 : (k === 3 || k === 4);
+    turnBy(k, list ? 3 * LIST_DETENTS : 3); tick(1);
     const after = printed.find(t => READOUT.test(t));
     touch(k, false); tick(70);
     check(shown, `${pg} knob ${k} touch shows a readout`);
@@ -197,9 +203,9 @@ for (const pg of ['Main', 'Filter & Setup']) {
 // Put back what the loop changed that the tests below start from: Mode
 // (Gate), Type (Peak), Resonance; Effect (Punch, whose settings it turned:
 // they stay). Gain stays at +1.5 dB.
-turn(4, 127); turn(3, 126); turn(2, 125); tick(1);
+turnList(4, -1); turnList(3, -2); turn(2, 125); tick(1);
 mainPage(); tick(1);
-turn(6, 125); tick(70);
+turnList(6, -3); tick(70);
 
 // ---- Pages: Down is Filter & Setup, Up is Main ----
 check(lit(DOWN) && !lit(UP), 'Main page: Down lit (the other page), Up dark');
@@ -289,16 +295,45 @@ mark = sets.length;
 touch(6, true); tick(1);
 check(printed.includes('Effect: Stretch') && log.at(-1) === 'SAY: Effect stretch', 'Knob 6 starts on Stretch: ' + JSON.stringify(printed));
 check(knobLed(6) === AMBER_LEVELS[0], 'Knob 6 LED dimmest on the first effect: ' + knobLed(6));
-turn(6, 127); tick(1);
+turnList(6, -1); tick(1);
 check(printed.includes('Effect: Stretch') && !sets.slice(mark).some(s => s.startsWith('effect=')), 'left of Stretch stays there, sends nothing');
 {
   const names = [];
-  for (let n = 0; n < 9; n++) { turn(6, 1); tick(1); names.push(printed.find(t => t.startsWith('Effect: '))); }
+  for (let n = 0; n < 9; n++) { turnList(6, 1); tick(1); names.push(printed.find(t => t.startsWith('Effect: '))); }
   check(names.join() === ['Loop', 'Pitch Env', 'Punch', '8-Bit', 'FM', 'Ring Mod', 'Sub Osc', 'Noise', 'Noise'].map(n => 'Effect: ' + n).join(),
         'one effect a click in Move\'s order, stopping at Noise: ' + names);
   check(knobLed(6) === AMBER_LEVELS.at(-1), 'Knob 6 LED full on Noise: ' + knobLed(6));
 }
-turn(6, 120); tick(1);                      // 8 back: Stretch
+// The gate: 4 detents an item, turning back drops the bank, a release
+// drops it too, Shift is one item a detent
+const effectShown = () => printed.find(t => t.startsWith('Effect: '));
+const effectSets = () => sets.filter(s => s.startsWith('effect=')).length;
+{
+  let n = effectSets();
+  turnBy(6, -3); tick(1);
+  check(effectShown() === 'Effect: Noise' && effectSets() === n, '3 detents: still Noise, sends nothing: ' + effectShown());
+  turnBy(6, -1); tick(1);
+  check(effectShown() === 'Effect: Sub Osc' && effectSets() === n + 1, 'the 4th detent: Sub Osc: ' + effectShown());
+  turnBy(6, 3); turnBy(6, -1); tick(1);
+  check(effectShown() === 'Effect: Sub Osc', 'turning back drops the 3 banked detents: ' + effectShown());
+  turnBy(6, -3); tick(1);
+  check(effectShown() === 'Effect: Ring Mod', 'then 4 detents back: Ring Mod: ' + effectShown());
+  turnList(6, 2); tick(1);
+  check(effectShown() === 'Effect: Noise', 'two items on: Noise: ' + effectShown());
+  turnBy(6, -3); touch(6, false); touch(6, true); turnBy(6, -1); tick(1);
+  check(effectShown() === 'Effect: Noise', 'a release drops the bank: ' + effectShown());
+  turnBy(6, -3); tick(1);
+  check(effectShown() === 'Effect: Sub Osc', 'a fresh 4 detents after the release: ' + effectShown());
+  turnBy(6, 3); shift(true); turnBy(6, -1); tick(1);
+  check(effectShown() === 'Effect: Ring Mod', 'Shift: one item a detent: ' + effectShown());
+  turnBy(6, 2); shift(false); tick(1);
+  check(effectShown() === 'Effect: Noise', 'Shift: two detents, two items: ' + effectShown());
+}
+turnList(6, -8); tick(1);                  // 8 back: Stretch
+turn(6, 63); tick(1);
+check(effectShown() === 'Effect: Noise', 'a 63-detent CC: 15 items, clamped at Noise: ' + effectShown());
+turn(6, 65); tick(1);
+check(effectShown() === 'Effect: Stretch', 'and 63 back: Stretch: ' + effectShown());
 touch(6, false);
 for (const [k, want, say] of [[7, 'Factor: 1.00', 'SAY: Stretch factor 1.00'], [8, 'Grain: 100 ms', 'SAY: Grain size 100 milliseconds']]) {
   touch(k, true); tick(1); touch(k, false);
@@ -310,7 +345,7 @@ check(printed.includes('Factor: 1.01'), 'Stretch Factor: a click shows the next 
 check(sets.slice(mark).some(s => /^fx=1\.0\d+ 0\.1\d*$/.test(s)), 'sends the effect\'s two settings as fx: ' + JSON.stringify(sets.slice(mark)));
 // Loop's Knob 7 is Offset and Knob 8 Loop Length, as on Move
 mark = sets.length;
-turn(6, 1); tick(1);
+turnList(6, 1); tick(1);
 {
   const sent = sets.slice(mark).filter(s => /^(effect|fx)=/.test(s));
   check(sent[0] === 'effect=1' && /^fx=0 0\.3/.test(sent[1]), 'switching sends the effect, then its settings: ' + JSON.stringify(sent));
@@ -320,16 +355,16 @@ for (const [k, want] of [[7, 'Offset: 0.0 %'], [8, 'Loop Len: 300 ms']]) {
   check(printed.includes(want), `Loop Knob ${k}: ${want}: ` + JSON.stringify(printed));
 }
 // Punch kept the settings the knob loop gave it
-turn(6, 2); tick(1);
+turnList(6, 2); tick(1);
 touch(7, true); tick(1); touch(7, false);
 check(printed.includes('Amount: 2.3 %') && log.at(-1) === 'SAY: Punch amount 2.3 percent', 'Punch kept its amount: ' + JSON.stringify(printed));
 touch(8, true); tick(1); touch(8, false);
 check(printed.includes('Release: 131 ms'), 'Punch kept its release: ' + JSON.stringify(printed));
-turn(6, 125); touch(7, true); tick(1); touch(7, false);   // Stretch kept its factor too
+turnList(6, -3); touch(7, true); tick(1); touch(7, false);   // Stretch kept its factor too
 check(printed.includes('Factor: 1.01'), 'Stretch kept its factor: ' + JSON.stringify(printed));
 // 8-Bit: Knob 7 is the rate, Knob 8 the Decay (Off at the top, Move's default)
 mark = sets.length;
-turn(6, 4); tick(1);
+turnList(6, 4); tick(1);
 check(crushSets().at(-1) === 'crush_hz=14080' && sets.slice(mark).includes('crush_decay=5'), '8-Bit sends its rate and decay: ' + JSON.stringify(sets.slice(mark)));
 touch(7, true); tick(1);
 check(printed.includes('Rate: 14.1 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
@@ -358,9 +393,9 @@ check(printed.includes('Decay: Off') && sets.filter(s => s.startsWith('crush_dec
 touch(8, false); tick(70);
 // Leaving 8-Bit turns the crush off; coming back restores its rate
 mark = sets.length;
-turn(6, 1); tick(1);
+turnList(6, 1); tick(1);
 check(crushSets().at(-1) === 'crush_hz=0', 'another effect: crush off');
-turn(6, 127); tick(70);
+turnList(6, -1); tick(70);
 check(crushSets().at(-1) === 'crush_hz=6571', 'back on 8-Bit at its rate');
 
 // Top bar is just the pad; zoom, transpose and Start/End stay off it
@@ -523,7 +558,7 @@ check(!lit(MUTE), 'Mute dark');
 mark = sets.length;
 midi(0xB0, 88, 127); tick(70);
 check(sets.slice(mark).length === 0 && !lit(MUTE), 'Mute does nothing');
-filterPage(); turn(4, 1); tick(1); mainPage(); tick(70);
+filterPage(); turnList(4, 1); tick(1); mainPage(); tick(70);
 check(sets.includes('gate=1'), 'Mode Gate sends gate=1');
 midi(0xB0, 118, 127); tick(1);
 check(!lit(UP) && !lit(DOWN) && litKnobs() === '', 'page buttons and knobs dark in the export menu');
@@ -532,7 +567,7 @@ const gatedPreset = JSON.parse(files[presetDir + 'test loop Chop 3.ablpreset'] |
 check(gatedPreset.chains && gatedPreset.chains[0].devices[0].chains[0].devices[0].parameters.Voice_Envelope_Mode === 'A-S-R',
       'gated exports as A-S-R');
 mark = sets.length;
-filterPage(); turn(4, 127); tick(1); mainPage(); tick(70);
+filterPage(); turnList(4, -1); tick(1); mainPage(); tick(70);
 check(sets.slice(mark).includes('gate=0'), 'Mode Trigger: one-shot again');
 
 // ---- Export slices ----
@@ -824,7 +859,7 @@ for (const [k, want] of [[1, 'Freq: 1.20 kHz'], [2, 'Peak Gain: -6.0 dB'], [3, '
   touch(k, true); tick(1); touch(k, false);
   check(printed.includes(want), `restored: ${want}: ` + JSON.stringify(printed));
 }
-turn(3, 127); touch(2, true); tick(1); touch(2, false);
+turnList(3, -1); touch(2, true); tick(1); touch(2, false);
 check(printed.includes('Resonance: 45 %'), 'restored resonance, under High-Pass 24: ' + JSON.stringify(printed));
 delete g.host_tool_reconnect;
 
@@ -836,8 +871,6 @@ g.init(); tick(2);
 dsp.chop++; tick(70);
 exportPreset(); tick(70);
 const filterSets = k => sets.filter(x => x.startsWith(k + '='));
-// Turn by n detents (CC values 1-63 up, 65-127 down)
-const turnBy = (k, n) => { while (n !== 0) { const d = Math.max(-63, Math.min(63, n)); turn(k, d > 0 ? d : 128 + d); n -= d; } };
 filterPage(); tick(70);
 // Frequency: 30 Hz to 22 kHz, Move's log knob (knobs.mjs)
 mark = sets.length;
@@ -876,14 +909,17 @@ touch(2, false); tick(70);
 // Type: Low-Pass 12, Low-Pass 24, High-Pass 24, Peak; stops at both ends
 touch(3, true); tick(1);
 check(printed.includes('Type: Low-Pass 24') && log.at(-1) === 'SAY: Filter low-pass 24', 'type starts at Low-Pass 24: ' + JSON.stringify(printed));
-turn(3, 127); tick(1);
+let typeSent = filterSets('filter_type').length;
+turnBy(3, -3); tick(1);
+check(printed.includes('Type: Low-Pass 24') && filterSets('filter_type').length === typeSent, 'type: 3 detents change nothing: ' + JSON.stringify(printed));
+turnBy(3, -1); tick(1);
 check(printed.includes('Type: Low-Pass 12') && filterSets('filter_type').at(-1) === 'filter_type=0', 'Low-Pass 12: ' + JSON.stringify(printed));
 const typeSets = filterSets('filter_type').length;
-turn(3, 127); tick(1);
+turnList(3, -1); tick(1);
 check(printed.includes('Type: Low-Pass 12') && filterSets('filter_type').length === typeSets, 'stops at Low-Pass 12, sends nothing');
-turn(3, 2); tick(1);
+turnList(3, 2); tick(1);
 check(printed.includes('Type: High-Pass 24') && filterSets('filter_type').at(-1) === 'filter_type=2', 'High-Pass 24: ' + JSON.stringify(printed));
-turn(3, 5); tick(1);
+turnList(3, 5); tick(1);
 check(printed.includes('Type: Peak') && filterSets('filter_type').at(-1) === 'filter_type=3', 'stops at Peak: ' + JSON.stringify(printed));
 touch(3, false); tick(70);
 check(log.includes('SAY: Filter peak'), 'type announced');
@@ -901,20 +937,23 @@ check(printed.includes('Peak Gain: -12 dB') && filterSets('filter_peak_db10').at
 turnBy(2, 72); tick(1);
 check(printed.includes('Peak Gain: 2.9 dB'), 'back to 2.9 dB: ' + JSON.stringify(printed));
 check(filterSets('filter_res').at(-1) === 'filter_res=88', 'Peak Gain leaves the resonance alone');
-touch(2, false); turn(3, 126); touch(2, true); tick(1); touch(2, false);
+touch(2, false); turnList(3, -2); touch(2, true); tick(1); touch(2, false);
 check(printed.includes('Resonance: 8.8 %'), 'Low-Pass 24 again: resonance kept: ' + JSON.stringify(printed));
 // Mode: Trigger / Gate; Mute stays dark either way
 touch(4, true); tick(1);
 check(printed.includes('Mode: Trigger') && !lit(MUTE), 'Mode starts on Trigger: ' + JSON.stringify(printed));
-turn(4, 1); tick(1);
+mark = sets.length;
+turnBy(4, 3); tick(1);
+check(printed.includes('Mode: Trigger') && !sets.slice(mark).some(x => x.startsWith('gate=')), 'mode: 3 detents change nothing: ' + JSON.stringify(printed));
+turnBy(4, 1); tick(1);
 check(printed.includes('Mode: Gate') && sets.at(-1) === 'gate=1' && !lit(MUTE), 'Mode Gate: gated');
 touch(4, false); tick(70);
 check(log.includes('SAY: Mode gate'), 'Mode Gate announced: ' + log.slice(-2));
 touch(4, true); tick(1);
 const gateSets = sets.filter(x => x.startsWith('gate=')).length;
-turn(4, 1); tick(1);
+turnList(4, 1); tick(1);
 check(sets.filter(x => x.startsWith('gate=')).length === gateSets, 'right of Gate stays Gate, sends nothing');
-turn(4, 127); tick(1);
+turnList(4, -1); tick(1);
 check(printed.includes('Mode: Trigger') && sets.at(-1) === 'gate=0', 'Mode Trigger: one-shot again');
 touch(4, false); tick(70);
 // Knobs 5-7 are not used on this page
