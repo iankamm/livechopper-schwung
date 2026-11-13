@@ -22,8 +22,10 @@ a Move drum rack preset or one WAV per slice.
    - the next unused pad lights blue
 5. Pads that already have a region play that region when pressed.
 6. In chop mode, every pad chokes every other pad (one voice at a time).
-7. Chop timing must be sample-accurate: the playhead position comes from the
-   audio engine at the moment the note-on is processed, not from the UI tick.
+7. Chop timing comes from the audio engine: the chop lands at the playhead
+   where the DSP processes the note-on, not where the UI tick saw it. Notes
+   are processed between audio blocks, so a chop lands up to one block
+   (128 frames, ~2.9 ms) after the press (NOTES "Chop timing").
 
 ## Also
 

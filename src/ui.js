@@ -5,8 +5,9 @@
  * 128x64 1-bit monochrome display, QuickJS runtime.
  *
  * The DSP owns pad input, the slice list, the selected slice and the
- * playhead (so chops are sample-accurate); this UI mirrors DSP state by
- * polling get_param and sends edits back with set_param.
+ * playhead (so a chop lands where the audio is, to the block); this UI
+ * mirrors DSP state by polling get_param and sends edits back with
+ * set_param.
  *
  * Chop points are shared: moving a slice's start also moves the previous
  * slice's end. The marker/zoom UI follows the waveform editor's.

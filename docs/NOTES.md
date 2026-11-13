@@ -6,7 +6,7 @@ Findings from studying the framework and schwung-waveform-editor (v0.7.3),
 they differ from SPEC.md, SPEC.md is authoritative. Planned work is in
 PLAN.md.
 
-## Sample-accurate chops: DSP owns pad input
+## Chop timing: DSP owns pad input
 
 - In an interactive tool (overtake_mode 2) the shim delivers internal pad
   note-on/off to the tool DSP's `on_midi` on the audio thread
@@ -16,7 +16,7 @@ PLAN.md.
   and split. The UI only mirrors state (LEDs, screen) by polling get_param.
 - Granularity: `on_midi` runs between blocks, so T is the playhead at the
   block boundary where the note is processed (128 frames, ~2.9 ms). There is
-  no intra-block timestamp in the API. This matches SPEC item 7.
+  no intra-block timestamp in the API. SPEC item 7 states this.
 - The waveform editor's "Lazy" chop mode does NOT do this: it reads `playPos`
   in the UI (polled per tick), so its chops are tick-accurate at best. Don't
   copy it.
@@ -34,23 +34,24 @@ PLAN.md.
 
 ## Export (drum rack preset)
 
+What the waveform editor's preset writer showed, which `src/drum_rack.mjs`
+grew from. SPEC "Export Drum Preset" lists every field LiveChopper writes.
+
 - The waveform editor's `saveDrumRackPreset()` (ui.js) writes an
-  `.ablpreset` JSON to `/data/UserData/UserLibrary/Track Presets/`. It is
-  pure JS, so it can be reused almost verbatim.
-- It uses ONE WAV for all pads: every drumCell points at the same
+  `.ablpreset` JSON to `/data/UserData/UserLibrary/Track Presets/`, in
+  pure JS.
+- It uses one WAV for all pads: every drumCell points at the same
   `sampleUri` with `Voice_PlaybackStart` / `Voice_PlaybackLength` as
-  fractions of the file. LiveChopper does the same (src/drum_rack.mjs).
+  fractions of the file. LiveChopper does the same.
 - Units, from a real Move set (schwung tests/fixtures/song_abl_sample.json):
-  envelope times are seconds (attack 0.0001 min; decay 10.0 in that set,
-  but a 909 Kit has 12.87 and 13.92, so Move goes higher: see "Knob
-  curves" below); Move's own kits use hold 0.001 with the decay doing the
-  work. Volume around -12.
-- Choke: each pad has `drumZoneSettings.chokeGroup`, already set to 1 for all
-  16 pads. Choke-all is supported.
-- Transpose: `Voice_Transpose` per drumCell, so global transpose can be
+  envelope times are seconds (ranges under "Knob curves"); Move's own kits
+  use hold 0.001 with the decay doing the work. Volume around -12.
+- Choke: each pad has `drumZoneSettings.chokeGroup`; the waveform editor
+  sets 1 on all 16 pads, so all pads choke each other.
+- Transpose: `Voice_Transpose` per drumCell, so a global transpose can be
   exported.
 - Envelope: the drumCell envelope is `Voice_Envelope_Attack/Hold/Decay` with
-  `Voice_Envelope_Mode: "A-H-D"`. The spec's global envelope maps onto these
+  `Voice_Envelope_Mode: "A-H-D"`. The global envelope maps onto these
   fields (A-H-D, or A-S-R when gated).
 - The preset always has 16 chains (receivingNote 36-51); unused pads get
   `speakerOn: false`.
@@ -64,17 +65,19 @@ still to do is in PLAN.md. The Sets, takes and manuals are in
 
 ### Effect fields
 
-| Effect | `Effect_Type` | Setting 1 (Knob 7): range | Setting 2 (Knob 8): range | Move's defaults |
+In Move's order:
+
+| Effect | `Effect_Type` | Knob 7: field, range | Knob 8: field, range | Move's defaults (Knob 7, 8) |
 |---|---|---|---|---|
-| 8-Bit | "8-bit" | EightBitResamplingRate: 1000-30000 Hz | EightBitFilterDecay: 0.01-5 | 14080, 5.0 |
 | Stretch | "Stretch" | StretchFactor: 1-20 | StretchGrainSize: 0.005-0.3 | 1.0, 0.1 |
-| Punch | "Punch" | PunchAmount: 0-1 | PunchTime: 0.06-1 | 0.0, 0.12016 |
+| Loop | "Loop" | LoopOffset: 0-1 | LoopLength: 0.01-0.5 | 0.0, 0.3 |
 | Pitch Env | "Pitch Env" | PitchEnvelopeAmount: -1 to +1 | PitchEnvelopeDecay: 0.005-2 | 0.0, 0.3 |
+| Punch | "Punch" | PunchAmount: 0-1 | PunchTime: 0.06-1 | 0.0, 0.12016 |
+| 8-Bit | "8-bit" | EightBitResamplingRate: 1000-30000 Hz | EightBitFilterDecay: 0.01-5 | 14080, 5.0 |
 | FM | "FM" | FmAmount: 0-1 | FmFrequency: 10-4500 Hz | 0.0, 1000 |
 | Ring Mod | "Ring Mod" | RingModAmount: 0-1 | RingModFrequency: 1-5000 Hz | 0.0, 1000 |
 | Sub Osc | "Sub Osc" | SubOscAmount: 0-1 | SubOscFrequency: 30-120 Hz | 0.0, 60 |
 | Noise | "Noise" | NoiseAmount: 0-1 | NoiseFrequency: 180-15000 Hz | 0.0, 10000 |
-| Loop | "Loop" | LoopLength: 0.01-0.5 | LoopOffset: 0-1 | 0.3, 0.0 |
 
 Field names drop the `Effect_` prefix. Times are seconds; units are not
 stored in the set file. Sources:
@@ -93,9 +96,10 @@ stored in the set file. Sources:
 
 Move's manual (Drum Sampler, Main Bank) puts each effect's two settings on
 Knobs 7 and 8 and lists the effects in this order: Stretch, Loop, Pitch
-Env, Punch, 8-Bit, FM, Ring Mod, Sub Osc, Noise. It has no Off. The knob
-order matches the table for every effect except Loop: Offset is on Knob 7
-and Length on Knob 8 (screen session 3).
+Env, Punch, 8-Bit, FM, Ring Mod, Sub Osc, Noise. It has no Off. Which
+setting sits on which knob is from screen session 3. For every effect but
+Loop that is also the order of its field pair in the set file; Loop's
+pair is stored Length first, Offset second, the reverse of its knobs.
 
 ### Knob curves (Sets 20, 21)
 
@@ -134,10 +138,13 @@ exactly one knob step per click:
 | Decay | log, 0.001-60 s (the top shows "60.0 s") |
 | Filter Frequency | log, 30 Hz-22 kHz, x1.0517 a click |
 
-Set 18's 909 Kit has decays of 12.87 s and 13.92 s; Set 19 measured the
-ranges (pads 5 and 6, fully down and fully up). The filter's 10-click pad
-landed on 11 steps, which the display rule can't explain at those values;
-probably one extra click. Its single click is exact.
+The envelope ranges are from Set 19 (pads 5 and 6, fully down and fully
+up). Set 18's 909 Kit first showed Decay goes past 10 s, with decays of
+12.87 s and 13.92 s; Schwung's Move set fixture has 10.0.
+
+The filter's 10-click pad landed on 11 steps, which the display rule can't
+explain at those values; probably one extra click. Its single click is
+exact.
 
 The rule for every Move knob measured (Sets 20-25): 131 equal knob steps
 across the range (0.00764526 each, the last one short), a curve per
@@ -149,7 +156,9 @@ displayed value changes. Length is the one knob seen that doesn't skip.
 Every knob that mirrors a Move control follows Move's range, curve, step
 size, Shift fine step and on-screen format (PLAN steps 1 and 2 built it).
 Gain (Filter & Setup Knob 8) is LiveChopper's own, since Move has no Gain
-knob there; it keeps Simpler's range and steps.
+knob there: Move's drum sampler range (-70 to +24 dB) with Simpler-like
+steps (0.5 dB, Shift 0.1, 2 dB below -24 dB). Its readout follows Move's
+rule anyway: no "+" (decided 2026-11-12).
 
 | Knob | Range | Curve and step | Display |
 |---|---|---|---|
@@ -187,7 +196,8 @@ holds the raw values):
   and Detune), the value at bottom left, and the sampler icon at bottom
   right.
 - Turning fast skips values: a slow click moves Transpose 1 st, a fast
-  turn 2-3.
+  turn 2-3. Whether LiveChopper does the same is unchecked (PLAN
+  "Open").
 - Start: the marker is a full-height line with a flag at the top, moving
   one screen column a slow click. Zoomed in, it travels to the screen's
   centre and then the waveform scrolls under it. Only two zoom levels
