@@ -53,5 +53,9 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
   or PLAN step done, a device check passed, before a risky refactor) and
   recommend the next step: commit, push, tag a release, branch, merge. Propose
   the message, tag or branch name. Do not run any of it without approval.
+- Releases: the "Release vX.Y.Z" commit bumps src/module.json's version and
+  adds docs/releases/vX.Y.Z.md, the user-facing changes since the last tag.
+  The release workflow publishes that file as the release description and
+  fails without it. Draft the notes for approval along with the tag.
 - Logs on device: /data/UserData/schwung/debug.log (see ../schwung/CLAUDE.md
   "Testing" for how to enable).

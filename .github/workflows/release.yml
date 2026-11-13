@@ -28,6 +28,15 @@ jobs:
           fi
           echo "Version check passed: $TAG_VERSION"
 
+      - name: Verify release notes
+        run: |
+          NOTES="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ ! -s "$NOTES" ]; then
+            echo "ERROR: $NOTES is missing or empty; write the release notes before tagging"
+            exit 1
+          fi
+          echo "Release notes: $NOTES"
+
       - name: Build with Docker
         run: |
           docker build -t module-builder -f scripts/Dockerfile .
@@ -37,6 +46,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: dist/live-chopper-module.tar.gz
+          body_path: docs/releases/${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
