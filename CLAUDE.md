@@ -4,7 +4,8 @@ This repo is a standalone module for the Schwung framework on Ableton Move.
 We do NOT modify the framework. Never edit files outside this repo.
 
 Feature spec: docs/SPEC.md. Read it before proposing or writing code.
-Planned work: docs/PLAN.md. Design findings: docs/NOTES.md.
+Planned work: docs/PLAN.md. Design findings: docs/NOTES.md. Release notes:
+docs/releases/.
 
 ## Reference material (read-only)
 
@@ -20,8 +21,10 @@ Framework: ../schwung
   "Architecture", "Move Hardware MIDI", "Realtime Safety".
 
 Base module: ../schwung-waveform-editor (MIT licensed, keep its copyright
-notice on anything copied). Mirror its repo layout, build/install scripts,
-release.json and GitHub workflow. Also read its own CLAUDE.md.
+notice on anything copied). Mirror its repo layout, build/install scripts
+and release.json. Our GitHub workflows started from its and have since
+grown their own checks (CI's Schwung version matrix, the release-notes
+check); keep those. Also read its own CLAUDE.md.
 
 ## Conventions
 
@@ -43,12 +46,24 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
 
 ## Workflow
 
-- Build: ./scripts/build.sh (uses the local aarch64-linux-gnu-gcc). Before
-  each build, run ./scripts/test.sh: tests/dsp_test.c drives plugin.c on the
-  host (gcc + ASan/UBSan, real worker thread and WAV files) and
-  tests/ui_smoke.mjs runs ui.js under node with a fake host and DSP, checking
-  the exported preset too. Add checks there for each new feature.
+- Build: ./scripts/build.sh (the local aarch64-linux-gnu-gcc, else Docker).
+  Before each build, run ./scripts/test.sh:
+  - tests/dsp_test.c drives plugin.c on the host (gcc + ASan/UBSan, real
+    worker thread and WAV files);
+  - tests/knobs_test.mjs checks the knob model against Move's readouts;
+  - tests/ui_smoke.mjs runs ui.js under node with a fake host and DSP,
+    checking the exported preset too;
+  - when build/.venv exists (scripts/setup_analysis_env.sh), the Move
+    references: tests/fxlab_selftest.py and `fxlab.py refs-check`, which
+    holds plugin.c to Move's recorded curves in tests/move_refs/ (an effect
+    matched to Move adds its refs there, PLAN "Method"). CI skips these.
+
+  Add checks there for each new feature. The pre-commit hook
+  (scripts/install-hooks.sh) runs test.sh on every commit; never bypass it
+  with --no-verify.
 - Do not deploy to the device or run ssh commands without asking first.
+  Agreeing to a device session isn't a go: wait for the user's "start"
+  before recording, ssh or deploying.
 - Guide the git flow: speak up at natural checkpoints (tests green, a feature
   or PLAN step done, a device check passed, before a risky refactor) and
   recommend the next step: commit, push, tag a release, branch, merge. Propose
@@ -59,3 +74,13 @@ release.json and GitHub workflow. Also read its own CLAUDE.md.
   fails without it. Draft the notes for approval along with the tag.
 - Logs on device: /data/UserData/schwung/debug.log (see ../schwung/CLAUDE.md
   "Testing" for how to enable).
+
+## Local-only material
+
+.claude/ is gitignored and stays on this machine:
+
+- notes/: handoffs and device notes. For effect tuning, start with
+  notes/step4-handoff.md.
+- recordings/: Move takes and their Sets (Song.abl), by Set.
+- ref/: Move's manual and Live's Drum Sampler reference.
+- tools/ and captures/: reading the Move's screen, and what it captured.

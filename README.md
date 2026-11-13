@@ -1,7 +1,11 @@
 # LiveChopper for Schwung
 
-Chop a sample across your Ableton Move's pads by ear while it plays. Inspired by the sample chopping workflow from the SP-404, MPC Sample, and Ableton Live Simpler. Fine-tune the chops, shape them with the drum sampler's effects and filter, then export a Move drum rack
-preset or a folder of WAV files. See [docs/SPEC.md](docs/SPEC.md) for more details and [docs/PLAN.md](docs/PLAN.md) for what's planned.
+Chop a sample across your Ableton Move's pads by ear while it plays.
+Inspired by the sample chopping workflow from the SP-404, MPC Sample, and
+Ableton Live Simpler. Fine-tune the chops, shape them with the drum
+sampler's effects and filter, then export a Move drum rack preset or a
+folder of WAV files. See [docs/SPEC.md](docs/SPEC.md) for more details and
+[docs/PLAN.md](docs/PLAN.md) for what's planned.
 
 ## Controls
 
@@ -42,20 +46,21 @@ The knobs follow the two banks of Move's own Drum Sampler, so each control is wh
 | 4 | Envelope mode: Trigger (one-shot) / Gate (plays while held) | — |
 | 8 | Gain | Fine adjust |
 
-Envelope, gain, transpose, detune, the effect and the filter apply to all pads. In chop mode the effects play as simple stand-ins; the exported drum rack gets Move's own. Settings can be adjusted per pad after exporting to a native drum preset.
+Envelope, gain, transpose, detune, the effect and the filter apply to all pads. In chop mode Punch plays as Move's does (matched to recordings of Move's own output); the other effects play as simple stand-ins for now. The exported drum rack gets Move's own. Settings can be adjusted per pad after exporting to a native drum preset.
 
 ## Requirements
 
 [Schwung](https://github.com/charlesvestal/schwung) 1.7.3 or later installed on your Ableton Move.
 
-LiveChopper 0.6.2 has been tested on a Move running Schwung 1.9.2, the
+LiveChopper 0.7.0 has been tested on a Move running Schwung 1.9.2, the
 newest release at the time, with no problems found. CI runs the host tests
 against both 1.7.3 and the newest Schwung release.
 
 ## Build and Install
 
 ```bash
-./scripts/test.sh           # host-side tests (gcc, node)
+./scripts/test.sh           # host-side tests (gcc, node; Python checks against
+                            # Move recordings once scripts/setup_analysis_env.sh has run)
 ./scripts/build.sh          # aarch64-linux-gnu-gcc if installed, else Docker
 ./scripts/install-hooks.sh  # once per clone: run the tests on every commit
 ```
@@ -67,7 +72,9 @@ The tests expect [schwung](https://github.com/charlesvestal/schwung) and
 checked out next to this repo. CI runs the same tests and the ARM64 build on
 every push and pull request.
 
-To install:
+To install, use the tarball you built or download `live-chopper-module.tar.gz`
+from [Releases](https://github.com/iankamm/livechopper-schwung/releases),
+where each version's notes say what changed:
 
 - **Web manager:** upload the tarball at http://move.local:7700/modules
   (custom install), then restart Schwung.

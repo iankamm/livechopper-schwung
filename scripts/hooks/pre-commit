@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # LiveChopper pre-commit hook: runs the CI 'tests' job locally
-# (./scripts/test.sh: DSP test with ASan/UBSan + UI smoke test, a few
-# seconds, no Docker). The ARM64 build is left to CI.
+# (./scripts/test.sh: DSP test with ASan/UBSan, knobs test, UI smoke
+# test, and the Move references when build/.venv exists; no Docker). The
+# ARM64 build is left to CI.
 #
 # Enable (once per clone):  ./scripts/install-hooks.sh
 # Bypass one commit:        git commit --no-verify
