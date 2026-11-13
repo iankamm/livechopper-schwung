@@ -478,7 +478,7 @@ repeat Set 30 settings, so a halved time would show directly:
   compares them with the host's: all 56 renders identical, bit for bit.
   What `check` measures on the host is what the Move plays.
 
-### Pitch Env (Set 32)
+### Pitch Env (Sets 32, 33)
 
 Fitted 2026-11-13 on Set 32 (`.claude/recordings/set32/`): one Drum Rack,
 16 pads in note order, about 4 s apart (a downward bend reads the 2 s
@@ -529,3 +529,29 @@ passes, and 47 semitones for 48 or Decay 5.5 ms for 5 ms fail. So the
 semitones were read from the 2 s pads, and the short end was fitted by
 rendering candidates through plugin.c and the metric, not by fitting the
 stored curve.
+
+Set 33, the acceptance Set (`fxlab.py accept-set "Pitch Env" --seed 1113`,
+drawn after tuning), recorded 2026-11-13: Attack at its minimum, Hold Inf,
+Low-Pass 24 open, Transpose 0, about 3 s apart.
+
+| Pad | Sound | Pitch Env |
+|---|---|---|
+| 1 | sine_441 | dry (Stretch 1.00) |
+| 2 | sine_441 | Amount -94 %, Decay 22.5 ms |
+| 3 | position_ramp | Amount 68 %, Decay 7.99 ms |
+| 4 | drum_synth | Amount -97 %, Decay 1.75 s |
+| 5 | sine_441 | Amount -77 %, Decay 366 ms |
+| 6 | position_ramp | Amount -88 %, Decay 366 ms |
+| 7 | drum_synth | Amount 77 %, Decay 6.18 ms |
+| 8 | sine_441 | Amount 53 %, Decay 633 ms |
+| 9 | position_ramp | Amount -91 %, Decay 6.99 ms |
+| 10 | sine_441 | a copy of pad 2 |
+
+- Drawn Decays that aren't steps on Move: pad 3's 8.01 ms became 7.99,
+  pad 7's 6.19 became 6.18, pad 9's 6.96 became 6.99 (`split` reads them
+  from the Set).
+- `fxlab.py check`: 10 of 10 pass, pitch worst 1.25 ct (pad 8), position
+  worst 0.14 ms (pad 9), bands worst 0.08 dB (pad 6); pad 10 repeats
+  pad 2 exactly. `fxlab.py refs .claude/recordings/set33/pitch --seed
+  1113` saved them as `tests/move_refs/pitch_env/`, which `test.sh`
+  checks.
