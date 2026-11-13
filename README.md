@@ -2,7 +2,7 @@
 
 Chop a sample across your Ableton Move's pads by ear while it plays.
 Inspired by the sample chopping workflow from the SP-404, MPC Sample, and
-Ableton Live Simpler. Fine-tune the chops, shape them with the drum
+Ableton Live's Simpler and Drum Sampler instruments. Fine-tune the chops, shape them with the drum
 sampler's effects and filter, then export a Move drum rack preset or a
 folder of WAV files. See [docs/SPEC.md](docs/SPEC.md) for more details and
 [docs/PLAN.md](docs/PLAN.md) for what's planned.
@@ -90,7 +90,7 @@ where each version's notes say what changed:
 
 ## AI Disclosure
 
-> Development is heavily assisted by Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with C, JavaScript, and embedded development. I understand some of the source code logic and general development/testing process, but I did not write any code here by hand or manually review most lines. Every release was tested by me on my Ableton Move.
+> "Development is heavily assisted by Claude Code. I do not consider myself a developer, but I have some computer science knowledge and experience with (non-AI-assisted) C, JavaScript, and embedded system development. I understand some of the source code logic and general development/testing process, but I did not write any code here by hand or manually review most lines. Every release was tested by me on my Ableton Move."
 
 \- Human
 
