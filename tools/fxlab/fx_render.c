@@ -1,6 +1,6 @@
 /*
  * Render one pad of plugin.c on the host, for comparing against Move
- * (docs/PLAN.md, step 4; driven by scripts/fxlab.py):
+ * (docs/PLAN.md, step 4; driven by tools/fxlab/fxlab.py):
  *
  *   fx_render <in.wav> <out.wav> <seconds> [key=value ...]
  *
@@ -9,10 +9,10 @@
  * 44.1 kHz output. Two keys are the driver's own: release=<s> sends the
  * note-off at that time (for gate=1). Build:
  *
- *   gcc -std=c11 -O2 -Isrc/dsp scripts/fx_render.c -o build/fx_render -lm -lpthread
+ *   gcc -std=c11 -O2 -Isrc/dsp tools/fxlab/fx_render.c -o build/fx_render -lm -lpthread
  */
 #define LIVE_CHOPPER_TEST
-#include "../src/dsp/plugin.c"
+#include "../../src/dsp/plugin.c"
 
 #include <unistd.h>
 

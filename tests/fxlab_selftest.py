@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""scripts/fxlab.py's gate (check, refs, refs-check) on synthetic takes:
+"""tools/fxlab/fxlab.py's gate (check, refs, refs-check) on synthetic takes:
 "Move" here is plugin.c's own render, at Move's dry level and 32 frames
 late, so a clean take must pass and a known change must fail. Run with
-build/.venv/bin/python after scripts/make_test_wavs.py (scripts/test.sh).
+build/.venv/bin/python after tools/fxlab/make_test_wavs.py (scripts/test.sh).
 """
 import json
 import os
@@ -14,7 +14,7 @@ import numpy as np
 from scipy import signal
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(REPO, "scripts"))
+sys.path.insert(0, os.path.join(REPO, "tools", "fxlab"))
 import fxlab  # noqa: E402
 
 OUT = os.path.join(REPO, "build", "fxlab_selftest")
@@ -70,7 +70,7 @@ def make_set(name, pads, change=None, move_params=None):
 
 
 def run(*args):
-    return subprocess.run([sys.executable, os.path.join(REPO, "scripts", "fxlab.py")] + list(args),
+    return subprocess.run([sys.executable, os.path.join(REPO, "tools", "fxlab", "fxlab.py")] + list(args),
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 

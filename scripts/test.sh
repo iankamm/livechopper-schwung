@@ -21,9 +21,9 @@ node tests/ui_smoke.mjs | tail -1
 echo "=== Move references ==="
 if [ -x build/.venv/bin/python ]; then
     export PYTHONDONTWRITEBYTECODE=1
-    build/.venv/bin/python scripts/make_test_wavs.py > /dev/null
+    build/.venv/bin/python tools/fxlab/make_test_wavs.py > /dev/null
     build/.venv/bin/python tests/fxlab_selftest.py
-    build/.venv/bin/python scripts/fxlab.py refs-check
+    build/.venv/bin/python tools/fxlab/fxlab.py refs-check
 else
-    echo "skipped: no analysis venv (scripts/setup_analysis_env.sh)"
+    echo "skipped: no analysis venv (tools/fxlab/setup_env.sh)"
 fi

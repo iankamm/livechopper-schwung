@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compare Move's Drum Sampler against LiveChopper's plugin.c (docs/PLAN.md,
-step 4). Run with build/.venv/bin/python (scripts/setup_analysis_env.sh).
+step 4). Run with build/.venv/bin/python (tools/fxlab/setup_env.sh).
 
     fxlab.py split   <take.wav> <Song.abl> <outdir>
     fxlab.py split   <take.wav> --like <outdir>:NN,NN,... <outdir>
@@ -16,7 +16,7 @@ step 4). Run with build/.venv/bin/python (scripts/setup_analysis_env.sh).
 split cuts a take recorded with Schwung's Quantized Sampler (Move->Schwung
 on) into one piece per pad, in pad order, and saves each pad's Drum Sampler
 settings from the Set. render plays the same test sound with the same
-settings through plugin.c (scripts/fx_render.c). compare measures both the
+settings through plugin.c (tools/fxlab/fx_render.c). compare measures both the
 same way and writes plots and a summary.
 
 check is the gate for "this effect matches Move" (docs/PLAN.md step 4,
@@ -47,7 +47,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WAVS = os.path.join(REPO, "build", "test_wavs")
 RENDER = os.path.join(REPO, "build", "fx_render")
 RATE = 44100
@@ -237,7 +237,7 @@ def dsp_settings(p):
 
 
 def build_render():
-    src = [os.path.join(REPO, "scripts", "fx_render.c"), os.path.join(REPO, "src", "dsp", "plugin.c")]
+    src = [os.path.join(REPO, "tools", "fxlab", "fx_render.c"), os.path.join(REPO, "src", "dsp", "plugin.c")]
     if os.path.exists(RENDER) and all(os.path.getmtime(RENDER) >= os.path.getmtime(f) for f in src):
         return
     subprocess.check_call(["gcc", "-std=c11", "-O2", "-I" + os.path.join(REPO, "src", "dsp"), src[0],
@@ -963,7 +963,7 @@ def cmd_accept_set(effect, seed, pads):
     while len(drawn) < pads:
         req = [[k, rng.random()] for k, _ in knobs]
         out = json.loads(subprocess.check_output(
-            ["node", os.path.join(REPO, "scripts", "knob_readout.mjs"), json.dumps(req)]))
+            ["node", os.path.join(REPO, "tools", "fxlab", "knob_readout.mjs"), json.dumps(req)]))
         values = {EFFECTS[i][1]: out[0][1], EFFECTS[i][2]: out[1][1]}
         if rule is not None and abs(values.get(rule[0], -1) - rule[1]) < 1e-6:
             continue                    # the effect would do nothing: draw again
@@ -1004,7 +1004,7 @@ def cmd_device_check(outdirs, host):
     # build.sh's flags for dsp.so, as an executable linked to the Move's libm
     subprocess.check_call(["aarch64-linux-gnu-gcc", "-std=c11", "-O2", "-march=armv8-a", "-mtune=cortex-a72",
                            "-fomit-frame-pointer", "-fno-stack-protector", "-DNDEBUG",
-                           "-I" + os.path.join(REPO, "src", "dsp"), os.path.join(REPO, "scripts", "fx_render.c"),
+                           "-I" + os.path.join(REPO, "src", "dsp"), os.path.join(REPO, "tools", "fxlab", "fx_render.c"),
                            "-o", arm, "-lm", "-lpthread"])
     build_render()
     script = ["set -e", "cd " + DEVICE_DIR, "mkdir -p out"]

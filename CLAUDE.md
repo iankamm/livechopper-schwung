@@ -53,7 +53,7 @@ check); keep those. Also read its own CLAUDE.md.
   - tests/knobs_test.mjs checks the knob model against Move's readouts;
   - tests/ui_smoke.mjs runs ui.js under node with a fake host and DSP,
     checking the exported preset too;
-  - when build/.venv exists (scripts/setup_analysis_env.sh), the Move
+  - when build/.venv exists (tools/fxlab/setup_env.sh), the Move
     references: tests/fxlab_selftest.py and `fxlab.py refs-check`, which
     holds plugin.c to Move's recorded curves in tests/move_refs/ (an effect
     matched to Move adds its refs there, PLAN "Method"). CI skips these.
@@ -61,6 +61,9 @@ check); keep those. Also read its own CLAUDE.md.
   Add checks there for each new feature. The pre-commit hook
   (scripts/install-hooks.sh) runs test.sh on every commit; never bypass it
   with --no-verify.
+- scripts/ holds only what users and contributors run (build, test,
+  install, hooks). The Move-comparison toolkit (fxlab.py, fx_render.c,
+  test WAVs, its venv setup) lives in tools/fxlab/.
 - Do not deploy to the device or run ssh commands without asking first.
   Agreeing to a device session isn't a go: wait for the user's "start"
   before recording, ssh or deploying.

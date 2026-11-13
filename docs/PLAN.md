@@ -52,8 +52,8 @@ Punch's times don't follow Transpose (Set 31); the Transpose +12 takes of
 
 Copies of Move's manual and of Live's Drum Sampler reference are in
 `.claude/ref/`, local only. The analysis runs with `build/.venv/bin/python`,
-set up by `scripts/setup_analysis_env.sh` (numpy, scipy and matplotlib,
-pinned in `scripts/requirements-analysis.txt`).
+set up by `tools/fxlab/setup_env.sh` (numpy, scipy and matplotlib,
+pinned in `tools/fxlab/requirements.txt`).
 
 1. Copy the test sounds (below) to the Move, into
    `/data/UserData/UserLibrary/Samples/LiveChopper Tests/`.
@@ -77,11 +77,11 @@ pinned in `scripts/requirements-analysis.txt`).
    a take without it went through). The volume knob doesn't matter (the
    same take at two volumes matched).
 4. Copy the take and the Set's `Song.abl` to the host, then
-   `build/.venv/bin/python scripts/fxlab.py all <take.wav> <Song.abl>
+   `build/.venv/bin/python tools/fxlab/fxlab.py all <take.wav> <Song.abl>
    <outdir>`. It splits the take at onsets (the k-th onset is the k-th pad
    with a sample, by note, so play the pads in order with at least 0.25 s
    of silence between), saves each pad's settings, renders the same sound
-   and settings through plugin.c (`scripts/fx_render.c`, built into
+   and settings through plugin.c (`tools/fxlab/fx_render.c`, built into
    `build/fx_render`), lines the two up and compares: level (5 ms RMS),
    pitch (sine_441), read position (position_ramp, to ~0.2 ms), 1/3-octave
    bands over time (noise_white, sweep) and the sample-exact residual.
@@ -164,7 +164,7 @@ hearing thresholds:
 
 ### Test sounds
 
-`scripts/make_test_wavs.py` writes them to `build/test_wavs/`, mono,
+`tools/fxlab/make_test_wavs.py` writes them to `build/test_wavs/`, mono,
 44.1 kHz, 16-bit. Each starts with a step or click at frame 0, to line a
 recording of Move's output up with a render of plugin.c.
 

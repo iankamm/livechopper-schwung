@@ -60,7 +60,7 @@ against both 1.7.3 and the newest Schwung release.
 
 ```bash
 ./scripts/test.sh           # host-side tests (gcc, node; Python checks against
-                            # Move recordings once scripts/setup_analysis_env.sh has run)
+                            # Move recordings once tools/fxlab/setup_env.sh has run)
 ./scripts/build.sh          # aarch64-linux-gnu-gcc if installed, else Docker
 ./scripts/install-hooks.sh  # once per clone: run the tests on every commit
 ```

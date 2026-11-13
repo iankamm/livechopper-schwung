@@ -1,5 +1,5 @@
 # Step 4's analysis tools (docs/PLAN.md): installed into build/.venv by
-# scripts/setup_analysis_env.sh. Pinned to the versions last installed.
+# tools/fxlab/setup_env.sh. Pinned to the versions last installed.
 # numpy, scipy and matplotlib, and what they pulled in.
 contourpy==1.4.0
 cycler==0.12.1

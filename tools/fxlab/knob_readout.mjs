@@ -1,10 +1,10 @@
-// Move's readout and value at knob positions, for scripts/fxlab.py
+// Move's readout and value at knob positions, for tools/fxlab/fxlab.py
 // accept-set. Each request is [knob key, u]: u in 0..1 picks a whole
 // number of clicks along the knob's travel.
 //
-//   node scripts/knob_readout.mjs '[["punch_amount", 0.37], ...]'
+//   node tools/fxlab/knob_readout.mjs '[["punch_amount", 0.37], ...]'
 //   -> [["37 %", 0.3746, 490], ...]   (readout, value, position)
-import { KNOBS, KNOB_UNITS, KNOB_CLICK, knobValue, formatKnob } from '../src/knobs.mjs';
+import { KNOBS, KNOB_UNITS, KNOB_CLICK, knobValue, formatKnob } from '../../src/knobs.mjs';
 
 const clicks = Math.ceil(KNOB_UNITS / KNOB_CLICK);
 const out = JSON.parse(process.argv[2]).map(([key, u]) => {

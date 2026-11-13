@@ -319,7 +319,7 @@ Full Velocity (`.claude/recordings/set28/`):
   rms, so each value gives the frame read to ~2 frames. Usable for Loop,
   Pitch Env and FM (not Stretch, whose crossfading grains mix two
   positions; click_train shows its grains).
-- `scripts/fxlab.py` on this take (render of plugin.c at the same
+- `tools/fxlab/fxlab.py` on this take (render of plugin.c at the same
   settings): gain 0.8462, residual over the steady part 5.9 LSB (sine),
   2.4 LSB (ramp), pitch 0.00 st, read position 0.18 ms rms, bands 0.00 dB.
   What remains is the attack ramp, the end fade and the Nyquist ring, and

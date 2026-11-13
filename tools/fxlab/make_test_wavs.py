@@ -4,7 +4,7 @@
 and starts with a step or click at frame 0 so recordings of Move's output
 can be lined up with renders of plugin.c.
 
-    scripts/make_test_wavs.py [out_dir]     (default: build/test_wavs)
+    tools/fxlab/make_test_wavs.py [out_dir]     (default: build/test_wavs)
 """
 import math
 import os
@@ -124,7 +124,8 @@ def write(path, v):
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join("build", "test_wavs")
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(repo, "build", "test_wavs")
     os.makedirs(out, exist_ok=True)
     for make in SOUNDS:
         path = os.path.join(out, make.__name__ + ".wav")
