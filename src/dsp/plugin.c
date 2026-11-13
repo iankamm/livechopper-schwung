@@ -94,7 +94,7 @@
  * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
  * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
  * Each voice plays a stand-in, not an emulation, before the filter, except
- * Punch, which follows Move's measured gain curve (docs/PLAN.md step 4):
+ * Punch, which follows Move's measured gain curve (docs/NOTES.md, "Punch"):
  * a makeup of 1 + Amount^3 with a duck under it, the duck's target
  * 1 - Amount x (1 - (t/L)^n) floored at 0.15 and smoothed in dB by two
  * one-poles of 10.4 ms, so the transient keeps the makeup and the duck

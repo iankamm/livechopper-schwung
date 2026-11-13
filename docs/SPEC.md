@@ -72,7 +72,7 @@ a Move drum rack preset or one WAV per slice.
   the same on both pages.
 - Knob model: every knob that mirrors a Move control steps, fine-steps and
   reads out as Move's own does (src/knobs.mjs, measured on a Move; see
-  PLAN.md "Every knob follows Move"). A knob is a position on Move's grid of
+  NOTES.md "Every knob follows Move"). A knob is a position on Move's grid of
   1308 units: a click is 10 (131 clicks end to end, the last one short),
   Shift a fine step of 1, and a click keeps stepping until the readout
   changes. Each setting has its own curve over its range. Positions can sit
@@ -133,7 +133,7 @@ a Move drum rack preset or one WAV per slice.
   (sample -> effect -> filter -> envelope, drumCell's order): 8-Bit samples
   and holds each voice at the rate (after repitching) and cuts it to 8
   bits, and its Decay closes a low-pass on that over the Decay time;
-  Punch matches Move's gain curve (docs/PLAN.md step 4): a makeup of
+  Punch matches Move's gain curve (NOTES.md "Punch"): a makeup of
   1 + Amount³ that the transient keeps, with the rest ducked to
   1 - Amount of it (no lower than 0.15) and back by about the Release;
   Pitch Env bends the pitch by up to +-24 semitones at 100% (Move shows

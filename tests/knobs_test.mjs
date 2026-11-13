@@ -1,5 +1,5 @@
 // src/knobs.mjs against a real Move: readouts recorded from its screen and
-// raw values from sets saved on it (docs/PLAN.md, Sets 21-25 and screen
+// raw values from sets saved on it (docs/NOTES.md, Sets 21-25 and screen
 // sessions 2-4, 2026-11-09 and 10).
 //
 //   node tests/knobs_test.mjs        (exit code 1 on any failure)
@@ -158,7 +158,7 @@ for (const [name, from, want] of EFFECT_SWEEPS) {
 // Set 24: one Shift click on each setting from Move's default, as saved.
 // Move took a few more fine steps than the readout needs on Stretch
 // Factor, Grain, Loop Offset, Punch Release and FM Amount (unexplained,
-// see PLAN.md); the model stops at the first changed readout.
+// see NOTES.md); the model stops at the first changed readout.
 for (const [name, from, want] of [['loop_length', 0.3, 0.300577], ['pitch_amount', 0, 0.0015291], ['pitch_decay', 0.3, 0.301281],
   ['punch_amount', 0, 0.000764526], ['crush_decay', 5, 4.9763], ['fm_freq', 1000, 1009.39], ['ring_amount', 0, 0.000764526],
   ['ring_freq', 1000, 1005.28], ['sub_amount', 0, 0.000764526], ['sub_freq', 60, 60.0636], ['noise_amount', 0, 0.000764526],

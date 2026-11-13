@@ -718,7 +718,7 @@ int main(void) {
         FX_SETTINGS();
         CHECK(eff == FX_NOISE, "effect clamps to Noise: %s", set);
 
-        /* Punch: Move's gain curve (docs/PLAN.md step 4), frame by frame
+        /* Punch: Move's gain curve (docs/NOTES.md, "Punch"), frame by frame
          * against the model in double for 320 ms, and at three points
          * against Move's own measurements (Sets 29 and 30). */
         int bad = 0;

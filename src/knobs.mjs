@@ -1,5 +1,5 @@
 /*
- * Move's knob model, measured on a Move (docs/PLAN.md, "Every knob follows
+ * Move's knob model, measured on a Move (docs/NOTES.md, "Every knob follows
  * Move"): every knob that mirrors a Move control moves, steps and reads out
  * the way Move's own does.
  *
@@ -18,7 +18,7 @@ export var KNOB_CLICK = 10;
 /* curve: "log" = lo * (hi / lo)^p, or n = lo + (hi - lo) * p^n.
  * unit picks the readout: "s" (ms / s), "Hz" (Hz / kHz), "%" (of 0..1,
  * shown x100), "dB", "x" (two decimals, no unit). top: what the readout
- * says at the very top. Ranges and curves from Move sets (PLAN.md "Knob
+ * says at the very top. Ranges and curves from Move sets (NOTES.md "Knob
  * curves"); the effects' settings are in the preset's units. */
 export var KNOBS = {
     attack:    { lo: 0.0001, hi: 20, curve: "log", unit: "s" },
