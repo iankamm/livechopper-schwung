@@ -555,3 +555,17 @@ Low-Pass 24 open, Transpose 0, about 3 s apart.
   pad 2 exactly. `fxlab.py refs .claude/recordings/set33/pitch --seed
   1113` saved them as `tests/move_refs/pitch_env/`, which `test.sh`
   checks.
+- Preview on the Move (2026-11-13, `.claude/recordings/preview2/`):
+  LiveChopper plays one sample, so three Skipback takes, one per test
+  sound, Pad 1 once per Set 33 pad's settings (pad 7's Decay at 6.19 ms,
+  6.18 not being reachable), plus a redo of pad 8 played at -53 % by
+  mistake; the pieces were joined into one take (`joined.wav`, with take
+  1b's dry hit as the level reference) and split `--like` Set 33. Against
+  plugin.c's render 10 of 10 pass, and Move's pads against it 10 of 10
+  (pitch worst 2.17 ct, position 1.53 ms, bands 0.46 dB). The ramp pads
+  read 0.5-0.8 ms off in both (PLAN "Open").
+- Device: `fxlab.py device-check` on Sets 32 and 33: 26 pads, bit for bit.
+- Listening A/B (2026-11-13, `ABBBA..AB.`): a subtle onset difference on
+  7 of 10 pairs, the dry pair included, Move named right on 4 of 7
+  (chance); the position_ramp pairs were barely audible. All accepted, so
+  the difference is the dry path's onset, not Pitch Env.

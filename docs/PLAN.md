@@ -21,10 +21,11 @@ LiveChopper's own designs, not Move's algorithms.
   `tests/move_refs/punch/`; measurements and model in NOTES "Punch". Its
   listening A/B is still owed: Punch was done before that step was
   added, and needs a preview take of Set 31's pads to compare.
-- Pitch Env: fitted on Set 32, accepted on Set 33 (2026-11-13, seed
-  1113, 10 of 10), references in `tests/move_refs/pitch_env/`; NOTES
-  "Pitch Env". Owed before it's done: the preview take of Set 33's pads,
-  its two checks, `device-check` and the listening A/B.
+- Done: Pitch Env (2026-11-13). Fitted on Set 32, acceptance Set 33,
+  seed 1113, references in `tests/move_refs/pitch_env/`; preview checks,
+  `device-check` and listening A/B passed (2026-11-13: a subtle onset
+  difference heard on 7 of 10 pairs, the dry pair too, Move named at
+  chance, all accepted). NOTES "Pitch Env".
 - Then, in this order: FM and Ring Mod's decay, Sub Osc and Noise's
   envelopes, following Transpose, 8-Bit, Stretch, Loop.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad
@@ -247,7 +248,14 @@ reference.
   ceiling). It matters only when the filter rings.
 - **Move's dry path:** its 4-frame attack ramp, ~9.5 ms end fade and
   Nyquist ring (NOTES "Move's dry path") are candidates for chop mode.
-  The metrics don't need them.
+  The metrics don't need them. Pitch Env's A/B (2026-11-13) heard a
+  subtle onset difference on every pair, the dry one included, and
+  accepted it; the first 10 ms differ by 0.3-0.6 dB.
+- **Preview read position:** in Pitch Env's preview the position_ramp
+  hits read 0.5-0.8 ms (rms) off both the render and Move, while the
+  render matches Move to 0.02 ms. It passes (worst 1.64 ms against 2),
+  but it's in LiveChopper's playback on the Move or the take's alignment;
+  untraced.
 - **Fast turns:** Move skips 2-3 values on a fast turn (NOTES, screen
   session 1). LiveChopper reads the encoder's delta, so it may already do
   the same; unchecked.
