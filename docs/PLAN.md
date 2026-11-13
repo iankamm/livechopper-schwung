@@ -22,8 +22,8 @@ LiveChopper's own designs, not Move's algorithms.
   listening A/B is still owed: Punch was done before that step was
   added, and needs a preview take of Set 31's pads to compare.
 - Pitch Env: fitted on Set 32 (NOTES "Pitch Env"), 15 of 16 pass; the
-  one that fails is Transpose's, through the Attack (below). Next: its
-  acceptance Set, `fxlab.py accept-set "Pitch Env" --seed <n>`.
+  one that fails is Transpose's, through the Attack (below). Next: record
+  acceptance Set 33, drawn with seed 1113 (below).
 - Then, in this order: FM and Ring Mod's decay, Sub Osc and Noise's
   envelopes, following Transpose, 8-Bit, Stretch, Loop.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad
@@ -230,6 +230,30 @@ reference.
 | Stretch | click_train, position_ramp, sine_441 | Factor 2, 20; Grain 5 ms, 100 ms, 300 ms |
 | Loop | click_train, position_ramp | Offset 0, 25 %; Length 10 ms, 300 ms, 500 ms |
 | Transpose +12 | sine_441 | Ring Mod 1 kHz, Sub Osc 60 Hz, Noise 1 kHz, FM 100 Hz, Stretch 2 / 100 ms, Loop 100 ms: which settings follow the pitch; and no effect with Hold 200 ms, Decay 200 ms: whether the envelope follows it |
+
+### Pitch Env acceptance Set (Set 33)
+
+Drawn 2026-11-13 with `fxlab.py accept-set "Pitch Env" --seed 1113`, not
+yet recorded. Every pad: Attack at its minimum (0.10 ms: Move's level
+depends on it, and pad 1 is the only dry pad), Hold Inf, Low-Pass 24
+fully open, Transpose 0, Full Velocity; played in order about 3 s apart
+(pad 4, the longest, lasts ~1.4 s).
+
+| Pad | Sound | Pitch Env |
+|---|---|---|
+| 1 | sine_441 | dry (Stretch 1.00) |
+| 2 | sine_441 | Amount -94 %, Decay 22.5 ms |
+| 3 | position_ramp | Amount 68 %, Decay 8.01 ms |
+| 4 | drum_synth | Amount -97 %, Decay 1.75 s |
+| 5 | sine_441 | Amount -77 %, Decay 366 ms |
+| 6 | position_ramp | Amount -88 %, Decay 366 ms |
+| 7 | drum_synth | Amount 77 %, Decay 6.19 ms |
+| 8 | sine_441 | Amount 53 %, Decay 633 ms |
+| 9 | position_ramp | Amount -91 %, Decay 6.96 ms |
+| 10 | sine_441 | a copy of pad 2 (Move's repeatability) |
+
+When it passes, this table moves to NOTES "Pitch Env" and the seed stays
+under "Status".
 
 ### Open
 
