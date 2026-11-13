@@ -172,6 +172,35 @@ check(r.returncode == 1 and rows[2]["metrics"]["gain"]["verdict"] == "FAIL"
       and rows[1]["metrics"]["gain"]["verdict"] == "PASS",
       "check --ours-take fails +1 dB on the preview's pad 3:\n" + r.stdout)
 
+# The listening A/B (PLAN "When an effect is done"): pairs of Move's piece
+# and the preview's at the same level (the preview take here is at 0.9,
+# "Move" at 0.8465), in an order the seed repeats; scoring passes with
+# nothing heard, and a difference heard fails until it is accepted.
+r = run("ab", "make", clean, prev, "--seed", "5")
+ab = os.path.join(prev, "ab")
+key = json.load(open(os.path.join(ab, "key.json")))
+gaps = []
+for p in key["pairs"]:
+    v = fxlab.read_mono(os.path.join(ab, p["file"]))
+    h = (len(v) - int(fxlab.AB_GAP_S * fxlab.RATE)) // 2
+    a, b = v[:h][:20000], v[-h:][:20000]
+    gaps.append(abs(10 * np.log10(np.mean(a ** 2) / np.mean(b ** 2))))
+order = [p["move"] for p in key["pairs"]]
+run("ab", "make", clean, prev, "--seed", "5")
+again = [p["move"] for p in json.load(open(os.path.join(ab, "key.json")))["pairs"]]
+check(r.returncode == 0 and len(order) == 3 and max(gaps) < 0.05 and order == again,
+      "ab make writes 3 level-matched pairs (worst %.3f dB), the same order for the same seed:\n%s"
+      % (max(gaps), r.stdout))
+nothing = run("ab", "score", ab, "...")
+heard = run("ab", "score", ab, ".." + order[2])
+named = json.load(open(os.path.join(ab, "result.json")))["rows"][2]["named_move"]
+accepted = run("ab", "score", ab, ".." + order[2], "--accept", "3")
+bad = run("ab", "score", ab, "..")
+check(nothing.returncode == 0 and heard.returncode == 1 and named and accepted.returncode == 0
+      and bad.returncode != 0,
+      "ab score: nothing heard passes, a difference heard fails until accepted, a short answer is refused:\n"
+      + nothing.stdout + heard.stdout + accepted.stdout + bad.stdout)
+
 # 6. Pitch Env (NOTES "Pitch Env"): the zero-crossing pitch lags a fast
 # bend by up to hundreds of cents, but Move's take and ours go through the
 # same tracker, so a take that differs only as Move's capture does (the

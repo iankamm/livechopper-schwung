@@ -18,7 +18,9 @@ LiveChopper's own designs, not Move's algorithms.
 ### Status
 
 - Done: Punch (2026-11-12). Acceptance Set 31, seed 1112, references in
-  `tests/move_refs/punch/`; measurements and model in NOTES "Punch".
+  `tests/move_refs/punch/`; measurements and model in NOTES "Punch". Its
+  listening A/B is still owed: Punch was done before that step was
+  added, and needs a preview take of Set 31's pads to compare.
 - Pitch Env: fitted on Set 32 (NOTES "Pitch Env"), 15 of 16 pass; the
   one that fails is Transpose's, through the Attack (below). Next: its
   acceptance Set, `fxlab.py accept-set "Pitch Env" --seed <n>`.
@@ -134,7 +136,9 @@ pinned in `tools/fxlab/requirements.txt`).
 
 Decided 2026-11-12: an effect is done when a held-out acceptance Set
 passes `fxlab.py check`, which means every pad passes every metric that
-applies to it. Listening plays no part. Each metric is a curve over time from
+applies to it, and then, since 2026-11-13, a final listening A/B test
+passes (below). The metrics decide pass or fail; the A/B is the last
+verification, by ear, that what passed sounds like Move. Each metric is a curve over time from
 note-on, Move's against ours, from 1 ms (past the attack ramp) to 20 ms
 before the sound ends (clear of Move's end fade), with limits from
 hearing thresholds:
@@ -165,6 +169,22 @@ hearing thresholds:
   holds it to them. It also runs `tests/fxlab_selftest.py`, which shows that
   plugin.c's own render passes and that +1 dB or 10 cents fail. Both need the
   analysis venv; without it (CI) they are skipped.
+- **Listening A/B, last:** after `check`, the two preview checks (Method
+  item 8) and, when it applies, `device-check` pass, the user compares
+  Move's own pads with LiveChopper's preview of the same pads: the
+  acceptance Set's pieces against the preview take's, split `--like` it.
+  Each pair is played A then B, the order drawn at random and not shown
+  until the user has answered, both at the same level (each take scaled
+  by its own dry pad, since the preview plays 1.45 dB above Move; see
+  "Open"), on the same speakers or headphones. For each pair the user
+  says whether they hear a difference and, if so, which is Move. It
+  passes when no pair has a difference the user wouldn't accept. Anything
+  heard goes into NOTES and back to fitting, as a failed Set does. The
+  result and its date go under "Status". `fxlab.py ab make <Set outdir>
+  <preview outdir>` writes the pairs (one WAV a pad: A, 1 s of silence,
+  B) and the key, and `fxlab.py ab score <preview outdir>/ab <answers>
+  [--accept N,...]` scores one character a pair: `.` for no difference,
+  `A` or `B` for the one heard as Move.
 - **Shown so far:** Set 28's dry pads pass every metric with room to spare
   (NOTES "Move's dry path"), and Punch passed on Set 31.
 - **Attack:** Move's dry level depends on it (NOTES "Move's dry path"), so

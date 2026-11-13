@@ -12,6 +12,8 @@ step 4). Run with build/.venv/bin/python (tools/fxlab/setup_env.sh).
     fxlab.py refs-check [tests/move_refs]
     fxlab.py accept-set <effect> --seed N [--pads 8]
     fxlab.py device-check <outdir>... [--host root@192.168.4.45]
+    fxlab.py ab make  <outdir> <preview outdir> [--seed N]
+    fxlab.py ab score <preview outdir>/ab <answers> [--accept N,N,...]
 
 split cuts a take recorded with Schwung's Quantized Sampler (Move->Schwung
 on) into one piece per pad, in pad order, and saves each pad's Drum Sampler
@@ -28,8 +30,17 @@ accept-set draws an acceptance Set's settings at random. device-check
 renders the same pads on the Move with plugin.c built as build.sh builds
 dsp.so, and requires them to match the host's renders: what check measures
 on the host is then what the Move plays.
+
+ab is the last step (PLAN "When an effect is done", "Listening A/B"): make
+writes one WAV a pad of Move's piece and the preview's, level-matched by
+each take's dry pads, A then B in a hidden random order (the key is
+key.json: don't open it before scoring). score takes one character a pair,
+"." for no difference heard or "A"/"B" for the one heard as Move, and
+passes when no difference was heard that --accept doesn't list.
 """
 import argparse
+import contextlib
+import io
 import json
 import math
 import os
@@ -881,6 +892,83 @@ def cmd_check(outdir, gain_arg, ours_take=None):
     return 0 if fails == 0 else 1
 
 
+# ---------------------------------------------------------------- ab
+
+AB_GAP_S = 1.0          # silence between A and B
+AB_TAIL_S = 0.05        # kept past the later of the two sounds' ends
+AB_FADE = 220           # frames faded at each half's end (5 ms)
+
+
+def ab_half(v, frames):
+    v = np.concatenate([v, np.zeros(max(0, frames - len(v)))])[:frames].copy()
+    v[-AB_FADE:] *= np.linspace(1, 0, AB_FADE)
+    return v
+
+
+def cmd_ab_make(outdir, ours_take, seed=None):
+    """One WAV a pad, Move's piece and the preview's at the same level, in
+    an order drawn from seed (a random one if not given), into
+    <ours_take>/ab with the key in key.json."""
+    cmd_render(outdir, quiet=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        meta, data, gain, source = load_pieces(outdir, None, ours_take)
+    if seed is None:
+        seed = random.SystemRandom().randrange(1 << 30)
+    rnd = random.Random(seed)
+    ab = os.path.join(ours_take, "ab")
+    shutil.rmtree(ab, ignore_errors=True)
+    os.makedirs(ab)
+    pairs = []
+    for k, d in enumerate(data):
+        # Both at ours' level, put back at Move's dry level (Set 28).
+        move, prev = d["x"] * DEFAULT_GAIN, d["ours"] * DEFAULT_GAIN
+        ends = [np.flatnonzero(np.abs(v) > 50)[-1] if np.any(np.abs(v) > 50) else 0 for v in (move, prev)]
+        frames = max(ends) + int(AB_TAIL_S * RATE)
+        move_first = rnd.random() < 0.5
+        a, b = (move, prev) if move_first else (prev, move)
+        name = "pair_%02d.wav" % (k + 1)
+        write_mono(os.path.join(ab, name), np.concatenate(
+            [ab_half(a, frames), np.zeros(int(AB_GAP_S * RATE)), ab_half(b, frames)]))
+        pairs.append({"pair": k + 1, "file": name, "piece": d["pc"]["piece"], "move": "A" if move_first else "B"})
+    json.dump({"set": os.path.abspath(outdir), "preview": os.path.abspath(ours_take), "seed": seed,
+               "levels": source, "pairs": pairs}, open(os.path.join(ab, "key.json"), "w"), indent=1)
+    print("%d pairs in %s (A, %.1f s of silence, B); levels %s." % (len(pairs), ab, AB_GAP_S, source))
+    print("Listen to each on the same speakers or headphones, without opening key.json, and")
+    print("answer one character a pair, in order: . (no difference) or A/B (the one that is Move):")
+    print("  fxlab.py ab score %s <answers> [--accept N,N,...]" % ab)
+    return ab
+
+
+def cmd_ab_score(ab, answers, accept=()):
+    """Scores the answers against key.json: 0 when no pair had a difference
+    heard that accept doesn't list, 1 otherwise. Writes result.json."""
+    key = json.load(open(os.path.join(ab, "key.json")))
+    pairs = key["pairs"]
+    answers = answers.upper()
+    if len(answers) != len(pairs) or any(c not in ".AB" for c in answers):
+        sys.exit("ab score: %d answers, each ., A or B; got %r" % (len(pairs), answers))
+    rows, open_diffs = [], []
+    for p, c in zip(pairs, answers):
+        heard = c != "."
+        row = {"pair": p["pair"], "piece": p["piece"], "answer": c, "move": p["move"], "heard": heard,
+               "named_move": heard and c == p["move"], "accepted": p["pair"] in accept}
+        if heard and not row["accepted"]:
+            open_diffs.append(p["pair"])
+        rows.append(row)
+        print("pair %2d  %-22s %s%s" % (p["pair"], p["piece"],
+              "no difference" if not heard else "heard; named %s, Move was %s (%s)" % (
+                  c, p["move"], "right" if row["named_move"] else "wrong"),
+              "; accepted" if heard and row["accepted"] else ""))
+    heard = [r for r in rows if r["heard"]]
+    verdict = "PASS" if not open_diffs else "FAIL"
+    json.dump({"verdict": verdict, "seed": key["seed"], "rows": rows, "unaccepted": open_diffs},
+              open(os.path.join(ab, "result.json"), "w"), indent=1)
+    print("%s: a difference heard on %d of %d pairs (Move named right on %d)%s" % (
+        verdict, len(heard), len(rows), sum(r["named_move"] for r in heard),
+        "; not accepted: " + ", ".join(map(str, open_diffs)) if open_diffs else ""))
+    return 0 if verdict == "PASS" else 1
+
+
 # ---------------------------------------------------------------- refs
 
 REFS = os.path.join(REPO, "tests", "move_refs")
@@ -1079,6 +1167,11 @@ def main():
     s.add_argument("--pads", type=int, default=8)
     s = sub.add_parser("device-check"); s.add_argument("outdir", nargs="+")
     s.add_argument("--host", default="root@192.168.4.45")
+    s = sub.add_parser("ab", usage="fxlab.py ab make <outdir> <preview outdir> [--seed N]\n"
+                       "       fxlab.py ab score <ab dir> <answers> [--accept N,N,...]")
+    s.add_argument("step", choices=["make", "score"]); s.add_argument("args", nargs=2)
+    s.add_argument("--seed", type=int)
+    s.add_argument("--accept", default="", help="pairs whose heard difference is accepted: N,N,...")
     a = ap.parse_args()
     if a.cmd == "split":
         if a.like and len(a.rest) == 1:
@@ -1103,6 +1196,10 @@ def main():
         cmd_accept_set(a.effect, a.seed, a.pads)
     if a.cmd == "device-check":
         sys.exit(cmd_device_check(a.outdir, a.host))
+    if a.cmd == "ab" and a.step == "make":
+        cmd_ab_make(a.args[0], a.args[1], a.seed)
+    if a.cmd == "ab" and a.step == "score":
+        sys.exit(cmd_ab_score(a.args[0], a.args[1], {int(x) for x in a.accept.split(",") if x}))
 
 
 if __name__ == "__main__":

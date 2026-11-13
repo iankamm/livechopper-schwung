@@ -12,6 +12,9 @@ module.
   or checks the references in `tests/move_refs/`. Run it with
   `build/.venv/bin/python`.
 - `knob_readout.mjs`: Move's knob readouts, used by `fxlab.py accept-set`.
+- `fxlab.py ab make` / `ab score`: the listening A/B that ends each effect
+  (PLAN "When an effect is done"), Move's pads against the preview's,
+  level-matched, in a hidden order.
 
 Once the venv exists, `scripts/test.sh` runs `make_test_wavs.py`,
 `tests/fxlab_selftest.py` and `fxlab.py refs-check`.
