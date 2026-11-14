@@ -1,0 +1,26 @@
+{
+  "name": "Set 35",
+  "about": "The volume envelope's Decay and Gate release (PLAN step 4: Move's Decay falls in dB, Set 34 pads 14/15). Every pad sine_441, Stretch 1.00, Attack 1.00 ms.",
+  "tempo": 120,
+  "spacing_beats": 6,
+  "defaults": {"Voice_Envelope_Attack": 0.001, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0,
+               "Voice_Envelope_Mode": "A-H-D", "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+  "pads": [
+    {"sample": "sine_441.wav"},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.01}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.03}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.1}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.3}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 1.0}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 3.0}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 10.0}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 60.0}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.5, "Voice_Envelope_Decay": 0.1}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.001, "Voice_Envelope_Decay": 0.1}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Mode": "A-S-R", "Voice_Envelope_Decay": 0.1}, "gate_s": 0.5},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Mode": "A-S-R", "Voice_Envelope_Decay": 1.0}, "gate_s": 0.5},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Mode": "A-S-R", "Voice_Envelope_Decay": 0.01}, "gate_s": 0.5},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.0001, "Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.1}},
+    {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.1}}
+  ]
+}

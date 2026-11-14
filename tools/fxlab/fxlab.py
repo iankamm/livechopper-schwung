@@ -11,6 +11,7 @@ step 4). Run with build/.venv/bin/python (tools/fxlab/setup_env.sh).
     fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N]
     fxlab.py refs-check [tests/move_refs]
     fxlab.py accept-set <effect> --seed N [--pads 8]
+    fxlab.py make-set <spec.json> <outdir> [--install root@192.168.4.45]
     fxlab.py device-check <outdir>... [--host root@192.168.4.45]
     fxlab.py ab make  <outdir> <preview outdir> [--seed N]
     fxlab.py ab score <preview outdir>/ab <answers> [--accept N,N,...]
@@ -26,7 +27,10 @@ check is the gate for "this effect matches Move" (docs/PLAN.md step 4,
 plugin.c and passes or fails every pad on every metric that applies. refs
 then saves Move's measured curves to tests/move_refs/, and refs-check (run
 by scripts/test.sh) holds plugin.c to them without the recordings.
-accept-set draws an acceptance Set's settings at random. device-check
+accept-set draws an acceptance Set's settings at random. make-set writes a
+Move Set from a spec (tools/fxlab/sets/): 16 pads at exact settings and a
+clip that plays them in order, so a take is one press of Play; --install
+puts it on the Move. device-check
 renders the same pads on the Move with plugin.c built as build.sh builds
 dsp.so, and requires them to match the host's renders: what check measures
 on the host is then what the Move plays.
@@ -1110,6 +1114,153 @@ def cmd_accept_set(effect, seed, pads):
     print("| %d | %s | a copy of pad 2 (Move's repeatability) |" % (pads + 2, sounds[0]))
 
 
+# ---------------------------------------------------------------- make-set
+
+SET_TEMPLATE = os.path.join(REPO, "tools", "fxlab", "sets", "template_song.abl")  # Set 34: 16 pads
+SET_SAMPLE_URI = "ableton:/user-library/Samples/LiveChopper%20Tests/"
+SET_PADS = 16
+SET_NOTE_BEATS = 0.25           # a Trigger pad's note: the envelope ignores its length
+SET_RANGES = {                  # the settings a typo would quietly break (src/knobs.mjs)
+    "Voice_Envelope_Attack": (0.0001, 20.0),
+    "Voice_Envelope_Hold": (0.001, 60.0),
+    "Voice_Envelope_Decay": (0.001, 60.0),
+}
+SET_CHOICES = {"Voice_Envelope_Mode": ("A-H-D", "A-S-R")}
+DEVICE_SETS = "/data/UserData/UserLibrary/Sets"
+DEVICE_SET_STAGING = "/data/UserData/livechopper-sets"
+
+
+def set_cells(song):
+    """The Drum Rack's chains with a drum cell, in note order."""
+    out = []
+
+    def walk(devices):
+        for d in devices:
+            if d.get("kind") == "drumRack":
+                for c in d.get("chains", []):
+                    cells = [x for x in c.get("devices", []) if x.get("kind") == "drumCell"]
+                    if cells:
+                        out.append((c, cells[0]))
+            for c in d.get("chains", []):
+                walk(c.get("devices", []))
+
+    for t in song.get("tracks", []):
+        walk(t.get("devices", []))
+    return sorted(out, key=lambda x: x[0]["drumZoneSettings"]["receivingNote"])
+
+
+def set_param(cell, name, value):
+    """Set one Drum Sampler parameter, keeping its form (a scalar or
+    {"value", "presetValue"}) and its type."""
+    params = cell["parameters"]
+    if name not in params:
+        raise ValueError("no Drum Sampler parameter %r" % name)
+    old = params[name]["value"] if isinstance(params[name], dict) else params[name]
+    if isinstance(old, bool) != isinstance(value, bool) or isinstance(old, str) != isinstance(value, str):
+        raise ValueError("%s: %r is not the type of %r" % (name, value, old))
+    if name in SET_CHOICES and value not in SET_CHOICES[name]:
+        raise ValueError("%s: %r is not one of %s" % (name, value, SET_CHOICES[name]))
+    if name in SET_RANGES and not SET_RANGES[name][0] <= value <= SET_RANGES[name][1]:
+        raise ValueError("%s: %r is outside %s..%s" % ((name, value) + SET_RANGES[name]))
+    if isinstance(old, (int, float)) and not isinstance(old, bool):
+        value = type(old)(value) if isinstance(old, float) else value
+    if isinstance(params[name], dict):
+        params[name]["value"] = value
+    else:
+        params[name] = value
+
+
+def build_set(spec, template=SET_TEMPLATE):
+    """A Move Set (Song.abl's JSON) from a spec: every pad from the
+    template's dry first pad, then the spec's defaults, then the pad's own
+    settings; and one clip on track 1 playing the pads in order."""
+    song = json.load(open(template))
+    cells = set_cells(song)
+    pads = spec["pads"]
+    if len(pads) != SET_PADS or len(cells) != SET_PADS:
+        raise ValueError("a Set has %d pads: the spec has %d, the template %d" % (SET_PADS, len(pads), len(cells)))
+    base = json.loads(json.dumps(cells[0][1]["parameters"]))
+    spacing = float(spec.get("spacing_beats", 6))
+    notes = []
+    for i, ((chain, cell), pad) in enumerate(zip(cells, pads)):
+        if not os.path.exists(os.path.join(WAVS, pad["sample"])):
+            raise ValueError("pad %d: no test sound %s" % (i + 1, pad["sample"]))
+        cell["parameters"] = json.loads(json.dumps(base))
+        for k, v in list(spec.get("defaults", {}).items()) + list(pad.get("params", {}).items()):
+            try:
+                set_param(cell, k, v)
+            except ValueError as e:
+                raise ValueError("pad %d: %s" % (i + 1, e))
+        cell["deviceData"]["sampleUri"] = SET_SAMPLE_URI + urllib.parse.quote(pad["sample"])
+        beats = pad["gate_s"] * float(spec["tempo"]) / 60 if "gate_s" in pad else SET_NOTE_BEATS
+        notes.append({"noteNumber": chain["drumZoneSettings"]["receivingNote"], "startTime": i * spacing,
+                      "duration": beats, "velocity": 127.0, "offVelocity": 0.0})
+    song["tempo"] = float(spec["tempo"])
+    end = SET_PADS * spacing
+    song["tracks"][0]["clipSlots"][0]["clip"] = {
+        "isPlaying": True, "name": spec.get("name", ""), "color": 6, "isEnabled": True,
+        "region": {"start": 0.0, "end": end, "loop": {"start": 0.0, "end": end, "isEnabled": False}},
+        "grooveId": None, "stepEditorScrollPosition": 0.0, "notes": notes}
+    return song
+
+
+def cmd_make_set(spec_path, outdir, host=None):
+    spec = json.load(open(spec_path))
+    try:
+        song = build_set(spec)
+    except ValueError as e:
+        sys.exit("make-set: %s" % e)
+    os.makedirs(outdir, exist_ok=True)
+    out = os.path.join(outdir, "Song.abl")
+    json.dump(song, open(out, "w"), indent=2)
+    print("%s: %s, %g BPM, a pad every %g s" % (out, spec["name"], spec["tempo"],
+                                               spec.get("spacing_beats", 6) * 60 / spec["tempo"]))
+    shown = ("Voice_Envelope_Mode", "Voice_Envelope_Attack", "Voice_Envelope_Hold", "Voice_Envelope_Decay", "Effect_Type")
+    gates = {n["noteNumber"]: n["duration"] * 60 / spec["tempo"] for n in song["tracks"][0]["clipSlots"][0]["clip"]["notes"]}
+    for note, sample, p in drum_pads(song):
+        print("  %2d %-18s %s%s" % (note - 35, sample, "  ".join("%s %s" % (k.split("_")[-1], p.get(k)) for k in shown),
+                                    "  released after %g s" % gates[note] if p.get("Voice_Envelope_Mode") == "A-S-R" else ""))
+    if host:
+        install_set(out, spec["name"], host)
+
+
+def install_set(song_path, name, host):
+    """Put a Set on the Move the way Schwung's test harness does: a new
+    Sets/<uuid>/<name>/Song.abl with the xattrs Move keeps on a Set. Move
+    lists it after a restart."""
+    import uuid
+    ssh = ["ssh", "-o", "BatchMode=yes", host]
+    names = subprocess.run(ssh + ["ls -1 %s/*/ 2>/dev/null" % DEVICE_SETS], capture_output=True, text=True).stdout
+    if name in {x.strip().rstrip("/") for x in names.splitlines()}:
+        sys.exit("make-set: the Move already has a Set named %r" % name)
+    subprocess.run(ssh + ["mkdir -p %s" % DEVICE_SET_STAGING], check=True)
+    subprocess.run(["scp", "-q", "-o", "BatchMode=yes", song_path, "%s:%s/Song.abl" % (host, DEVICE_SET_STAGING)], check=True)
+    set_dir = "%s/%s" % (DEVICE_SETS, uuid.uuid4())
+    inner = "%s/%s" % (set_dir, name)
+    q = shlex.quote
+    script = "; ".join([
+        "set -e",
+        "used=$(for d in %s/*/; do getfattr -n user.song-index --only-values \"$d\" 2>/dev/null; echo; done"
+        " | grep -E '^[0-9]+$' | sort -n | tail -n 1)" % DEVICE_SETS,
+        "mkdir -p %s" % q(inner),
+        "cp %s/Song.abl %s/Song.abl" % (DEVICE_SET_STAGING, q(inner)),
+        "chown -R ableton:users %s" % q(set_dir),
+        "setfattr -n user.song-index -v $(( ${used:-999} + 1 )) %s" % q(set_dir),
+        "setfattr -n user.last-modified-time -v $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) %s" % q(set_dir),
+        "setfattr -n user.local-cloud-state -v notSynced %s" % q(set_dir),
+        "setfattr -n user.song-color -v 3 %s" % q(set_dir),
+        "setfattr -n user.was-externally-modified -v false %s" % q(set_dir),
+        "rm %s/Song.abl" % DEVICE_SET_STAGING,
+        "ls -l %s" % q(inner),
+        "getfattr -d %s" % q(set_dir),
+    ])
+    r = subprocess.run(ssh + [script], capture_output=True, text=True)
+    print(r.stdout + r.stderr)
+    if r.returncode:
+        sys.exit("make-set: install failed")
+    print("installed as %s. Restart Move to see it in the Set list." % inner)
+
+
 # ---------------------------------------------------------------- device-check
 
 DEVICE_DIR = "/data/UserData/livechopper-fxcheck"   # never /tmp on the Move (CLAUDE.md)
@@ -1184,6 +1335,8 @@ def main():
     s = sub.add_parser("refs-check"); s.add_argument("folder", nargs="?", default=REFS)
     s = sub.add_parser("accept-set"); s.add_argument("effect"); s.add_argument("--seed", type=int, required=True)
     s.add_argument("--pads", type=int, default=8)
+    s = sub.add_parser("make-set"); s.add_argument("spec"); s.add_argument("outdir")
+    s.add_argument("--install", metavar="HOST", help="also put it on the Move, e.g. root@192.168.4.45")
     s = sub.add_parser("device-check"); s.add_argument("outdir", nargs="+")
     s.add_argument("--host", default="root@192.168.4.45")
     s = sub.add_parser("ab", usage="fxlab.py ab make <outdir> <preview outdir> [--seed N]\n"
@@ -1213,6 +1366,8 @@ def main():
         sys.exit(cmd_refs_check(a.folder))
     if a.cmd == "accept-set":
         cmd_accept_set(a.effect, a.seed, a.pads)
+    if a.cmd == "make-set":
+        cmd_make_set(a.spec, a.outdir, a.install)
     if a.cmd == "device-check":
         sys.exit(cmd_device_check(a.outdir, a.host))
     if a.cmd == "ab" and a.step == "make":

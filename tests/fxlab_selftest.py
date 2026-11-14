@@ -232,5 +232,27 @@ check(r.returncode == 1 and v[1]["pitch"] == "FAIL" and v[2]["pitch"] == "FAIL"
       and v[3]["pitch"] == "PASS" and v[4]["position"] == "FAIL",
       "47 st for 48, and Decay 5.5 ms for 5 ms, fail: %s" % v)
 
+# make-set: the Set split reads back is the spec, and its clip plays it.
+spec = {"name": "Selftest", "tempo": 120, "spacing_beats": 6,
+        "defaults": {"Voice_Envelope_Hold": 0.1, "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+        "pads": [{"sample": "sine_441.wav", "params": {"Voice_Envelope_Decay": 0.01 * (i + 1)}} for i in range(16)]}
+spec["pads"][3] = {"sample": "position_ramp.wav", "params": {"Voice_Envelope_Mode": "A-S-R"}, "gate_s": 0.5}
+song = json.loads(json.dumps(fxlab.build_set(spec)))
+pads = fxlab.drum_pads(song)
+check([p[1] for p in pads] == [x["sample"] for x in spec["pads"]], "make-set: samples in pad order")
+check(abs(pads[1][2]["Voice_Envelope_Decay"] - 0.02) < 1e-9 and pads[1][2]["Voice_Envelope_Hold"] == 0.1
+      and pads[1][2]["Effect_FmAmount"] == 0.0, "make-set: a pad's settings over the defaults over the dry pad")
+check(pads[3][2]["Voice_Envelope_Mode"] == "A-S-R", "make-set: Gate mode")
+notes = song["tracks"][0]["clipSlots"][0]["clip"]["notes"]
+check([n["startTime"] for n in notes] == [6.0 * i for i in range(16)]
+      and [n["noteNumber"] for n in notes] == [p[0] for p in pads] and notes[3]["duration"] == 1.0,
+      "make-set: one note a pad, 6 beats apart, the Gate pad held 0.5 s")
+for bad in ({"Voice_Envelope_Decya": 0.1}, {"Voice_Envelope_Decay": 0.0}, {"Voice_Envelope_Mode": "ADSR"}):
+    try:
+        fxlab.build_set(dict(spec, defaults=bad))
+        check(False, "make-set refuses %s" % bad)
+    except ValueError:
+        pass
+
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)
