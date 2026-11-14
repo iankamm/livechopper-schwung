@@ -622,6 +622,15 @@ rest unchanged), and the drift stays open (PLAN "Open"): depth alone
 doesn't remove it (the long-Decay pads want 0.1 % more, the short ones
 less). Set 34 pad 9's one window is accepted (2026-11-14).
 
+Set 37, the acceptance Set (`accept-set FM --seed 1115 --pads 14
+--spec`, drawn after the change), recorded 2026-11-14: 16 of 16. Bands
+worst 0.32 dB (pad 14, 64 %, 21.1 Hz, Decay 1.39 s: Set 36 pad 11's
+case, its waveform 566 LSB off from the same drift), position 0.10 ms
+(pad 15), pitch 0.21 ct (pad 2); the other pads match Move's waveform to
+0.3-20 LSB, and pad 16 repeats pad 2 exactly. `fxlab.py refs
+.claude/recordings/set37/fm --seed 1115` saved them as
+`tests/move_refs/fm/`.
+
 ### Volume envelope (Set 35)
 
 The first Set written by `fxlab.py make-set`

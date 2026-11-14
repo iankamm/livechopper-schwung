@@ -29,10 +29,9 @@ LiveChopper's own designs, not Move's algorithms.
 - Fitted: FM (2026-11-13, Set 34, NOTES "FM"): 15 of 16, pad 9's one
   band window, accepted 2026-11-14. Acceptance Set 36 (seed 1114,
   `tools/fxlab/sets/set36_fm_accept.json`) failed on pad 11 and became a
-  fit Set (NOTES "FM"). Acceptance Set 37 drawn 2026-11-14 (`accept-set
-  FM --seed 1115 --pads 14 --spec`, `tools/fxlab/sets/set37_fm_accept.json`:
-  14 drawn pads, the global Decay drawn too, Hold Inf). Owed: its
-  recording and check, refs, preview, device-check and listening A/B.
+  fit Set (NOTES "FM"). Accepted 2026-11-14 on Set 37 (seed 1115,
+  `tools/fxlab/sets/set37_fm_accept.json`): 16 of 16, references in
+  `tests/move_refs/fm/`. Owed: preview, device-check and listening A/B.
 - Done: the volume envelope's Decay and Gate release (2026-11-14, Set 35,
   NOTES "Volume envelope"): -84 dB over the Decay, a straight line in dB.
   References in `tests/move_refs/envelope/`.
