@@ -437,6 +437,17 @@ int main(void) {
     note(inst, 68);
     render(inst, 8);                        /* 1024 frames > 441 + 441 */
     CHECK(field(inst, F_PLAYING) == -1, "voice ends after hold + decay");
+    {   /* Move's Decay (Set 35): a straight line in dB, -84 dB at its end */
+        live_chopper_t *q = (live_chopper_t *)inst;
+        int keep = q->env_pos, d0 = q->attack_frames + q->hold_frames;
+        q->env_pos = d0 + q->decay_frames / 2;
+        float half = env_gain(q);
+        q->env_pos = d0 + q->decay_frames - 1;
+        float last = env_gain(q);
+        q->env_pos = keep;
+        CHECK(fabsf(20.0f * log10f(half) + 42.0f) < 0.2f && fabsf(20.0f * log10f(last) + 84.0f) < 0.3f,
+              "Decay falls in dB: %.2f dB halfway, %.2f dB at the end", 20.0f * log10f(half), 20.0f * log10f(last));
+    }
     param(inst, "hold_us", "-1");
 
     /* ---- Gated (A-S-R): plays while held, Decay is the release ---- */
@@ -457,10 +468,11 @@ int main(void) {
     note_off(inst, 69);
     render(inst, 5);
     CHECK(field(inst, F_PLAYING) == 0, "letting go of another pad doesn't release");
-    note(inst, 69); render(inst, 2);        /* blue pad: chop while held */
+    note(inst, 70); render(inst, 2);        /* blue pad (2 slices so far): chop while held */
     CHECK(field(inst, F_PLAYING) == 1, "chop while held carries on into Pad 2");
-    note_off(inst, 69); render(inst, 2);
+    note_off(inst, 70); render(inst, 2);
     CHECK(field(inst, F_PLAYING) == 1, "letting go of the blue pad keeps the gate");
+    CHECK(((live_chopper_t *)inst)->release_pos < 0, "letting go of the blue pad doesn't release");
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
     int before = abs(out[254]);
     note_off(inst, 68);

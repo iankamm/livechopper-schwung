@@ -48,7 +48,9 @@
  * chop does not retrigger the envelope, so playback stays seamless.
  * Gated mode (set_param("gate", "1")) is Move's A-S-R: full level while
  * the pad that started the voice is held, then Decay is the release, and
- * Hold does nothing. One-shot (the default) is A-H-D. When
+ * Hold does nothing. One-shot (the default) is A-H-D. Attack rises
+ * linearly; Decay and the release fall in a straight line in dB, -84 dB
+ * at their time, then silence (Move's, Set 35). When
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
  * Delete: set_param("delete") removes a slice by merging it into the
@@ -202,6 +204,10 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
     { 0.0f, 1000.0f }, { 0.0f, 1000.0f }, { 0.0f, 60.0f }, { 0.0f, 10000.0f },
 };
 #define FX_DECAY_K 4.6f             /* a decay reaches 1% at its time: ln 100 */
+/* The volume envelope's Decay and Gate release, fitted to Move's (Set 35:
+ * Decays 30 ms to 10 s and three releases, within 0.01 dB rms): -84 dB
+ * over the Decay, from Attack + Hold or from the note off, then 0. */
+#define ENV_DECAY_K 9.6712847f      /* 84 dB: 84 ln 10 / 20 */
 /* Punch, fitted to Move's gain curves (Sets 29 and 30: 14 pads, rms 0.06 dB,
  * worst 0.9 dB): see fx_punch_settings and fx_frame. */
 #define PUNCH_FLOOR 0.15f           /* the duck's floor, against the makeup */
@@ -1173,7 +1179,7 @@ static float env_gain(const live_chopper_t *inst) {
     if (inst->gated) {
         if (inst->release_pos >= 0) {
             if (inst->release_pos >= inst->decay_frames) return 0.0f;
-            return inst->release_gain * (1.0f - (float)inst->release_pos / (float)inst->decay_frames);
+            return inst->release_gain * expf(-ENV_DECAY_K * (float)inst->release_pos / (float)inst->decay_frames);
         }
         if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
         return 1.0f;
@@ -1183,7 +1189,7 @@ static float env_gain(const live_chopper_t *inst) {
     if (inst->hold_frames == HOLD_FULL || p < inst->hold_frames) return 1.0f;
     p -= inst->hold_frames;
     if (p >= inst->decay_frames) return 0.0f;
-    return 1.0f - (float)p / (float)inst->decay_frames;
+    return expf(-ENV_DECAY_K * (float)p / (float)inst->decay_frames);
 }
 
 static int env_finished(const live_chopper_t *inst) {

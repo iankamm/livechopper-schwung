@@ -247,6 +247,11 @@ notes = song["tracks"][0]["clipSlots"][0]["clip"]["notes"]
 check([n["startTime"] for n in notes] == [6.0 * i for i in range(16)]
       and [n["noteNumber"] for n in notes] == [p[0] for p in pads] and notes[3]["duration"] == 1.0,
       "make-set: one note a pad, 6 beats apart, the Gate pad held 0.5 s")
+rel = fxlab.clip_releases(song)
+check(abs(rel[pads[3][0]] - 0.5) < 1e-9, "split: a Gate pad's release time comes from the clip: %s" % rel.get(pads[3][0]))
+pc = {"params": pads[3][2], "release_s": rel[pads[3][0]]}
+check(fxlab.piece_settings(pc)[-1] == "release=0.500000" and fxlab.piece_settings(dict(pc, params=pads[2][2]))
+      == fxlab.dsp_settings(pads[2][2]), "render: only a Gate pad is released, at the clip's time")
 for bad in ({"Voice_Envelope_Decya": 0.1}, {"Voice_Envelope_Decay": 0.0}, {"Voice_Envelope_Mode": "ADSR"}):
     try:
         fxlab.build_set(dict(spec, defaults=bad))

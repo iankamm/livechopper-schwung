@@ -7,7 +7,8 @@
  * Loads in.wav through the real worker thread, applies each key=value with
  * set_param in order, plays Pad 1 and writes <seconds> of stereo 16-bit
  * 44.1 kHz output. Two keys are the driver's own: release=<s> sends the
- * note-off at that time (for gate=1). Build:
+ * note-off at that frame, splitting its block (Move's clip lets go to the
+ * sample; on the Move, Schwung hands us MIDI a block at a time). Build:
  *
  *   gcc -std=c11 -O2 -Isrc/dsp tools/fxlab/fx_render.c -o build/fx_render -lm -lpthread
  */
@@ -61,7 +62,7 @@ int main(int argc, char **argv) {
 
     int frames = (int)(atof(argv[3]) * MOVE_SAMPLE_RATE);
     int blocks = (frames + MOVE_FRAMES_PER_BLOCK - 1) / MOVE_FRAMES_PER_BLOCK;
-    int release_block = release_s >= 0 ? (int)(release_s * MOVE_SAMPLE_RATE) / MOVE_FRAMES_PER_BLOCK : -1;
+    int release_frame = release_s >= 0 ? (int)lround(release_s * MOVE_SAMPLE_RATE) : -1;
     FILE *f = fopen(argv[2], "wb");
     if (!f) {
         fprintf(stderr, "fx_render: can't write %s\n", argv[2]);
@@ -76,8 +77,15 @@ int main(int argc, char **argv) {
     midi(api, inst, 0x90, 68, 127);
     int written = 0;
     for (int b = 0; b < blocks; b++) {
-        if (b == release_block) midi(api, inst, 0x80, 68, 0);
-        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int at = release_frame - b * MOVE_FRAMES_PER_BLOCK;
+        if (at > 0 && at < MOVE_FRAMES_PER_BLOCK) {
+            api->render_block(inst, out, at);
+            midi(api, inst, 0x80, 68, 0);
+            api->render_block(inst, out + 2 * at, MOVE_FRAMES_PER_BLOCK - at);
+        } else {
+            if (at == 0) midi(api, inst, 0x80, 68, 0);
+            api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        }
         int n = frames - written < MOVE_FRAMES_PER_BLOCK ? frames - written : MOVE_FRAMES_PER_BLOCK;
         for (int i = 0; i < n * 2; i++) wr16(f, out[i]);
         written += n;

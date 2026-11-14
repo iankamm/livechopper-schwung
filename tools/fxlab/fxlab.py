@@ -8,7 +8,7 @@ step 4). Run with build/.venv/bin/python (tools/fxlab/setup_env.sh).
     fxlab.py compare <outdir> [--gain G]
     fxlab.py all     <take.wav> <Song.abl> <outdir> [--gain G]
     fxlab.py check   <outdir> [--gain G] [--ours-take <preview outdir>]
-    fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N]
+    fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N] [--name envelope]
     fxlab.py refs-check [tests/move_refs]
     fxlab.py accept-set <effect> --seed N [--pads 8]
     fxlab.py make-set <spec.json> <outdir> [--install root@192.168.4.45]
@@ -129,6 +129,18 @@ def drum_pads(song):
     return sorted(pads, key=lambda p: p[0])
 
 
+def clip_releases(song):
+    """{note: seconds held} from the Set's clips, for pads played exactly
+    once (a generated Set's clip): when a Gate pad was let go."""
+    tempo = float(song.get("tempo", 120.0))
+    seen = {}
+    for t in song.get("tracks", []):
+        for slot in t.get("clipSlots", []):
+            for n in ((slot or {}).get("clip") or {}).get("notes", []):
+                seen.setdefault(n["noteNumber"], []).append(n["duration"] * 60 / tempo)
+    return {k: v[0] for k, v in seen.items() if len(v) == 1}
+
+
 def onsets(v):
     loud = np.flatnonzero(np.abs(v) > ONSET_LEVEL)
     out, last = [], -10 ** 9
@@ -159,8 +171,10 @@ def cmd_split(take, song_path, outdir, like=None):
     v = read_mono(take)
     if like:
         pads, like_meta = like_pads(like)
+        releases = {}
     else:
-        pads, like_meta = drum_pads(json.load(open(song_path))), None
+        song = json.load(open(song_path))
+        pads, like_meta, releases = drum_pads(song), None, clip_releases(song)
     # Only test sounds can be rendered: other samples (a kit's leftovers)
     # aren't expected in the take.
     for note, name, _ in pads:
@@ -198,6 +212,8 @@ def cmd_split(take, song_path, outdir, like=None):
                 print("  warning: pad %d has %s = %s (render plays the whole file)" % (note, key, params[key]))
         pieces.append({"piece": fname, "note": note, "sample": name, "start": start,
                        "frames": len(piece), "params": params})
+        if params.get("Voice_Envelope_Mode") == "A-S-R" and note in releases:
+            pieces[-1]["release_s"] = releases[note]
         print("%-22s note %d at %7.3f s, %.2f s, %s%s" % (
             fname, note, start / RATE, len(piece) / RATE, params.get("Effect_Type"),
             "" if params.get("Voice_PitchToEnvelopeModulation") is None
@@ -251,6 +267,15 @@ def dsp_settings(p):
     return s
 
 
+def piece_settings(pc):
+    """dsp_settings for a split piece, and for a Gate pad whose Set's clip
+    let go of it, fx_render's release at that time."""
+    s = dsp_settings(pc["params"])
+    if pc["params"].get("Voice_Envelope_Mode") == "A-S-R" and "release_s" in pc:
+        s.append("release=%.6f" % pc["release_s"])
+    return s
+
+
 def build_render():
     src = [os.path.join(REPO, "tools", "fxlab", "fx_render.c"), os.path.join(REPO, "src", "dsp", "plugin.c")]
     if os.path.exists(RENDER) and all(os.path.getmtime(RENDER) >= os.path.getmtime(f) for f in src):
@@ -274,9 +299,9 @@ def cmd_render(outdir, quiet=False):
     meta = json.load(open(os.path.join(outdir, "pads.json")))
     for pc in meta["pieces"]:
         p = pc["params"]
-        if p.get("Voice_Envelope_Mode") == "A-S-R":
+        settings = piece_settings(pc)
+        if p.get("Voice_Envelope_Mode") == "A-S-R" and "release_s" not in pc:
             print("  warning: %s is gated; the release time isn't in the take, so ours never releases" % pc["piece"])
-        settings = dsp_settings(p)
         render_pad(pc["sample"], settings, pc["frames"], os.path.join(outdir, "ours_" + pc["piece"]))
         if gain_effect(p):
             # The same pad with no effect: what the gain curve divides by.
@@ -900,7 +925,7 @@ def cmd_check(outdir, gain_arg, ours_take=None):
         if refdir:
             json.dump({"set": os.path.basename(os.path.dirname(meta.get("set") or "")) or None,
                    "piece": pc["piece"], "sample": pc["sample"], "params": pc["params"],
-                   "settings": dsp_settings(pc["params"]), "frames": pc["frames"],
+                   "settings": piece_settings(pc), "frames": pc["frames"],
                    "end_ms": round(d["end_ms"], 3), "dry": d["dry"] is not None,
                    "metrics": {name: {"limits": lim[name], "move": ref} for name, (ref, _, _, _) in d["m"].items()}},
                   open(os.path.join(refdir, pc["piece"].rsplit(".", 1)[0] + ".json"), "w"))
@@ -996,13 +1021,14 @@ def cmd_ab_score(ab, answers, accept=()):
 REFS = os.path.join(REPO, "tests", "move_refs")
 
 
-def cmd_refs(outdir, dest, seed):
-    """Save a passing acceptance Set's Move curves as tests/move_refs/<effect>/."""
+def cmd_refs(outdir, dest, seed, name=None):
+    """Save a passing acceptance Set's Move curves as tests/move_refs/<effect>/,
+    or <name>/ for a Set that tests no effect (the envelope's)."""
     chk = json.load(open(os.path.join(outdir, "check.json")))
     if chk["verdict"] != "PASS":
         sys.exit("refs: %s didn't pass its check" % outdir)
     meta = json.load(open(os.path.join(outdir, "pads.json")))
-    effects = sorted({effect_name(pc["params"]) for pc in meta["pieces"] if not neutral(pc["params"])})
+    effects = [name] if name else sorted({effect_name(pc["params"]) for pc in meta["pieces"] if not neutral(pc["params"])})
     if len(effects) != 1:
         sys.exit("refs: an acceptance Set tests one effect, this one has %s" % (effects or "none"))
     folder = os.path.join(dest, effects[0].lower().replace(" ", "_"))
@@ -1332,6 +1358,7 @@ def main():
     s.add_argument("--ours-take", help="a preview take split --like outdir, in place of the renders")
     s = sub.add_parser("refs"); s.add_argument("outdir"); s.add_argument("--dest", default=REFS)
     s.add_argument("--seed", type=int)
+    s.add_argument("--name", help="the folder for a Set with no effect, e.g. envelope")
     s = sub.add_parser("refs-check"); s.add_argument("folder", nargs="?", default=REFS)
     s = sub.add_parser("accept-set"); s.add_argument("effect"); s.add_argument("--seed", type=int, required=True)
     s.add_argument("--pads", type=int, default=8)
@@ -1361,7 +1388,7 @@ def main():
     if a.cmd == "check":
         sys.exit(cmd_check(a.outdir, a.gain, a.ours_take))
     if a.cmd == "refs":
-        cmd_refs(a.outdir, a.dest, a.seed)
+        cmd_refs(a.outdir, a.dest, a.seed, a.name)
     if a.cmd == "refs-check":
         sys.exit(cmd_refs_check(a.folder))
     if a.cmd == "accept-set":

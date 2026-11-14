@@ -26,8 +26,15 @@ LiveChopper's own designs, not Move's algorithms.
   `device-check` and listening A/B passed (2026-11-13: a subtle onset
   difference heard on 7 of 10 pairs, the dry pair too, Move named at
   chance, all accepted). NOTES "Pitch Env".
-- Then, in this order: FM and Ring Mod's decay, Sub Osc and Noise's
-  envelopes, following Transpose, 8-Bit, Stretch, Loop.
+- Fitted: FM (2026-11-13, Set 34, NOTES "FM"): 15 of 16, pad 9's one
+  band window open. Owed: its acceptance Set, refs, preview, device-check
+  and listening A/B.
+- Done: the volume envelope's Decay and Gate release (2026-11-14, Set 35,
+  NOTES "Volume envelope"): -84 dB over the Decay, a straight line in dB.
+  References in `tests/move_refs/envelope/`.
+- Then, in this order: FM's acceptance, Ring Mod's decay, Sub Osc and
+  Noise's envelopes, following Transpose, 8-Bit, Stretch, Loop. Sets
+  are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad
   15: 1.0 ms at +12 st ramps in ~22 frames), Pitch Env's Decay and
   Punch's times don't. Hold and Decay are unchecked.
@@ -148,7 +155,7 @@ hearing thresholds:
 | Metric | What it compares | rms | max | Applies to |
 |---|---|---|---|---|
 | gain | gain against the same pad rendered dry, a 100-frame window every 10 frames | 0.5 dB | 1.5 dB | sine_441(_quiet) under Punch, or Ring Mod below 20 Hz |
-| pitch | pitch between zero crossings | 5 ct | 15 ct | sine_441(_quiet) dry, under Punch, Pitch Env, or FM below 20 Hz |
+| pitch | pitch between zero crossings | 5 ct | 15 ct | sine_441(_quiet) dry, under Punch, Pitch Env, or FM below 20 Hz that doesn't reverse the read (Amount x 10 < 1) |
 | position | the frame read, from position_ramp's value | 1 ms | 2 ms | position_ramp dry, under Loop, Pitch Env, or FM below 20 Hz |
 | bands | 1/3-octave levels over time (4096-frame windows, hop 1024), cells within 40 dB of the loudest and above -80 dB full scale; both sides clamped at that floor | 1 dB | 3 dB | every pad: the catch-all |
 
@@ -256,6 +263,11 @@ reference.
   render matches Move to 0.02 ms. It passes (worst 1.64 ms against 2),
   but it's in LiveChopper's playback on the Move or the take's alignment;
   untraced.
+- **FM pad 9 (Set 34):** Amount 50 %, 100 Hz fails one quiet 44 Hz band
+  window, 4.45 dB against 3 (rms 0.38): a read drift under 0.1 %,
+  untraced. Proposed: accept it.
+- **Short Attack (Set 35 pad 15):** Attack 0.1 ms sits up to 0.8 dB under
+  Attack 1 ms for the first ~60 frames; it passes (bands 0.42 dB).
 - **Fast turns:** Move skips 2-3 values on a fast turn (NOTES, screen
   session 1). LiveChopper reads the encoder's delta, so it may already do
   the same; unchecked.

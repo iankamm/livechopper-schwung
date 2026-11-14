@@ -569,3 +569,78 @@ Low-Pass 24 open, Transpose 0, about 3 s apart.
   7 of 10 pairs, the dry pair included, Move named right on 4 of 7
   (chance); the position_ramp pairs were barely audible. All accepted, so
   the difference is the dry path's onset, not Pitch Env.
+
+### FM (Set 34)
+
+Fitted 2026-11-13 on Set 34 (`.claude/recordings/set34/`), dialled in by
+hand: Attack 1.00 ms, Hold Inf and Decay 60 s unless shown, about 3 s
+apart.
+
+| Pad | Sound | FM |
+|---|---|---|
+| 1, 2 | sine_441, position_ramp | dry (Stretch 1.00) |
+| 3-6 | sine, sine, ramp, ramp | Amount 100 %, 25 %, 100 %, 25 %, Freq 10 Hz |
+| 7-8 | sine_441 | Amount 100 %, 25 %, Freq 1.00 kHz |
+| 9 | sine_441 | Amount 50 %, Freq 100 Hz |
+| 10-12 | sine, ramp, sine | Amount 100 %, Freq 10 Hz, 10 Hz, 1.00 kHz, Decay 100 ms |
+| 13 | position_ramp | Amount 100 %, Freq 10 Hz, Decay 990 ms |
+| 14-15 | sine, ramp | Amount 100 %, Freq 10 Hz, Hold 501 ms, Decay 100 ms |
+| 16 | sine_441 | a copy of pad 3 |
+
+- **Depth:** the read rate is 1 + Amount x 9.995 x the LFO: at 100 % the
+  read runs backwards in the troughs. Fitted on the position_ramp pads'
+  read position (rms 1.9 frames over 1.85 s).
+- **LFO:** a parabolic sine (two parabola halves, third harmonic 1/27),
+  not sinf: a sine leaves a 3rd-harmonic residual the parabola removes.
+  Phase 0, rising, at note-on.
+- **Decay:** the depth falls as a decay to 1 % over the global Decay +
+  50 ms, counted from note-on: Hold doesn't delay it (pads 14-15 fall
+  with pads 10-11).
+- **Repeatable:** pad 16 is bit for bit pad 3.
+- `fxlab.py check`: 15 of 16 pass. Position worst 1.04 ms (pad 5); the
+  1 kHz pads match Move's waveform to -53 to -62 dB. Pad 9 fails one
+  quiet 44 Hz band window, 4.45 dB against 3 (rms 0.38): a drift under
+  0.1 % in the read, untraced (PLAN "Open").
+- Metrics: slow FM that stops and reverses the read (Amount x 10 >= 1,
+  below 20 Hz) has no pitch metric (a zero-crossing pitch is undefined at
+  the stops), and its bands compare the spectrum averaged over the sound,
+  the narrow low bands swinging 20 dB a window; the position_ramp pads
+  hold its timing.
+
+### Volume envelope (Set 35)
+
+The first Set written by `fxlab.py make-set`
+(`tools/fxlab/sets/set35_envelope.json`), recorded 2026-11-14: every pad
+sine_441, Stretch 1.00, Attack 1.00 ms, 3 s apart, played by the Set's
+clip, which let go of the Gate pads at 0.5 s. Move opened the generated
+Set and played its clip; it saved the Set back with the same pad values.
+
+| Pad | Mode | Hold | Decay |
+|---|---|---|---|
+| 1 | Trigger | Inf | 60 s |
+| 2-9 | Trigger | 100 ms | 10 ms, 30 ms, 100 ms, 300 ms, 1 s, 3 s, 10 s, 60 s |
+| 10 | Trigger | 500 ms | 100 ms |
+| 11 | Trigger | 1 ms | 100 ms |
+| 12-14 | Gate, let go at 0.5 s | - | 100 ms, 1 s, 10 ms |
+| 15 | Trigger, Attack 0.10 ms | 100 ms | 100 ms |
+| 16 | Trigger | 100 ms | 100 ms (a copy of pad 4) |
+
+- **Decay:** a straight line in dB, -84.0 dB at the Decay time (fits of
+  -83.98 to -84.33 dB over Decays 30 ms to 10 s, residuals 0.01 dB rms),
+  starting at Attack + Hold within 5 frames, then silence (-84 dB of
+  this level is under 1 LSB). Hold 1 ms and 500 ms give the same curve.
+  LiveChopper's was linear in amplitude: 12-18 dB off mid-Decay.
+- **Gate release:** the same curve from the note-off (within 5 frames),
+  from full level; held, the level stays at 0 dB.
+- **Attack:** linear in amplitude from 0 on the note-on frame, as ours.
+  Pad 15's 0.1 ms Attack sits up to 0.8 dB under the 1 ms pads for its
+  first ~60 frames, 0.09 dB on average up to the Decay: within limits,
+  untraced.
+- **Repeatable:** pad 16 gives exactly pad 4's numbers.
+- `fxlab.py check --gain 0.93114` (the dry level from Set 34; with one
+  sustaining pad the estimate from the dry pieces fails): 16 of 16 pass,
+  bands worst 0.42 dB (pad 15), the rest 0.04 dB. Saved with `refs
+  --name envelope` as `tests/move_refs/envelope/`.
+- `fx_render` lets go of a Gate pad on the clip's frame, splitting the
+  block; on the Move, Schwung hands LiveChopper MIDI a block at a time,
+  up to 128 frames (2.9 ms) late.
