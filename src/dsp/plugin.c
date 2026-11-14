@@ -101,8 +101,10 @@
  * one-poles of 10.4 ms, so the transient keeps the makeup and the duck
  * is back by about the Release (L and n follow the Release); Pitch Env
  * bends the pitch by Amount x 48 semitones, falling to 1/1000 at its
- * Decay; FM wobbles the playback rate by up to +-1 octave at its
- * Frequency; Ring Mod multiplies by a sine; Sub Osc adds a sine; Noise adds
+ * Decay; FM adds Amount x 10 x a parabolic sine at its Frequency to the
+ * playback rate (backwards at the troughs), fading to 1% over the global
+ * Decay + 50 ms from the note on, Hold or not; Ring Mod multiplies by a
+ * sine; Sub Osc adds a sine; Noise adds
  * noise low-passed at its Color, following the sound's level; 8-Bit's
  * Decay closes a low-pass on the crushed sound over that time. Stretch
  * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
@@ -214,7 +216,13 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
  * follow Transpose. */
 #define PITCH_ENV_SEMIS 48.0f
 #define PITCH_ENV_DECAY_K 6.9077553f /* ln 1000 */
-#define FM_MAX_OCT 1.0f
+/* FM, fitted to Move's read position (Set 34: 4 position_ramp pads within
+ * 1.2 ms, the 1 kHz sine pads' waveforms within -53 dB): the rate is
+ * 1 + Amount x 10 x a parabolic sine (third harmonic 1/27, so not
+ * sinf), its depth falling as a decay to 1% over the global Decay + 50 ms
+ * from the note on. Hold doesn't delay it. */
+#define FM_DEPTH 9.995f
+#define FM_DECAY_PAD_S 0.05f
 #define SUB_OSC_LEVEL 16384.0f      /* -6 dBFS at 100% */
 #define NOISE_FOLLOW_RELEASE 0.9995f /* the level follower falls ~70 ms to 1/e */
 #define CRUSH_DECAY_FLOOR_HZ 200.0f /* where 8-Bit Decay's low-pass ends up */
@@ -1303,14 +1311,26 @@ static float fx_osc(fx_state_t *x, float hz) {
     return v;
 }
 
+/* A parabolic sine, -1..1, starting at 0 and rising (Move's FM). */
+static float fx_para(fx_state_t *x, float hz) {
+    float p = (float)x->phase;
+    float v = p < 0.5f ? 16.0f * p * (0.5f - p) : -16.0f * (p - 0.5f) * (1.0f - p);
+    x->phase += hz / MOVE_SAMPLE_RATE;
+    if (x->phase >= 1.0) x->phase -= 1.0;
+    return v;
+}
+
 /* The playback rate multiplier for this frame, t frames into the voice:
  * Pitch Env and FM bend it, the others leave it at 1. */
 static double fx_rate(const live_chopper_t *inst, fx_state_t *x, int t) {
     if (inst->effect == FX_PITCH_ENV && inst->fx_a != 0.0f)
         return exp2f(inst->fx_a * PITCH_ENV_SEMIS / 12.0f
                      * expf(-PITCH_ENV_DECAY_K * ((float)t + 1.0f) / (inst->fx_b * MOVE_SAMPLE_RATE)));
-    if (inst->effect == FX_FM && inst->fx_a > 0.0f)
-        return exp2f(inst->fx_a * FM_MAX_OCT * fx_osc(x, inst->fx_b));
+    if (inst->effect == FX_FM && inst->fx_a > 0.0f) {
+        float depth = expf(-FX_DECAY_K * (float)t
+                           / ((float)inst->decay_frames + FM_DECAY_PAD_S * MOVE_SAMPLE_RATE));
+        return 1.0 + (double)(inst->fx_a * FM_DEPTH * depth * fx_para(x, inst->fx_b));
+    }
     return 1.0;
 }
 

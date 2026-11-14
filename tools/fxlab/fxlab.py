@@ -394,6 +394,7 @@ def fx_value(p, which):
 
 GAIN_FLOOR = 1e-4           # -80 dB: the curve stops where dry is quieter than this
 SLOW_HZ = 20                # Ring Mod and FM below this are a level or pitch wobble
+FM_DEPTH = 10               # Move's FM swings the read rate by Amount x 10 (Set 34)
 
 
 def gain_effect(p):
@@ -477,10 +478,19 @@ def uses_gain(p, sample):
     return sample in SINES and gain_effect(p)
 
 
+def fm_reverses(p):
+    """Slow FM deep enough to stop the read and run it backwards. There a
+    zero-crossing pitch is undefined around the stops (a frame of drift
+    reads as hundreds of cents), and the narrow low bands swing by 20 dB
+    from one window to the next, so the sine pads compare the spectrum
+    averaged over the sound and the position_ramp pads hold the timing."""
+    return effect_name(p) == "FM" and fx_value(p, 1) < SLOW_HZ and fx_value(p, 0) * FM_DEPTH >= 1
+
+
 def uses_pitch(p, sample):
     name = effect_name(p)
     return sample in SINES and (neutral(p) or name in ("Punch", "Pitch Env")
-                                or (name == "FM" and fx_value(p, 1) < SLOW_HZ))
+                                or (name == "FM" and fx_value(p, 1) < SLOW_HZ and not fm_reverses(p)))
 
 
 def uses_position(p, sample):
@@ -504,8 +514,16 @@ def curve_position(x, c):
 
 
 def curve_bands(x, c):
+    """Band levels a window at a time; for fm_reverses, one column: their
+    power average over the windows ending by end_ms."""
     b, tb = band_levels(x, BAND_NFFT, BAND_HOP)
-    return tb * 1000, b
+    t = tb * 1000
+    if c.get("params") and fm_reverses(c["params"]):
+        keep = t + BAND_NFFT / RATE * 1000 <= c["end_ms"]
+        if keep.any():
+            b = 10 * np.log10(np.mean(10 ** (b[:, keep] / 10), axis=1, keepdims=True))
+            t = np.zeros(1)
+    return t, b
 
 
 # name, unit, rms limit, max limit, applies(params, sample), curve(x, context)
@@ -580,7 +598,7 @@ def measure(sample, params, x, ours, dry, end_ms):
     """Every metric that applies to a pad: {name: (Move's curve stored,
     Move's full curve, ours full curve, error)}. x is Move's piece at
     ours' level from note-on; ours and dry are plugin.c's renders."""
-    c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, sample)))}
+    c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, sample))), "params": params, "end_ms": end_ms}
     out = {}
     for name, _, _, _, applies, curve in METRICS:
         if not applies(params, sample) or (name == "gain" and dry is None):
@@ -1017,7 +1035,8 @@ def cmd_refs_check(folder):
             render_pad(ref["sample"], dry_settings(ref["settings"]), ref["frames"], dry_path, quiet=True)
             dry = read_mono(dry_path)
         ours = read_mono(ours_path)
-        c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, ref["sample"])))}
+        c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, ref["sample"]))),
+             "params": ref["params"], "end_ms": ref["end_ms"]}
         cells = []
         for name, _, _, _, _, curve in METRICS:
             if name not in ref["metrics"]:
