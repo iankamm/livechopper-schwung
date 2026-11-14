@@ -601,11 +601,26 @@ apart.
   1 kHz pads match Move's waveform to -53 to -62 dB. Pad 9 fails one
   quiet 44 Hz band window, 4.45 dB against 3 (rms 0.38): a drift under
   0.1 % in the read, untraced (PLAN "Open").
-- Metrics: slow FM that stops and reverses the read (Amount x 10 >= 1,
-  below 20 Hz) has no pitch metric (a zero-crossing pitch is undefined at
-  the stops), and its bands compare the spectrum averaged over the sound,
-  the narrow low bands swinging 20 dB a window; the position_ramp pads
-  hold its timing.
+- Metrics: FM that stops and reverses the read (Amount x 10 >= 1) has no
+  pitch metric (a zero-crossing pitch is undefined at the stops). Below
+  43 Hz (four LFO cycles a 4096-frame band window; 20 Hz until Set 36)
+  its bands compare the spectrum averaged over the sound, the narrow low
+  bands swinging 20 dB a window; the position_ramp pads hold its timing.
+
+Set 36, the first acceptance Set (`accept-set FM --seed 1114 --pads 14
+--spec`, the global Decay drawn too, Attack at its minimum, Hold Inf),
+written with `make-set` and recorded 2026-11-14: 15 of 16. Pad 11
+(sine_441, 77 %, 20.1 Hz, Decay 1.51 s) failed bands at 7.49 dB: our
+read ends 3.15 frames (0.07 ms) behind Move's, gathered while the
+modulation is deep (shifted by that, the waveforms agree to -32 dB),
+and at 20.1 Hz, half a band window a cycle, the window levels swing on
+it. The other pads match Move's waveform to 0.3-3 LSB (pad 2, 15 %,
+157 Hz, drifts 0.1 frame), the position_ramp pads its read to about a
+frame, and pad 16 repeats pad 2 exactly. So Set 36 became a fit Set:
+FM's slow bound for the bands moved to 43 Hz (pad 11 0.12/0.35 dB, the
+rest unchanged), and the drift stays open (PLAN "Open"): depth alone
+doesn't remove it (the long-Decay pads want 0.1 % more, the short ones
+less). Set 34 pad 9's one window is accepted (2026-11-14).
 
 ### Volume envelope (Set 35)
 

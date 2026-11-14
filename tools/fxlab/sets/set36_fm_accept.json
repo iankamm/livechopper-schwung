@@ -1,0 +1,154 @@
+{
+ "name": "Set 36",
+ "about": "fxlab.py accept-set FM --seed 1114 (PLAN \"When an effect is done\"): drawn, not tuned against. Attack at its minimum, Hold Inf, Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 6,
+ "defaults": {
+  "Voice_Envelope_Attack": 0.0001,
+  "Voice_Envelope_Hold": 60.0,
+  "Voice_Envelope_Decay": 60.0,
+  "Voice_Envelope_Mode": "A-H-D",
+  "Effect_Type": "Stretch",
+  "Effect_StretchFactor": 1.0
+ },
+ "pads": [
+  {
+   "sample": "sine_441.wav"
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.14679931877973385,
+    "Effect_FmFrequency": 157.32055183021342,
+    "Voice_Envelope_Decay": 2.109837264093893
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.562921756964516,
+    "Effect_FmFrequency": 529.8859984126866,
+    "Voice_Envelope_Decay": 0.7068971817574017
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.08275635140216937,
+    "Effect_FmFrequency": 44.576296031405924,
+    "Voice_Envelope_Decay": 3.4948634242208674
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.3594393446015494,
+    "Effect_FmFrequency": 3948.352473284748,
+    "Voice_Envelope_Decay": 0.04048826499833309
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.9592811242064848,
+    "Effect_FmFrequency": 48.941015623786,
+    "Voice_Envelope_Decay": 0.7068971817574017
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.4468654398501529,
+    "Effect_FmFrequency": 2593.3158927140726,
+    "Voice_Envelope_Decay": 9.589428131396911
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.8315571504576346,
+    "Effect_FmFrequency": 2717.3145916067438,
+    "Voice_Envelope_Decay": 0.14298230429074907
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.049419742723908124,
+    "Effect_FmFrequency": 208.20562436473833,
+    "Voice_Envelope_Decay": 33.86459091576563
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.0628328557664503,
+    "Effect_FmFrequency": 4334.9582017110515,
+    "Voice_Envelope_Decay": 0.0058497105204762265
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.7721834800610644,
+    "Effect_FmFrequency": 20.14964922410789,
+    "Voice_Envelope_Decay": 1.507051609923974
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.017563599247870407,
+    "Effect_FmFrequency": 3948.352473284748,
+    "Voice_Envelope_Decay": 0.017459310291179548
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.009809590135590558,
+    "Effect_FmFrequency": 157.32055183021342,
+    "Voice_Envelope_Decay": 1.7831527263614562
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.008795652452570562,
+    "Effect_FmFrequency": 172.72470506837382,
+    "Voice_Envelope_Decay": 2.294981383352916
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.6278137686777957,
+    "Effect_FmFrequency": 124.55551576123881,
+    "Voice_Envelope_Decay": 8.815815657472907
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "FM",
+    "Effect_FmAmount": 0.14679931877973385,
+    "Effect_FmFrequency": 157.32055183021342,
+    "Voice_Envelope_Decay": 2.109837264093893
+   }
+  }
+ ]
+}

@@ -10,7 +10,7 @@ step 4). Run with build/.venv/bin/python (tools/fxlab/setup_env.sh).
     fxlab.py check   <outdir> [--gain G] [--ours-take <preview outdir>]
     fxlab.py refs    <outdir> [--dest tests/move_refs] [--seed N] [--name envelope]
     fxlab.py refs-check [tests/move_refs]
-    fxlab.py accept-set <effect> --seed N [--pads 8]
+    fxlab.py accept-set <effect> --seed N [--pads 8] [--spec <spec.json>]
     fxlab.py make-set <spec.json> <outdir> [--install root@192.168.4.45]
     fxlab.py device-check <outdir>... [--host root@192.168.4.45]
     fxlab.py ab make  <outdir> <preview outdir> [--seed N]
@@ -27,7 +27,8 @@ check is the gate for "this effect matches Move" (docs/PLAN.md step 4,
 plugin.c and passes or fails every pad on every metric that applies. refs
 then saves Move's measured curves to tests/move_refs/, and refs-check (run
 by scripts/test.sh) holds plugin.c to them without the recordings.
-accept-set draws an acceptance Set's settings at random. make-set writes a
+accept-set draws an acceptance Set's settings at random (--spec writes
+them for make-set, with --pads 14 to fill 16 pads). make-set writes a
 Move Set from a spec (tools/fxlab/sets/): 16 pads at exact settings and a
 clip that plays them in order, so a take is one press of Play; --install
 puts it on the Move. device-check
@@ -499,6 +500,7 @@ START_MS = 1.0              # metrics start past the attack ramp (4 frames)
 END_MARGIN_MS = 20          # ... and stop this long before the sound does (Move's end fade)
 STORE_MS = 1.0              # stored curves keep a point a ms
 BAND_NFFT, BAND_HOP = 4096, 1024
+FM_WINDOW_HZ = 4 * RATE / BAND_NFFT     # 43 Hz: four LFO cycles a band window
 BAND_LIVE_DB = 40           # bands compared: within this of the loudest,
 BAND_FLOOR_DB = 80          # ... and no quieter than this below a full-scale sine
 
@@ -508,12 +510,14 @@ def uses_gain(p, sample):
 
 
 def fm_reverses(p):
-    """Slow FM deep enough to stop the read and run it backwards. There a
-    zero-crossing pitch is undefined around the stops (a frame of drift
-    reads as hundreds of cents), and the narrow low bands swing by 20 dB
-    from one window to the next, so the sine pads compare the spectrum
-    averaged over the sound and the position_ramp pads hold the timing."""
-    return effect_name(p) == "FM" and fx_value(p, 1) < SLOW_HZ and fx_value(p, 0) * FM_DEPTH >= 1
+    """FM slow against the band window (under four cycles a window) and deep
+    enough to stop the read and run it backwards. There a zero-crossing
+    pitch is undefined around the stops (a frame of drift reads as hundreds
+    of cents), and the narrow low bands swing by 20 dB from one window to
+    the next (Set 34's 10 Hz pads; Set 36 pad 11, 20.1 Hz: 7.5 dB from
+    3 frames), so the sine pads compare the spectrum averaged over the
+    sound and the position_ramp pads hold the timing."""
+    return effect_name(p) == "FM" and fx_value(p, 1) < FM_WINDOW_HZ and fx_value(p, 0) * FM_DEPTH >= 1
 
 
 def uses_pitch(p, sample):
@@ -1108,8 +1112,33 @@ ACCEPT_SOUNDS = {
     "Noise": ["silence_click", "sine_441"],
 }
 
+# Effects whose modulation fades over the global Decay (Set 34) draw it too;
+# Hold stays Inf, so the level doesn't fall with it.
+ACCEPT_DECAY = {"FM", "Ring Mod"}
+ACCEPT_ATTACK = 0.0001          # Attack at its minimum (src/knobs.mjs)
 
-def cmd_accept_set(effect, seed, pads):
+
+def accept_spec(effect, seed, drawn, sounds, knobs):
+    """The draw as a make-set spec: pad 1 dry, the drawn pads, a repeat of pad 2."""
+    i = [e[0] for e in EFFECTS].index(effect)
+    pads = [{"sample": "sine_441.wav"}]
+    for k, out in enumerate(drawn):
+        params = {"Effect_Type": effect, EFFECTS[i][1]: out[0][1], EFFECTS[i][2]: out[1][1]}
+        if len(out) > 2:
+            params["Voice_Envelope_Decay"] = out[2][1]
+        pads.append({"sample": sounds[k % len(sounds)] + ".wav", "params": params})
+    pads.append(json.loads(json.dumps(pads[1])))
+    return {"name": "%s acceptance %d" % (effect, seed),
+            "about": "fxlab.py accept-set %s --seed %d (PLAN \"When an effect is done\"): drawn, "
+                     "not tuned against. Attack at its minimum, Hold Inf, Low-Pass 24 open." % (effect, seed),
+            "tempo": 120, "spacing_beats": 6,
+            "defaults": {"Voice_Envelope_Attack": ACCEPT_ATTACK, "Voice_Envelope_Hold": 60.0,
+                         "Voice_Envelope_Decay": 60.0, "Voice_Envelope_Mode": "A-H-D",
+                         "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+            "pads": pads}
+
+
+def cmd_accept_set(effect, seed, pads, spec_path=None):
     match = [e for e in KNOBS_FOR if e.lower() == effect.lower()]
     if not match:
         sys.exit("accept-set: no effect %r (one of %s)" % (effect, ", ".join(KNOBS_FOR)))
@@ -1118,7 +1147,9 @@ def cmd_accept_set(effect, seed, pads):
     rule = EFFECTS[i][3]
     rng = random.Random(seed)
     sounds = ACCEPT_SOUNDS[effect] + ["drum_synth"]
-    knobs = KNOBS_FOR[effect]
+    knobs = KNOBS_FOR[effect] + ((("decay", "Decay"),) if effect in ACCEPT_DECAY else ())
+    if spec_path and pads + 2 != SET_PADS:
+        sys.exit("accept-set: a spec fills %d pads, so --pads %d" % (SET_PADS, SET_PADS - 2))
     drawn = []
     while len(drawn) < pads:
         req = [[k, rng.random()] for k, _ in knobs]
@@ -1138,6 +1169,12 @@ def cmd_accept_set(effect, seed, pads):
         print("| %d | %s | %s |" % (k + 2, sounds[k % len(sounds)],
                                     ", ".join("%s %s" % (label, out[j][0]) for j, (_, label) in enumerate(knobs))))
     print("| %d | %s | a copy of pad 2 (Move's repeatability) |" % (pads + 2, sounds[0]))
+    if spec_path:
+        spec = accept_spec(effect, seed, drawn, sounds, knobs)
+        build_set(spec)                 # refuses what Move wouldn't take
+        with open(spec_path, "w") as f:
+            json.dump(spec, f, indent=1)
+        print("\nspec: %s (fxlab.py make-set %s <outdir>)" % (spec_path, spec_path))
 
 
 # ---------------------------------------------------------------- make-set
@@ -1362,6 +1399,7 @@ def main():
     s = sub.add_parser("refs-check"); s.add_argument("folder", nargs="?", default=REFS)
     s = sub.add_parser("accept-set"); s.add_argument("effect"); s.add_argument("--seed", type=int, required=True)
     s.add_argument("--pads", type=int, default=8)
+    s.add_argument("--spec", help="also write the draw as a make-set spec (needs --pads 14)")
     s = sub.add_parser("make-set"); s.add_argument("spec"); s.add_argument("outdir")
     s.add_argument("--install", metavar="HOST", help="also put it on the Move, e.g. root@192.168.4.45")
     s = sub.add_parser("device-check"); s.add_argument("outdir", nargs="+")
@@ -1392,7 +1430,7 @@ def main():
     if a.cmd == "refs-check":
         sys.exit(cmd_refs_check(a.folder))
     if a.cmd == "accept-set":
-        cmd_accept_set(a.effect, a.seed, a.pads)
+        cmd_accept_set(a.effect, a.seed, a.pads, a.spec)
     if a.cmd == "make-set":
         cmd_make_set(a.spec, a.outdir, a.install)
     if a.cmd == "device-check":

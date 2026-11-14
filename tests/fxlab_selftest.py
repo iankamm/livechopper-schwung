@@ -247,6 +247,21 @@ notes = song["tracks"][0]["clipSlots"][0]["clip"]["notes"]
 check([n["startTime"] for n in notes] == [6.0 * i for i in range(16)]
       and [n["noteNumber"] for n in notes] == [p[0] for p in pads] and notes[3]["duration"] == 1.0,
       "make-set: one note a pad, 6 beats apart, the Gate pad held 0.5 s")
+# FM that reverses the read, slow against the band window, averages its bands.
+fmp = lambda amt, hz: {"Effect_Type": "FM", "Effect_FmAmount": amt, "Effect_FmFrequency": hz}
+check(fxlab.fm_reverses(fmp(0.77, 20.15)) and fxlab.fm_reverses(fmp(1.0, 10.0)) and not fxlab.fm_reverses(fmp(0.5, 100.0))
+      and not fxlab.fm_reverses(fmp(0.05, 10.0)), "fm_reverses: deep and under 43 Hz only")
+# accept-set --spec: the draw as a make-set spec, pad 1 dry, pad 16 repeating pad 2.
+drawn = [[["%d %%" % k, k / 20.0, 0], ["%d Hz" % (10 + k), 10.0 + k, 0], ["%d ms" % (k + 1), (k + 1) / 1000.0, 0]]
+         for k in range(14)]
+aspec = fxlab.accept_spec("FM", 7, drawn, ["sine_441", "position_ramp", "drum_synth"],
+                          fxlab.KNOBS_FOR["FM"] + (("decay", "Decay"),))
+apads = fxlab.drum_pads(fxlab.build_set(aspec))
+check(len(apads) == 16 and apads[0][2]["Effect_Type"] == "Stretch" and apads[15][2] == apads[1][2]
+      and apads[3][1] == "drum_synth.wav" and apads[5][2]["Effect_FmAmount"] == 0.2
+      and apads[5][2]["Effect_FmFrequency"] == 14.0 and abs(apads[5][2]["Voice_Envelope_Decay"] - 0.005) < 1e-12
+      and apads[5][2]["Voice_Envelope_Hold"] == 60.0 and apads[5][2]["Voice_Envelope_Attack"] == fxlab.ACCEPT_ATTACK,
+      "accept-set --spec: the drawn FM pads and their Decay, Hold Inf, Attack at its minimum")
 rel = fxlab.clip_releases(song)
 check(abs(rel[pads[3][0]] - 0.5) < 1e-9, "split: a Gate pad's release time comes from the clip: %s" % rel.get(pads[3][0]))
 pc = {"params": pads[3][2], "release_s": rel[pads[3][0]]}
