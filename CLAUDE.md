@@ -83,7 +83,7 @@ check); keep those. Also read its own CLAUDE.md.
 .claude/ is gitignored and stays on this machine:
 
 - notes/: handoffs and device notes. For effect tuning, start with
-  notes/step4-handoff.md.
+  notes/handoff.md.
 - recordings/: Move takes and their Sets (Song.abl), by Set.
 - ref/: Move's manual and Live's Drum Sampler reference.
 - tools/ and captures/: reading the Move's screen, and what it captured.
