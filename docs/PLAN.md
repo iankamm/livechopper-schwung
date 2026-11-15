@@ -62,8 +62,14 @@ LiveChopper's own designs, not Move's algorithms.
   `tests/move_refs/ring_mod/`; preview checks, `device-check` and
   listening A/B passed (2026-11-15: no difference heard on any of 16
   pairs). NOTES "Ring Mod".
-- Then, in this order: Sub Osc and
-  Noise's envelopes, following Transpose, 8-Bit, Stretch, Loop. Sets
+- In progress: Sub Osc and Noise (2026-11-15). Fitted on Sets 40-42
+  (NOTES "Sub Osc and Noise"); acceptance Sets drawn: Set 43, Sub Osc,
+  seed 1117 (`tools/fxlab/sets/set43_subosc_accept.json`), and Set 44,
+  Noise, seed 1118 (`set44_noise_accept.json`), Trigger pads at Hold Inf.
+  Open past them: Noise under a finite Hold, at other Attacks and on
+  Gate pads, its follower's exact shape, and a Gate Sub Osc pad's jump at
+  the note-off.
+- Then, in this order: following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad
   15: 1.0 ms at +12 st ramps in ~22 frames), Pitch Env's Decay and

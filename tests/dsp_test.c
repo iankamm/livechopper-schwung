@@ -816,24 +816,26 @@ int main(void) {
         }
         /* Sub Osc: Move's tone (docs/NOTES.md, "Sub Osc and Noise"), frame
          * by frame for 1.5 s, the note less the same note dry, against the
-         * model in double: 10^(-3.5 (1 - Amount)) x exp(-2 pi t / Decay) x
-         * sin(damped w t) from half a frame before the frame after the note
-         * on, through an 11 Hz high-pass; on past the 1 s slice's end. */
+         * model in double: 10^(-3.5 (1 - Amount)) x a resonator's impulse
+         * response, w e^(-at) sin(wd t) / wd (a = 2 pi / Decay; past
+         * critical damping w e^(-at) sinh(bt) / b), from half a frame before
+         * the frame after the note on, through an 11 Hz high-pass; on past
+         * the 1 s slice's end. */
         const struct { double amt, hz, dec; const char *v, *us; } so[] = {
             { 1.0, 30, 1.0, "1 30", "1000000" }, { 0.85, 60, 0.1, "0.85 60", "100000" },
-            { 0.6, 120, 0.3, "0.6 120", "300000" },
+            { 0.6, 120, 0.3, "0.6 120", "300000" }, { 1.0, 30, 0.01, "1 30", "10000" },
         };
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             param(inst, "decay_us", so[i].us);
             char dry[16];
             snprintf(dry, sizeof dry, "0 %g", so[i].hz);
             fx_pair(inst, "7", dry, so[i].v, FX_RUN_BLOCKS);
             const double g = pow(10, -3.5 * (1 - so[i].amt)) * SUB_OSC_LEVEL, al = 2 * M_PI / (so[i].dec * 44100);
-            const double w = 2 * M_PI * so[i].hz / 44100, wd = sqrt(w * w - al * al), hk = tan(M_PI * 11 / 44100);
+            const double w = 2 * M_PI * so[i].hz / 44100, wd = sqrt(fabs(w * w - al * al)), hk = tan(M_PI * 11 / 44100);
             double x1 = 0, y1 = 0;
             int wrong = 0, checked = 0, after = 0;
             for (int t = 0; t < FX_RUN_BLOCKS * MOVE_FRAMES_PER_BLOCK; t++) {
-                double x = t ? g * exp(-al * (t - 0.5)) * sin(wd * (t - 0.5)) : 0;
+                double x = !t ? 0 : g * w / wd * exp(-al * (t - 0.5)) * (w > al ? sin(wd * (t - 0.5)) : sinh(wd * (t - 0.5)));
                 double y = (x - x1) / (1 + hk) - (hk - 1) / (1 + hk) * y1;
                 x1 = x; y1 = y;
                 if (fabs(fx_a_buf[t * 2] + y) > 32000) continue;       /* clipped */

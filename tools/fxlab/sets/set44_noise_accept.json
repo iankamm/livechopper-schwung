@@ -1,0 +1,154 @@
+{
+ "name": "Set 44",
+ "about": "fxlab.py accept-set Noise --seed 1118 (PLAN \"When an effect is done\"): drawn, not tuned against. Attack at its minimum, Hold Inf, Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 6,
+ "defaults": {
+  "Voice_Envelope_Attack": 0.0001,
+  "Voice_Envelope_Hold": 60.0,
+  "Voice_Envelope_Decay": 60.0,
+  "Voice_Envelope_Mode": "A-H-D",
+  "Effect_Type": "Stretch",
+  "Effect_StretchFactor": 1.0
+ },
+ "pads": [
+  {
+   "sample": "sine_441.wav"
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.16055045871559634,
+    "Effect_NoiseFrequency": 7672.014561063883,
+    "Voice_Envelope_Decay": 6.297115614314153
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.5122324159021406,
+    "Effect_NoiseFrequency": 193.8596638891227,
+    "Voice_Envelope_Decay": 0.006921413436888658
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.6192660550458715,
+    "Effect_NoiseFrequency": 13072.952332856381,
+    "Voice_Envelope_Decay": 0.7689293860181258
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.09938837920489296,
+    "Effect_NoiseFrequency": 10097.455741660355,
+    "Voice_Envelope_Decay": 0.003246556136562057
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.19877675840978593,
+    "Effect_NoiseFrequency": 2613.237241534102,
+    "Voice_Envelope_Decay": 0.05210984625250687
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.4510703363914373,
+    "Effect_NoiseFrequency": 2093.499845692001,
+    "Voice_Envelope_Decay": 0.061656690324043716
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.8180428134556575,
+    "Effect_NoiseFrequency": 3195.3431248772545,
+    "Voice_Envelope_Decay": 1.507051609923974
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.6574923547400612,
+    "Effect_NoiseFrequency": 3509.7842493617263,
+    "Voice_Envelope_Decay": 8.815815657472907
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.7798165137614679,
+    "Effect_NoiseFrequency": 201.6557248267542,
+    "Voice_Envelope_Decay": 0.9098019749481772
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.9785932721712538,
+    "Effect_NoiseFrequency": 3618.062873495497,
+    "Voice_Envelope_Decay": 5.322078184404402
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.6192660550458715,
+    "Effect_NoiseFrequency": 4923.469966052241,
+    "Voice_Envelope_Decay": 0.09389257509235173
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.8486238532110092,
+    "Effect_NoiseFrequency": 10852.807423617542,
+    "Voice_Envelope_Decay": 5.322078184404402
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.2599388379204893,
+    "Effect_NoiseFrequency": 3839.8174957214596,
+    "Voice_Envelope_Decay": 47.40964103477665
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.8486238532110092,
+    "Effect_NoiseFrequency": 11240.878012512976,
+    "Voice_Envelope_Decay": 1.639299602575245
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "Noise",
+    "Effect_NoiseAmount": 0.16055045871559634,
+    "Effect_NoiseFrequency": 7672.014561063883,
+    "Voice_Envelope_Decay": 6.297115614314153
+   }
+  }
+ ]
+}

@@ -172,7 +172,8 @@ a Move drum rack preset or one WAV per slice.
     gone it plays at 1.25 x dry. The depth falls 30 dB over the global
     Decay + 50 ms from the note-on, Hold or not.
   - Sub Osc: Move's tone (NOTES.md "Sub Osc and Noise"): a sine of its
-    own at its Freq (damped as a resonator's), 0.83 of full scale against
+    own at its Freq, a resonator's impulse response (damped, and past
+    critical damping at short Decays), 0.83 of full scale against
     Move's dry level at 100 % and -70 dB x (1 - Amount) below it, off at
     0, decaying as exp(-2 pi t / Decay) from the note-on through an 11 Hz
     high-pass. It is added after the envelope and the filter and doesn't

@@ -771,7 +771,12 @@ unless shown, 3 s apart.
   position_ramp unbent.
 - **Frequency:** within 0.04 Hz of a damped resonator's, √(ω² - (2π /
   Decay)²): 59.20 Hz at Decay 100 ms (59.16 predicted), 59.95 at 300 ms,
-  60.02 at 1 s; Set 40's 60 s pad 59.999.
+  60.02 at 1 s; Set 40's 60 s pad 59.999. Its amplitude follows the
+  resonator's too, ω / ω_d (pad 6 fitted 1.0139 x the others, ω / ω_d
+  = 1.0142; pad 7 1.0013, 1.0016): Move's tone is a resonator's impulse
+  response, ω e^(-αt) sin(ω_d t) / ω_d, α = 2π / Decay. plugin.c takes
+  that past critical damping too (α > ω: ω e^(-αt) sinh(βt) / β), where
+  no fit pad was.
 - At 100 % it peaks at -1.6 dBFS alone, so with a loud sample it clips;
   Move's capture soft-clips it above 29204 (PLAN "When an effect is
   done").

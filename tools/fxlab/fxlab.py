@@ -56,6 +56,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 
 import numpy as np
@@ -1131,25 +1132,50 @@ ACCEPT_SOUNDS = {
     "8-bit": ["click_train", "noise_white", "sweep"],
     "FM": ["sine_441", "position_ramp"],
     "Ring Mod": ["sine_441"],
-    "Sub Osc": ["silence_click", "sine_441"],
-    "Noise": ["silence_click", "sine_441"],
+    # Sub Osc peaks at -1.6 dBFS alone and Noise adds 0.57 of a sine's
+    # peak, so both play on quiet sounds (and drum_synth, below), the
+    # capture ceiling checked on each draw (accept_clips).
+    "Sub Osc": ["silence_click", "sine_441_quiet"],
+    "Noise": ["sine_441_quiet"],
 }
 
 # Effects whose modulation fades over the global Decay (Set 34) draw it too;
 # Hold stays Inf, so the level doesn't fall with it.
-ACCEPT_DECAY = {"FM", "Ring Mod"}
+ACCEPT_DECAY = {"FM", "Ring Mod", "Sub Osc", "Noise"}
+# Sub Osc's tone outlives the sample (exp(-2 pi t / Decay)): a Decay this
+# long or less is under 0.1 LSB by the next pad, 3 s on (Set 40's piled up).
+ACCEPT_MAX_DECAY = {"Sub Osc": 1.5}
+CAPTURE_KNEE = 29204            # Schwung's soft clip starts here (PLAN "When an effect is done")
 ACCEPT_ATTACK = 0.0001          # Attack at its minimum (src/knobs.mjs)
+
+
+def accept_pad(effect, out, sound):
+    """One drawn pad as make-set params, and its sample."""
+    i = [e[0] for e in EFFECTS].index(effect)
+    params = {"Effect_Type": effect, EFFECTS[i][1]: out[0][1], EFFECTS[i][2]: out[1][1]}
+    if len(out) > 2:
+        params["Voice_Envelope_Decay"] = out[2][1]
+    return {"sample": sound + ".wav", "params": params}
+
+
+def accept_clips(pad):
+    """Whether plugin.c's render of the pad, at Move's dry level, crosses the
+    capture's soft-clip knee (with 5 % to spare for Move's noise peaks)."""
+    p = {"Voice_Envelope_Attack": ACCEPT_ATTACK, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0}
+    p.update(pad["params"])
+    build_render()
+    with tempfile.TemporaryDirectory(dir=os.path.join(REPO, "build")) as d:
+        out = os.path.join(d, "pad.wav")
+        render_pad(pad["sample"], dsp_settings(p), 3 * RATE, out, quiet=True)
+        x = read_mono(out)
+    return np.abs(x).max() * DEFAULT_GAIN > 0.95 * CAPTURE_KNEE
 
 
 def accept_spec(effect, seed, drawn, sounds, knobs):
     """The draw as a make-set spec: pad 1 dry, the drawn pads, a repeat of pad 2."""
-    i = [e[0] for e in EFFECTS].index(effect)
     pads = [{"sample": "sine_441.wav"}]
     for k, out in enumerate(drawn):
-        params = {"Effect_Type": effect, EFFECTS[i][1]: out[0][1], EFFECTS[i][2]: out[1][1]}
-        if len(out) > 2:
-            params["Voice_Envelope_Decay"] = out[2][1]
-        pads.append({"sample": sounds[k % len(sounds)] + ".wav", "params": params})
+        pads.append(accept_pad(effect, out, sounds[k % len(sounds)]))
     pads.append(json.loads(json.dumps(pads[1])))
     return {"name": "%s acceptance %d" % (effect, seed),
             "about": "fxlab.py accept-set %s --seed %d (PLAN \"When an effect is done\"): drawn, "
@@ -1181,6 +1207,10 @@ def cmd_accept_set(effect, seed, pads, spec_path=None):
         values = {EFFECTS[i][1]: out[0][1], EFFECTS[i][2]: out[1][1]}
         if rule is not None and abs(values.get(rule[0], -1) - rule[1]) < 1e-6:
             continue                    # the effect would do nothing: draw again
+        if len(out) > 2 and out[2][1] > ACCEPT_MAX_DECAY.get(effect, 1e9):
+            continue                    # its tail would run into the next pad
+        if accept_clips(accept_pad(effect, out, sounds[len(drawn) % len(sounds)])):
+            continue                    # the capture would soft-clip it
         drawn.append(out)
     print("Acceptance Set for %s, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % (effect, seed))
     print("Every pad: Attack at its minimum, Hold Inf, Low-Pass 24 fully open, Transpose 0, Full Velocity.")

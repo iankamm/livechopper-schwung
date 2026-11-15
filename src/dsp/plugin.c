@@ -344,14 +344,20 @@ typedef struct {
     float punch_ln[2];  /* Punch's two smoothing stages, ln of the gain */
 } fx_state_t;
 
-/* Sub Osc's tone, which sounds on after its voice. */
+/* Sub Osc's tone, which sounds on after its voice: a resonator's impulse
+ * response, w0 e^(-at) sin(wd t) / wd, wd = sqrt(w0^2 - a^2), a = 2 pi /
+ * Decay; past critical damping (a > w0), w0 e^(-at) sinh(bt) / b, b =
+ * sqrt(a^2 - w0^2), at it w0 t e^(-at). */
+enum { SUB_UNDER = 0, SUB_OVER, SUB_CRITICAL };
 typedef struct {
     int on;
     int wait;           /* the note-on frame: the tone starts on the next */
+    int mode;           /* SUB_UNDER .. SUB_CRITICAL */
     double phase;       /* cycles */
-    float env;          /* exp(-2 pi t / Decay) */
-    float amt;          /* Amount's gain */
-    float k;            /* the decay per frame */
+    float env, env2;    /* e^(-at); overdamped: e^(-(a - b)t), e^(-(a + b)t) */
+    float k, k2;        /* their decay per frame */
+    float t;            /* frames, from half a frame before the first */
+    float gain;         /* Amount's gain x the level x w0 / wd (or w0 / 2b, or w0) */
     double inc;         /* cycles per frame: the damped frequency */
     float hp_b, hp_a;   /* the 11 Hz high-pass's coefficients */
     float hp_x, hp_y;   /* and its state */
@@ -1369,10 +1375,18 @@ static float sub_frame(sub_state_t *s) {
     if (s->wait) {
         s->wait = 0;
     } else {
-        x = s->amt * SUB_OSC_LEVEL * s->env * sinf(2.0f * (float)M_PI * (float)s->phase);
-        s->phase += s->inc;
-        if (s->phase >= 1.0) s->phase -= 1.0;
+        if (s->mode == SUB_UNDER) {
+            x = s->gain * s->env * sinf(2.0f * (float)M_PI * (float)s->phase);
+            s->phase += s->inc;
+            if (s->phase >= 1.0) s->phase -= 1.0;
+        } else if (s->mode == SUB_OVER) {
+            x = s->gain * (s->env - s->env2);
+            s->env2 *= s->k2;
+        } else {
+            x = s->gain * s->t * s->env;
+        }
         s->env *= s->k;
+        s->t += 1.0f;
     }
     float y = s->hp_b * (x - s->hp_x) - s->hp_a * s->hp_y;
     s->hp_x = x;
@@ -1380,7 +1394,8 @@ static float sub_frame(sub_state_t *s) {
     if (s->fade >= 0) {
         y *= (float)s->fade / (float)DECLICK_FRAMES;
         if (--s->fade < 0) s->on = 0;
-    } else if (s->amt * SUB_OSC_LEVEL * s->env < 0.05f && fabsf(y) < 0.05f) {
+    } else if (s->gain * s->env * (s->mode == SUB_CRITICAL ? s->t + 1.0f : 1.0f) < 0.05f && fabsf(y) < 0.05f
+               && !s->wait) {
         s->on = 0;
     }
     return y;
@@ -1402,16 +1417,34 @@ static void start_sub(live_chopper_t *inst) {
     double dec = inst->decay_frames > 1 ? inst->decay_frames : 1;   /* frames */
     double w = 2.0 * M_PI * inst->fx_b / MOVE_SAMPLE_RATE, al = 2.0 * M_PI / dec;
     float hk = tanf((float)M_PI * SUB_OSC_HP_HZ / MOVE_SAMPLE_RATE);
+    double g = pow(10.0, -SUB_OSC_AMOUNT_DB * (1.0 - inst->fx_a) / 20.0) * SUB_OSC_LEVEL;
+    double d = w * w - al * al, b = sqrt(fabs(d));
     memset(s, 0, sizeof *s);
     s->on = 1;
     s->wait = 1;
-    s->amt = powf(10.0f, -SUB_OSC_AMOUNT_DB * (1.0f - inst->fx_a) / 20.0f);
-    s->k = (float)exp(-al);
-    s->inc = (w > al ? sqrt(w * w - al * al) : 0.0) / (2.0 * M_PI);
+    s->t = 0.5f;
+    if (b < 1e-4 * al) {                /* critical: the limit of both */
+        s->mode = SUB_CRITICAL;
+        s->gain = (float)(g * w);
+        s->k = (float)exp(-al);
+        s->env = (float)exp(-0.5 * al);
+    } else if (d > 0) {
+        s->mode = SUB_UNDER;
+        s->gain = (float)(g * w / b);
+        s->k = (float)exp(-al);
+        s->env = (float)exp(-0.5 * al);
+        s->inc = b / (2.0 * M_PI);
+        s->phase = 0.5 * s->inc;
+    } else {
+        s->mode = SUB_OVER;
+        s->gain = (float)(g * w / (2.0 * b));
+        s->k = (float)exp(-(al - b));
+        s->k2 = (float)exp(-(al + b));
+        s->env = (float)exp(-0.5 * (al - b));
+        s->env2 = (float)exp(-0.5 * (al + b));
+    }
     s->hp_b = 1.0f / (1.0f + hk);
     s->hp_a = (hk - 1.0f) / (1.0f + hk);
-    s->phase = 0.5 * s->inc;
-    s->env = (float)exp(-0.5 * al);
     s->fade = -1;
 }
 
