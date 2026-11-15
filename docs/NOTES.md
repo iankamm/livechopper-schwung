@@ -800,9 +800,44 @@ by the sound's level:
 - **Random:** pad 16's noise doesn't correlate with pad 10's (0.08), and
   its level matches (491 against 489 rms).
 
-Open, for Set 42: Noise's Amount law, Decay law, and follower; whether
-Hold, Attack and the volume envelope shape the noise; Amount 0 for both;
-a Gate pad's note-off for both.
+Set 42 (`set42_noise_fit.json`, `.claude/recordings/set42/`, split in
+`set42/noise/`) followed up, on sine_441_quiet at Color 1 kHz unless
+shown: Noise 25, 75 and 0 % (pad 16 repeats 25 %), Decay 100 ms and 1 s,
+Hold 100 ms with Decay 300 ms, Attack 300 ms, click_train at 25 %,
+position_ramp at 50 %, Color 3 kHz and 8 kHz, Sub Osc at 0 %, and a Gate
+pad of each released at 0.3 s.
+
+- **Amount 0 is off** for both (pads 4 and 13 within 0.8 LSB of the
+  sound alone).
+- **Noise's Amount:** 25 % -36.5 dB (pads 2 and 16: 7.10 and 6.90 rms),
+  50 % -21.5, 75 % -10.7 under 100 %. Neither a power of Amount nor
+  linear in dB; Amount^1.25 x 10^(-28.5 (1 - Amount) / 20) fits within
+  0.4 dB (Amount x 10^(-32.2 (1 - Amount) / 20) within 0.6).
+- **Noise's Decay:** depth 10^(-t / (Decay + 50 ms)), from note-on:
+  (Decay + 50 ms) / τ = 2.311, 2.289, 2.306 at 100 ms, 300 ms, 1 s, i.e.
+  ln 10 (FM's is 2 ln 10, Ring Mod's 1.5 ln 10).
+- **It follows the level after the volume envelope:** under Attack 300
+  ms the noise ramps up with the sine; after Hold 100 ms, or a Gate
+  pad's note-off, it falls with the sine's release (plus its own decay).
+- **Its follower** is a smoothed |x|, not a peak: on position_ramp the
+  noise over |x| stays 0.05-0.06 down to the zero crossing, which leaves
+  a floor of ~13 rms (a ~17 ms lag); a sine's noise over its peak (0.53
+  at 100 %) sits at its rms over the ramp's ratio (0.71 x the peak, so
+  an rms or mean-|x| follower). A one-frame click (24300) leaves only ~2
+  rms of noise at 25 %, ~0.7 % of the click's level: the attack is
+  slow, ~3.5 ms (yet a sine's noise is at full level within ~4-6 ms). It
+  then falls about 17 dB, linearly in dB (τ ~38 ms), and cuts to 0 at
+  ~2300 frames. Neither a one- nor a two-pole smoother fits that tail
+  (2.2-2.6 rms in log power): an attack/release follower with a gate is
+  the guess, to settle against drum_synth.
+- **Color** holds out of sample: Colors 3 kHz and 8 kHz against the
+  model fitted on Set 41 are within 0.5 dB from 630 Hz to 10 kHz, 1-1.7
+  dB low at 12.7-16 kHz.
+- **A Gate Sub Osc pad** (Decay 1 s, released at 0.3 s) is the Trigger
+  pad's sub exactly until the note-off; then its phase jumps ~52° and
+  its level x1.36, decaying at the same rate: as if a second tone at the
+  current level, ~99° apart, joined at the release. Unexplained; the
+  Trigger model ignores it.
 
 ### Volume envelope (Set 35)
 
