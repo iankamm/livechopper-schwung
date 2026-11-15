@@ -522,6 +522,20 @@ def fm_reverses(p):
     return effect_name(p) == "FM" and fx_value(p, 1) < FM_WINDOW_HZ and fx_value(p, 0) * FM_DEPTH >= 1
 
 
+NOISE_BAND_GROUP = 16                   # band windows a Noise pad's levels are averaged over: 372 ms
+
+
+def noise_pad(p):
+    """Noise on: random from note to note on Move too (Set 41 pads 10 and
+    16 don't correlate), so one window's band levels swing by several dB
+    between two takes of the same pad. These compare the band power
+    averaged over NOISE_BAND_GROUP windows, which still follows the noise's
+    decay and the sound's level. Set 41 pads 10 and 16, Move against
+    Move: 0.95/3.52 dB over 8 windows, 0.67/2.97 over 16, 0.52/2.17 over
+    32."""
+    return effect_name(p) == "Noise" and fx_value(p, 0) > 0
+
+
 def uses_pitch(p, sample):
     name = effect_name(p)
     return sample in SINES and (neutral(p) or name in ("Punch", "Pitch Env")
@@ -550,7 +564,8 @@ def curve_position(x, c):
 
 def curve_bands(x, c):
     """Band levels a window at a time; for fm_reverses, one column: their
-    power average over the windows ending by end_ms."""
+    power average over the windows ending by end_ms; for a noise_pad, the
+    power average of each NOISE_BAND_GROUP windows."""
     b, tb = band_levels(x, BAND_NFFT, BAND_HOP)
     t = tb * 1000
     if c.get("params") and fm_reverses(c["params"]):
@@ -558,6 +573,12 @@ def curve_bands(x, c):
         if keep.any():
             b = 10 * np.log10(np.mean(10 ** (b[:, keep] / 10), axis=1, keepdims=True))
             t = np.zeros(1)
+    elif c.get("params") and noise_pad(c["params"]):
+        n = int(np.sum(t + BAND_NFFT / RATE * 1000 <= c["end_ms"])) // NOISE_BAND_GROUP * NOISE_BAND_GROUP
+        if n:
+            g = 10 ** (b[:, :n] / 10)
+            b = 10 * np.log10(g.reshape(len(b), n // NOISE_BAND_GROUP, NOISE_BAND_GROUP).mean(axis=2))
+            t = t[:n:NOISE_BAND_GROUP]
     return t, b
 
 

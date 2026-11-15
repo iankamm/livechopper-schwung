@@ -171,8 +171,19 @@ a Move drum rack preset or one WAV per slice.
     so at 100 % it dips to silence twice a cycle, and with the modulation
     gone it plays at 1.25 x dry. The depth falls 30 dB over the global
     Decay + 50 ms from the note-on, Hold or not.
-  - Sub Osc: adds a sine at its Freq (-6 dBFS at 100%).
-  - Noise: adds noise low-passed at its Color, following the sound's level.
+  - Sub Osc: Move's tone (NOTES.md "Sub Osc and Noise"): a sine of its
+    own at its Freq (damped as a resonator's), 0.83 of full scale against
+    Move's dry level at 100 % and -70 dB x (1 - Amount) below it, off at
+    0, decaying as exp(-2 pi t / Decay) from the note-on through an 11 Hz
+    high-pass. It is added after the envelope and the filter and doesn't
+    follow them, Attack or Hold, so it sounds on past the slice; the next
+    note or leaving chop mode fades it out.
+  - Noise: Move's (NOTES.md "Sub Osc and Noise"): noise band-passed at
+    its Color (Q 1.25, with a gentle roll-off near Nyquist), added to the
+    sound in proportion to its level (a follower of |x|, attack 3.5 ms,
+    release 6 ms), Amount^1.25 x 10^(-28.5 (1 - Amount) / 20) of it, off
+    at 0, falling 20 dB over the global Decay + 50 ms from the note-on (on
+    a Gate pad, from the note-off). New on every note.
 - Filter: one global setting that sets the drum sampler's filter on every
   pad. Type (Filter & Setup Knob 3): Low-Pass 12, Low-Pass 24 (the
   default), High-Pass 24, Peak; no Off, as on Move: Low-Pass 24 fully open

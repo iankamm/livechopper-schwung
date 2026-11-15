@@ -838,6 +838,33 @@ pad of each released at 0.3 s.
   its level x1.36, decaying at the same rate: as if a second tone at the
   current level, ~99° apart, joined at the release. Unexplained; the
   Trigger model ignores it.
+- **A Gate Noise pad** (Decay 300 ms, released at 0.3 s) holds its noise
+  level while held (-2 to +1 dB over 0-0.3 s), then falls 0.32 dB/ms: the
+  volume release's 0.28 and its own 20 dB over Decay + 50 ms, from the
+  note-off.
+- **Under a finite Hold** (pad 7, 100 ms) Move's noise sits flat at about
+  -3 dB through the Hold, between the decay from the note-on (ours ~1.3
+  dB low over the first 186 ms) and no decay until the Hold ends (~3 dB
+  high). Hold Inf decays from the note-on (Set 41 pad 14). Untraced.
+
+Built in plugin.c 2026-11-15 (SPEC "Effect"): Sub Osc as fitted, its tone
+in a slot of its own that sounds on after the voice (a new note or "stop"
+fades it out over DECLICK_FRAMES); Noise as fitted, the follower attack
+3.5 ms and release 6 ms (a sine at 0.706 of its peak, Move's 0.716), its
+decay from the note-on or a Gate pad's note-off, the gain set 0.45 dB
+above the first estimate on Set 41's bands (Move's 100 % level measured
+468 or 489 rms by two methods). `fxlab.py check` compares a Noise pad's
+band power averaged over 16 windows (`noise_pad`): over 8, Move's own two
+takes of Set 41 pad 10 differ by 0.95/3.52 dB.
+
+- Set 41: Sub Osc 8 of 8 pass (bands within 0.07 dB, pad 9 0.58/0.86);
+  Noise 4 of 7, pads 10, 12 and 16 over by max only (3.75-3.86 dB, low
+  bands 20-38 dB down, where Move's own repeat reaches 2.97).
+- Set 42: Noise passes the Amount, Decay and Color pads; fails pad 7
+  (finite Hold, 2.26/6.82), pad 8 (Attack 300 ms, 1.24/4.31: one dry
+  reference at 0.1 ms for a pad at 300 ms), pad 10 (position_ramp,
+  1.56/4.10: the follower) and pad 15 (Gate, 2.08/8.71). Pad 13 (Sub Osc
+  0 %) fails on the dry click's ring alone, pad 14 on the Gate jump.
 
 ### Volume envelope (Set 35)
 

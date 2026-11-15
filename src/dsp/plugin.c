@@ -96,8 +96,8 @@
  * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
  * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
  * Each voice plays a stand-in, not an emulation, before the filter, except
- * Punch, Pitch Env, FM and Ring Mod, which follow Move's measured curves
- * (docs/NOTES.md, under their names). Punch:
+ * Punch, Pitch Env, FM, Ring Mod, Sub Osc and Noise, which follow Move's
+ * measured curves (docs/NOTES.md, under their names). Punch:
  * a makeup of 1 + Amount^3 with a duck under it, the duck's target
  * 1 - Amount x (1 - (t/L)^n) floored at 0.15 and smoothed in dB by two
  * one-poles of 10.4 ms, so the transient keeps the makeup and the duck
@@ -107,8 +107,13 @@
  * playback rate (backwards at the troughs), fading to 1% over the global
  * Decay + 50 ms from the note on, Hold or not; Ring Mod multiplies by
  * (1 + b/4) x (1 - b x |that parabolic sine|), b = Amount^2, the depth
- * falling 30 dB over the same time; Sub Osc adds a sine; Noise adds
- * noise low-passed at its Color, following the sound's level; 8-Bit's
+ * falling 30 dB over the same time; Sub Osc adds a sine of its own after
+ * the envelope and the filter, decaying over Decay / 2 pi from the note on
+ * whatever the envelope does, so it sounds on after the voice (a new note
+ * or "stop" fades it out); Noise adds band-passed noise at its Color,
+ * following the sound's level, falling 20 dB over the global Decay + 50 ms
+ * from the note on (a Gate pad's from the note off);
+ * 8-Bit's
  * Decay closes a low-pass on the crushed sound over that time. Stretch
  * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
  * of Grain Size from it, half a grain apart, at the normal speed (Factor
@@ -238,8 +243,32 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
  * from the note on; Hold doesn't delay it. */
 #define RING_MOD_MAKEUP 0.25f
 #define RING_MOD_DECAY_K 3.4538776f  /* 30 dB: 1.5 ln 10 */
-#define SUB_OSC_LEVEL 16384.0f      /* -6 dBFS at 100% */
-#define NOISE_FOLLOW_RELEASE 0.9995f /* the level follower falls ~70 ms to 1/e */
+/* Sub Osc, fitted to Move's tone (Set 41: 2-6 LSB rms on every pad): a
+ * sine of its own, added after the volume envelope and untouched by it,
+ * Attack or Hold, so it outlives the sample: SUB_OSC_LEVEL x
+ * 10^(-3.5 (1 - Amount)) (-70 dB at 0, which is off) x exp(-2 pi t /
+ * Decay), at a damped resonator's sqrt(w^2 - (2 pi / Decay)^2), through
+ * a first-order 11 Hz high-pass, from half a frame before the frame after
+ * the note on. The level is Move's 27265 over its dry level (0.84649). */
+#define SUB_OSC_LEVEL 32209.5f
+#define SUB_OSC_AMOUNT_DB 70.0f
+#define SUB_OSC_HP_HZ 11.0f
+/* Noise, fitted to Move's (Sets 41 and 42): white noise through
+ * (1 + z^-1)^2 / 4 and a bilinear band-pass at Color (Q 1.25), scaled by a
+ * follower of the sound's level (|x|, attack 3.5 ms, release 6 ms: a
+ * one-frame click barely moves it, a sine sits at 0.71 of its peak) and by
+ * Amount^1.25 x 10^(-28.5 (1 - Amount) / 20), falling 20 dB over the global
+ * Decay + 50 ms from the note on, or a Gate pad's note off
+ * (noise_decay_pos). The gain makes a sine's noise 0.568 of its peak at
+ * 100 % and 1 kHz (0.706 follower x 0.2255 band-pass rms per unit white,
+ * the uniform generator's sqrt 3), set on Set 41's bands. */
+#define NOISE_Q 1.25f
+#define NOISE_GAIN (3.571f * 1.7320508f)
+#define NOISE_ATTACK_K 0.0064581f   /* 1 - exp(-1 / 3.5 ms) */
+#define NOISE_RELEASE_K 0.0037721f  /* 1 - exp(-1 / 6 ms) */
+#define NOISE_AMOUNT_E 1.25f
+#define NOISE_AMOUNT_DB 28.5f
+#define NOISE_DECAY_K 2.3025851f    /* 20 dB: ln 10 */
 #define CRUSH_DECAY_FLOOR_HZ 200.0f /* where 8-Bit Decay's low-pass ends up */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
 
@@ -299,13 +328,14 @@ typedef struct {
     float l, r;
 } crush_state_t;
 
-/* Per-voice effect state (all but the crush): an oscillator for FM, Ring
- * Mod and Sub Osc, Noise's generator, filter and level follower, 8-Bit
- * Decay's low-pass, Stretch's two grains and whether Loop has wrapped. */
+/* Per-voice effect state (all but the crush): an oscillator for FM and
+ * Ring Mod, Noise's generator, filters and level follower, 8-Bit Decay's
+ * low-pass, Stretch's two grains and whether Loop has wrapped. */
 typedef struct {
     double phase;       /* oscillator, 0..1 */
     uint32_t rng;
-    float noise_lp;
+    float pre1, pre2;   /* Noise: the last two generator values */
+    float bp_z1, bp_z2; /* Noise: its band-pass */
     float follow;
     float decay_l, decay_r;
     double grain_pos[2]; /* source frames; grain 1 is half a grain behind */
@@ -313,6 +343,20 @@ typedef struct {
     int loop_wrapped;
     float punch_ln[2];  /* Punch's two smoothing stages, ln of the gain */
 } fx_state_t;
+
+/* Sub Osc's tone, which sounds on after its voice. */
+typedef struct {
+    int on;
+    int wait;           /* the note-on frame: the tone starts on the next */
+    double phase;       /* cycles */
+    float env;          /* exp(-2 pi t / Decay) */
+    float amt;          /* Amount's gain */
+    float k;            /* the decay per frame */
+    double inc;         /* cycles per frame: the damped frequency */
+    float hp_b, hp_a;   /* the 11 Hz high-pass's coefficients */
+    float hp_x, hp_y;   /* and its state */
+    int fade;           /* frames left of a declick fade, or -1 */
+} sub_state_t;
 
 /* Per-voice filter state: two SVF stages, two integrators per channel. */
 typedef struct {
@@ -370,6 +414,9 @@ typedef struct {
     int effect;                                 /* FX_STRETCH .. FX_NOISE */
     float fx_a, fx_b;                           /* its two settings, clamped */
     float punch_len, punch_n;                   /* Punch's release, from fx_b */
+    float noise_amt;                            /* Noise: Amount's gain, from fx_a */
+    float noise_b0, noise_a1, noise_a2;         /* Noise: band-pass at Color (b2 = -b0) */
+    sub_state_t sub, sub_tail;                  /* Sub Osc: the tone, and the one fading out */
     int filter_type;                            /* FILTER_LP12 .. FILTER_PEAK */
     int filter_hz10;                            /* cutoff, tenths of a Hz */
     int filter_res;                             /* thousandths, 0 to FILTER_RES_MAX */
@@ -1305,6 +1352,67 @@ static void set_fx(live_chopper_t *inst, float a, float b) {
         inst->punch_len = (ms - PUNCH_LEN_C * powf(ms, PUNCH_LEN_E)) * (MOVE_SAMPLE_RATE / 1000.0f);
         inst->punch_n = PUNCH_N0 + PUNCH_N1 * logf(inst->fx_b);
     }
+    if (inst->effect == FX_NOISE) {
+        float a = inst->fx_a;
+        inst->noise_amt = a > 0.0f ? powf(a, NOISE_AMOUNT_E) * powf(10.0f, -NOISE_AMOUNT_DB * (1.0f - a) / 20.0f) : 0.0f;
+        float k = tanf((float)M_PI * inst->fx_b / MOVE_SAMPLE_RATE), d = 1.0f + k / NOISE_Q + k * k;
+        inst->noise_b0 = k / NOISE_Q / d;
+        inst->noise_a1 = 2.0f * (k * k - 1.0f) / d;
+        inst->noise_a2 = (1.0f - k / NOISE_Q + k * k) / d;
+    }
+}
+
+/* Sub Osc's tone, one frame. Its settings are taken at the note on. */
+static float sub_frame(sub_state_t *s) {
+    if (!s->on) return 0.0f;
+    float x = 0.0f;
+    if (s->wait) {
+        s->wait = 0;
+    } else {
+        x = s->amt * SUB_OSC_LEVEL * s->env * sinf(2.0f * (float)M_PI * (float)s->phase);
+        s->phase += s->inc;
+        if (s->phase >= 1.0) s->phase -= 1.0;
+        s->env *= s->k;
+    }
+    float y = s->hp_b * (x - s->hp_x) - s->hp_a * s->hp_y;
+    s->hp_x = x;
+    s->hp_y = y;
+    if (s->fade >= 0) {
+        y *= (float)s->fade / (float)DECLICK_FRAMES;
+        if (--s->fade < 0) s->on = 0;
+    } else if (s->amt * SUB_OSC_LEVEL * s->env < 0.05f && fabsf(y) < 0.05f) {
+        s->on = 0;
+    }
+    return y;
+}
+
+/* Hand the tone to the fading slot. */
+static void fade_out_sub(live_chopper_t *inst) {
+    if (!inst->sub.on) return;
+    inst->sub_tail = inst->sub;
+    if (inst->sub_tail.fade < 0) inst->sub_tail.fade = DECLICK_FRAMES;
+    inst->sub.on = 0;
+}
+
+/* A note starts a new tone (if Sub Osc is on), fading out the last. */
+static void start_sub(live_chopper_t *inst) {
+    fade_out_sub(inst);
+    if (inst->effect != FX_SUB_OSC || inst->fx_a <= 0.0f) return;
+    sub_state_t *s = &inst->sub;
+    double dec = inst->decay_frames > 1 ? inst->decay_frames : 1;   /* frames */
+    double w = 2.0 * M_PI * inst->fx_b / MOVE_SAMPLE_RATE, al = 2.0 * M_PI / dec;
+    float hk = tanf((float)M_PI * SUB_OSC_HP_HZ / MOVE_SAMPLE_RATE);
+    memset(s, 0, sizeof *s);
+    s->on = 1;
+    s->wait = 1;
+    s->amt = powf(10.0f, -SUB_OSC_AMOUNT_DB * (1.0f - inst->fx_a) / 20.0f);
+    s->k = (float)exp(-al);
+    s->inc = (w > al ? sqrt(w * w - al * al) : 0.0) / (2.0 * M_PI);
+    s->hp_b = 1.0f / (1.0f + hk);
+    s->hp_a = (hk - 1.0f) / (1.0f + hk);
+    s->phase = 0.5 * s->inc;
+    s->env = (float)exp(-0.5 * al);
+    s->fade = -1;
 }
 
 /* Switching effect starts its settings at Move's defaults until "fx" says
@@ -1317,13 +1425,6 @@ static void set_effect(live_chopper_t *inst, int fx) {
 /* A decay from 1 to ~0 over secs, t output frames in. */
 static float fx_decay(int t, float secs) {
     return expf(-FX_DECAY_K * (float)t / (secs * MOVE_SAMPLE_RATE));
-}
-
-static float fx_osc(fx_state_t *x, float hz) {
-    float v = sinf(2.0f * (float)M_PI * (float)x->phase);
-    x->phase += hz / MOVE_SAMPLE_RATE;
-    if (x->phase >= 1.0) x->phase -= 1.0;
-    return v;
 }
 
 /* A parabolic sine, -1..1, starting at 0 and rising (Move's FM). */
@@ -1347,6 +1448,15 @@ static double fx_rate(const live_chopper_t *inst, fx_state_t *x, int t) {
         return 1.0 + (double)(inst->fx_a * FM_DEPTH * depth * fx_para(x, inst->fx_b));
     }
     return 1.0;
+}
+
+/* Frames into Noise's decay, t frames into the voice: from the note on,
+ * or for a Gate pad from the note off (Set 42 pad 15: it holds while the
+ * pad is held). Under a finite Hold Move's noise sits between (Set 42 pad
+ * 7, NOTES "Sub Osc and Noise"). */
+static int noise_decay_pos(const live_chopper_t *inst, int t) {
+    if (inst->gated) return inst->release_pos > 0 ? inst->release_pos : 0;
+    return t;
 }
 
 /* The signal effects on one voice's frame (after the crush, before the
@@ -1376,20 +1486,23 @@ static void fx_frame(const live_chopper_t *inst, fx_state_t *x, int t, float *l,
             *r *= v;
         }
         break;
-    case FX_SUB_OSC:
-        v = a * SUB_OSC_LEVEL * fx_osc(x, inst->fx_b);
-        *l += v;
-        *r += v;
-        break;
     case FX_NOISE:
-        v = 0.5f * (fabsf(*l) + fabsf(*r));
-        x->follow = v > x->follow ? v : x->follow * NOISE_FOLLOW_RELEASE;
-        x->rng = x->rng * 1664525u + 1013904223u;
-        n = (float)(int32_t)x->rng / 2147483648.0f;
-        x->noise_lp += (1.0f - expf(-2.0f * (float)M_PI * inst->fx_b / MOVE_SAMPLE_RATE)) * (n - x->noise_lp);
-        v = a * x->follow * x->noise_lp * 2.0f;
-        *l += v;
-        *r += v;
+        if (a > 0.0f) {
+            v = 0.5f * (fabsf(*l) + fabsf(*r));
+            x->follow += (v > x->follow ? NOISE_ATTACK_K : NOISE_RELEASE_K) * (v - x->follow);
+            x->rng = x->rng * 1664525u + 1013904223u;
+            n = (float)(int32_t)x->rng / 2147483648.0f;
+            float w = 0.25f * (n + 2.0f * x->pre1 + x->pre2), y = inst->noise_b0 * w + x->bp_z1;
+            x->pre2 = x->pre1;
+            x->pre1 = n;
+            x->bp_z1 = x->bp_z2 - inst->noise_a1 * y;
+            x->bp_z2 = -inst->noise_b0 * w - inst->noise_a2 * y;
+            v = inst->noise_amt * NOISE_GAIN * x->follow * y
+                * expf(-NOISE_DECAY_K * (float)noise_decay_pos(inst, t)
+                       / ((float)inst->decay_frames + FM_DECAY_PAD_S * MOVE_SAMPLE_RATE));
+            *l += v;
+            *r += v;
+        }
         break;
     case FX_8BIT:
         if (inst->crush_hz > 0 && inst->crush_decay < CRUSH_DECAY_OFF) {
@@ -1643,6 +1756,7 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     inst->fx.rng = rng ? rng : 22222u;
     inst->fx.grain_pos[0] = inst->fx.grain_pos[1] = inst->play_pos;
     memset(&inst->filter, 0, sizeof inst->filter);
+    start_sub(inst);
     inst->playing_slice = idx;
     inst->selected_slice = idx;
     inst->playing = 1;
@@ -1999,6 +2113,7 @@ static void set_param(void *instance, const char *key, const char *val) {
     }
     if (strcmp(key, "stop") == 0) {
         if (inst->playing) fade_out_voice(inst);
+        fade_out_sub(inst);
         inst->playing = 0;
         inst->playing_slice = -1;
         inst->gate_note = -1;
@@ -2206,7 +2321,9 @@ static void render_block(void *instance, int16_t *out, int frames) {
     /* Gain ramps linearly to its target across the block. */
     float g0 = inst->gain_cur, g1 = inst->gain_target;
     inst->gain_cur = g1;
-    if (!s || (!inst->playing && !inst->tail_active)) {
+    /* Sub Osc's tone stops when the effect does. */
+    if (inst->effect != FX_SUB_OSC) fade_out_sub(inst);
+    if (!s || (!inst->playing && !inst->tail_active && !inst->sub.on && !inst->sub_tail.on)) {
         /* Nothing to hear the cutoff glide: the next note starts on it. */
         inst->filter_oct = inst->filter_oct_target;
         return;
@@ -2246,6 +2363,11 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 inst->tail_left--;
             }
         }
+
+        /* Sub Osc's tone: after the envelope, sounding on past the voice */
+        float sub = sub_frame(&inst->sub) + sub_frame(&inst->sub_tail);
+        l += sub;
+        r += sub;
 
         float gain = g0 + (g1 - g0) * (float)(i + 1) / (float)frames;
         out[i * 2] = clamp16(l * gain);

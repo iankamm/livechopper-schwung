@@ -249,6 +249,35 @@ static int max_step(void) {
     return worst;
 }
 
+/* Sub Osc and Noise: a note with effect e and settings v, and the same
+ * note dry (fx dry), from a silent start, into a and b. */
+#define FX_RUN_BLOCKS 517                       /* 1.5 s */
+static int16_t fx_a_buf[FX_RUN_BLOCKS * MOVE_FRAMES_PER_BLOCK * 2], fx_b_buf[FX_RUN_BLOCKS * MOVE_FRAMES_PER_BLOCK * 2];
+static void fx_record(void *inst, const char *e, const char *v, int16_t *buf, int blocks) {
+    param(inst, "stop", "1"); until_silent(inst);
+    param(inst, "effect", e); param(inst, "fx", v);
+    note(inst, 68);
+    for (int b = 0; b < blocks; b++) api->render_block(inst, buf + b * MOVE_FRAMES_PER_BLOCK * 2, MOVE_FRAMES_PER_BLOCK);
+}
+static void fx_pair(void *inst, const char *e, const char *dry, const char *v, int blocks) {
+    fx_record(inst, e, dry, fx_a_buf, blocks);
+    fx_record(inst, e, v, fx_b_buf, blocks);
+}
+
+/* Noise's rms (the note less its dry run) over frames [from, to), with
+ * its decay over dec_s + 50 ms divided out. */
+static double noise_rms(void *inst, const char *v, int from, int to, double dec_s) {
+    fx_pair(inst, "8", "0 1000", v, (to + MOVE_FRAMES_PER_BLOCK - 1) / MOVE_FRAMES_PER_BLOCK);
+    double s = 0;
+    for (int t = from; t < to; t++) {
+        double d = (fx_b_buf[t * 2] - fx_a_buf[t * 2]) / pow(10, -t / 44100.0 / (dec_s + 0.05));
+        s += d * d;
+    }
+    return sqrt(s / (to - from));
+}
+
+static int lc_sub_on(void *inst) { return ((live_chopper_t *)inst)->sub.on || ((live_chopper_t *)inst)->sub_tail.on; }
+
 int main(void) {
     api = move_plugin_init_v2(NULL);
     mkdir("build", 0755);
@@ -785,21 +814,48 @@ int main(void) {
                   "Ring Mod %s, Decay %g s follows its model (%d frames wrong, peak %.3f x dry)",
                   rm[i].v, rm[i].dec, wrong, peak);
         }
+        /* Sub Osc: Move's tone (docs/NOTES.md, "Sub Osc and Noise"), frame
+         * by frame for 1.5 s, the note less the same note dry, against the
+         * model in double: 10^(-3.5 (1 - Amount)) x exp(-2 pi t / Decay) x
+         * sin(damped w t) from half a frame before the frame after the note
+         * on, through an 11 Hz high-pass; on past the 1 s slice's end. */
+        const struct { double amt, hz, dec; const char *v, *us; } so[] = {
+            { 1.0, 30, 1.0, "1 30", "1000000" }, { 0.85, 60, 0.1, "0.85 60", "100000" },
+            { 0.6, 120, 0.3, "0.6 120", "300000" },
+        };
+        for (int i = 0; i < 3; i++) {
+            param(inst, "decay_us", so[i].us);
+            char dry[16];
+            snprintf(dry, sizeof dry, "0 %g", so[i].hz);
+            fx_pair(inst, "7", dry, so[i].v, FX_RUN_BLOCKS);
+            const double g = pow(10, -3.5 * (1 - so[i].amt)) * SUB_OSC_LEVEL, al = 2 * M_PI / (so[i].dec * 44100);
+            const double w = 2 * M_PI * so[i].hz / 44100, wd = sqrt(w * w - al * al), hk = tan(M_PI * 11 / 44100);
+            double x1 = 0, y1 = 0;
+            int wrong = 0, checked = 0, after = 0;
+            for (int t = 0; t < FX_RUN_BLOCKS * MOVE_FRAMES_PER_BLOCK; t++) {
+                double x = t ? g * exp(-al * (t - 0.5)) * sin(wd * (t - 0.5)) : 0;
+                double y = (x - x1) / (1 + hk) - (hk - 1) / (1 + hk) * y1;
+                x1 = x; y1 = y;
+                if (fabs(fx_a_buf[t * 2] + y) > 32000) continue;       /* clipped */
+                double got = fx_b_buf[t * 2] - fx_a_buf[t * 2];
+                checked++;
+                if (fabs(got - y) > 2 + 0.002 * fabs(y)) wrong++;
+                if (t > 44200 && fabs(y) > 2 && fabs(got - y) <= 2 + 0.002 * fabs(y)) after++;
+            }
+            CHECK(wrong == 0 && checked > 40000, "Sub Osc %s, Decay %g s follows its model (%d of %d frames wrong)",
+                  so[i].v, so[i].dec, wrong, checked);
+            if (i == 0) CHECK(after > 1000, "Sub Osc sounds on past its slice (%d frames)", after);
+        }
         param(inst, "decay_us", "50000");
-        FX_PLAY("7", "0.5 60");                /* Sub Osc: adds a 60 Hz sine */
-        bad = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
-            float want = ref[i * 2] + 0.5f * SUB_OSC_LEVEL * sinf(2.0f * (float)M_PI * 60.0f * i / 44100.0f);
-            if (fabsf(out[i * 2] - want) > 1.5f) bad++;
-        }
-        CHECK(bad == 0, "Sub Osc adds its sine (%d wrong)", bad);
-        FX_PLAY("8", "1 15000");               /* Noise: follows the sound's level */
-        int differ = 0, wild = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
-            if (out[i * 2] != ref[i * 2]) differ++;
-            if (abs(out[i * 2] - ref[i * 2]) > 2 * 3 * i + 2) wild++;
-        }
-        CHECK(differ > MOVE_FRAMES_PER_BLOCK / 2 && wild == 0, "Noise adds noise no louder than the sound (%d differ, %d too loud)", differ, wild);
+        /* A new note fades the last tone out; "stop" does too */
+        fx_record(inst, "7", "1 60", fx_b_buf, 2);
+        note(inst, 68);
+        render(inst, 2);
+        CHECK(lc_sub_on(inst) && !((live_chopper_t *)inst)->sub_tail.on, "a new note's tone replaces the last within a block");
+        param(inst, "stop", "1");
+        render(inst, 1);
+        CHECK(!lc_sub_on(inst), "stop fades the tone out");
+        int differ;
         /* Pitch Env: Move's bend (docs/NOTES.md, "Pitch Env"), frame by
          * frame for 40 ms against the model in double: Amount x 48
          * semitones, falling to 1/1000 at Decay, one frame in on the first
@@ -853,6 +909,42 @@ int main(void) {
         api->destroy_instance(inst);
 #undef FX_PLAY
 #undef FX_SETTINGS
+    }
+
+    /* ---- Noise: Move's (docs/NOTES.md, "Sub Osc and Noise"). It's random,
+     * so these check its levels on a steady sine, the note less its dry
+     * run, its decay over Decay + 50 ms divided out. ---- */
+    {
+        write_tone("build/t441q.wav", 44100, 441.0, 0.25);   /* 1 s, peak 8192 */
+        write_tone("build/t441qq.wav", 44100, 441.0, 0.0625);
+        inst = load("build/t441q.wav");
+        param(inst, "decay_us", "1000000");
+        const double peak = 0.25 * 32767;
+        double r100 = noise_rms(inst, "1 1000", 4410, 39690, 1.0);
+        CHECK(fabs(r100 / peak - 0.568) < 0.04, "Noise at 100 %%, 1 kHz: 0.568 of the sine's peak (%.3f)", r100 / peak);
+        int16_t first[MOVE_FRAMES_PER_BLOCK * 2];
+        memcpy(first, fx_b_buf, sizeof first);
+        noise_rms(inst, "1 1000", 0, MOVE_FRAMES_PER_BLOCK, 1.0);
+        CHECK(memcmp(first, fx_b_buf, sizeof first) != 0, "Noise is new on every note");
+        const struct { const char *v; double want_db; } nl[] = {
+            { "0.25 1000", -36.5 }, { "0.5 1000", -21.5 }, { "0.75 1000", -10.7 },   /* Set 42 and 41 */
+            { "1 180", 20 * log10(214.4 / 489.0) }, { "1 15000", 20 * log10(353.5 / 489.0) },   /* Set 41 */
+        };
+        for (int i = 0; i < 5; i++) {
+            double db = 20 * log10(noise_rms(inst, nl[i].v, 4410, 39690, 1.0) / r100);
+            CHECK(fabs(db - nl[i].want_db) < (i < 3 ? 0.6 : 1.0), "Noise %s: %.1f dB under 1 kHz at 100 %% (Move %.1f)",
+                  nl[i].v, db, nl[i].want_db);
+        }
+        param(inst, "decay_us", "100000");
+        double early = noise_rms(inst, "1 1000", 441, 2646, 0.1), late = noise_rms(inst, "1 1000", 4851, 7056, 0.1);
+        CHECK(fabs(20 * log10(late / early)) < 1.0, "Noise falls 20 dB over Decay + 50 ms (%.2f dB off at 110-160 ms)",
+              20 * log10(late / early));
+        api->destroy_instance(inst);
+        inst = load("build/t441qq.wav");
+        param(inst, "decay_us", "1000000");
+        double db = 20 * log10(noise_rms(inst, "1 1000", 4410, 39690, 1.0) / r100);
+        CHECK(fabs(db + 12.04) < 0.6, "Noise follows the sound's level: a sine 12 dB down, its noise %.1f dB", db);
+        api->destroy_instance(inst);
     }
 
     /* ---- Stretch and Loop: they change how the slice is read ---- */
