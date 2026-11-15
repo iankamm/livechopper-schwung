@@ -26,16 +26,15 @@ LiveChopper's own designs, not Move's algorithms.
   `device-check` and listening A/B passed (2026-11-13: a subtle onset
   difference heard on 7 of 10 pairs, the dry pair too, Move named at
   chance, all accepted). NOTES "Pitch Env".
-- Fitted: FM (2026-11-13, Set 34, NOTES "FM"): 15 of 16, pad 9's one
-  band window, accepted 2026-11-14. Acceptance Set 36 (seed 1114,
-  `tools/fxlab/sets/set36_fm_accept.json`) failed on pad 11 and became a
-  fit Set (NOTES "FM"). Accepted 2026-11-14 on Set 37 (seed 1115,
-  `tools/fxlab/sets/set37_fm_accept.json`): 16 of 16, references in
-  `tests/move_refs/fm/`. Owed: preview, device-check and listening A/B.
+- Done: FM (2026-11-15). Fitted on Sets 34 and 36, acceptance Set 37,
+  seed 1115 (`tools/fxlab/sets/set37_fm_accept.json`), references in
+  `tests/move_refs/fm/`; preview checks, `device-check` and listening
+  A/B passed (2026-11-15: no difference heard on any of 16 pairs).
+  NOTES "FM".
 - Done: the volume envelope's Decay and Gate release (2026-11-14, Set 35,
   NOTES "Volume envelope"): -84 dB over the Decay, a straight line in dB.
   References in `tests/move_refs/envelope/`.
-- Then, in this order: FM's acceptance, Ring Mod's decay, Sub Osc and
+- Then, in this order: Ring Mod's decay, Sub Osc and
   Noise's envelopes, following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad
@@ -273,6 +272,12 @@ reference.
   alone. Untraced.
 - **Short Attack (Set 35 pad 15):** Attack 0.1 ms sits up to 0.8 dB under
   Attack 1 ms for the first ~60 frames; it passes (bands 0.42 dB).
+- **Dialling an acceptance Set:** `accept-set` draws whole clicks from
+  0, but Knob 5 (Decay) has no fine step and, once at 60.0 s, clicks 2
+  units off them; some readouts ("20 %", "26 %") sit on two positions.
+  FM's preview needed what was played fitted from the audio (NOTES
+  "FM"). To decide: draw values LiveChopper reaches from its defaults,
+  or give the preview instructions as reachable readouts.
 - **Fast turns:** Move skips 2-3 values on a fast turn (NOTES, screen
   session 1). LiveChopper reads the encoder's delta, so it may already do
   the same; unchecked.

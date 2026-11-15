@@ -631,6 +631,24 @@ case, its waveform 566 LSB off from the same drift), position 0.10 ms
 .claude/recordings/set37/fm --seed 1115` saved them as
 `tests/move_refs/fm/`.
 
+- Preview on the Move (2026-11-15, `.claude/recordings/preview3/`):
+  Skipback takes of LiveChopper playing Set 37's pads, one sound a take
+  (take 1 kept only its last five hits, so take 1b redid the dry hit
+  and hits 2-3), joined into one take (`joined.wav`) and split `--like`
+  Set 37. Knob 5 has no fine step (Shift makes it Length), so Set 37's
+  whole-click Decays can't be dialled: from 60.0 s its clicks sit 2
+  units off them. Two readouts ("20 %", "26 %") sit on two click
+  positions, and pad 11's 0.003 % can only be played as 0. What was
+  played was fitted from the audio against renders (`played.json`).
+  Against plugin.c's render at those values 16 of 16 pass, 13 of them
+  0.00 dB (worst drum_synth's first hit, bands 0.35/1.47 dB, untraced);
+  Move's pads against the preview 16 of 16 (worst pad 14, 0.83/2.69 dB,
+  played at Decay 1.25 s for 1.39 s).
+- Device: `fxlab.py device-check` on Sets 37, 35 and 34: 48 pads, bit
+  for bit.
+- Listening A/B (2026-11-15, `................`): no difference heard on
+  any of the 16 pairs.
+
 ### Volume envelope (Set 35)
 
 The first Set written by `fxlab.py make-set`

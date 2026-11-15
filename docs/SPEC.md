@@ -103,7 +103,8 @@ a Move drum rack preset or one WAV per slice.
   log curves: Attack 0.10 ms to 20.0 s, Hold 1.00 ms to Inf (until the
   slice ends), Decay 1.00 ms to 60.0 s. Default: attack at its minimum
   (played as 0, so slices sound like the raw sample), Hold Inf, Decay
-  50.0 ms. A chop
+  50.0 ms. The Decay, and Gate's release, fall as Move's do: a straight
+  line in dB, -84 dB at the Decay time (NOTES.md "Volume envelope"). A chop
   does not retrigger the envelope. This mode is for chopping; per-pad sound
   shaping is done in the drum rack after export.
 - Declick: when a pad cuts off another, the old voice fades out over ~1.5 ms.
@@ -136,8 +137,8 @@ a Move drum rack preset or one WAV per slice.
   | Noise | Amount, 0-100 % | Color, 180 Hz-15.0 kHz |
 
   In chop mode each effect runs before the filter (sample -> effect ->
-  filter -> envelope, drumCell's order). Punch matches Move's own output;
-  the others are stand-ins, not emulations. The waveform is drawn without
+  filter -> envelope, drumCell's order). Pitch Env, Punch and FM match
+  Move's own output; the others are stand-ins, not emulations. The waveform is drawn without
   the effect.
 
   - Stretch: the playhead moves at 1/Factor of the normal speed, and two
@@ -161,7 +162,10 @@ a Move drum rack preset or one WAV per slice.
   - 8-Bit: samples and holds each voice at the rate (after repitching) and
     cuts it to 8 bits; its Decay closes a low-pass on that over the Decay
     time.
-  - FM: wobbles the playback rate by up to +-1 octave at its Freq.
+  - FM: Move's modulation (NOTES.md "FM"): the read rate is 1 + Amount x
+    10 x a parabolic sine at its Freq, rising from 0 at the note-on (so at
+    100 % the read runs backwards in the troughs), its depth falling to
+    1 % over the global Decay + 50 ms from the note-on, Hold or not.
   - Ring Mod: multiplies by a sine at its Freq.
   - Sub Osc: adds a sine at its Freq (-6 dBFS at 100%).
   - Noise: adds noise low-passed at its Color, following the sound's level.
