@@ -11,8 +11,7 @@ Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
 1. **Match the remaining effects** (below, "Status"), easiest first:
-   Ring Mod's decay (likely FM's: the global Decay + 50 ms), Sub Osc and
-   Noise's envelopes (one Set may cover both), following Transpose
+   Sub Osc and Noise's envelopes (one Set may cover both), following Transpose
    across the effects, 8-Bit, then Stretch and Loop. Punch's listening
    A/B is owed.
 2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
@@ -58,10 +57,11 @@ LiveChopper's own designs, not Move's algorithms.
 - Done: the volume envelope's Decay and Gate release (2026-11-14, Set 35,
   NOTES "Volume envelope"): -84 dB over the Decay, a straight line in dB.
   References in `tests/move_refs/envelope/`.
-- Ring Mod: fitted on Set 38, accepted on Set 39 (2026-11-15), seed 1116
-  (`tools/fxlab/sets/set39_ring_accept.json`), references in
-  `tests/move_refs/ring_mod/`. NOTES "Ring Mod". Next: the preview
-  checks, `device-check` and the listening A/B.
+- Done: Ring Mod (2026-11-15). Fitted on Set 38, acceptance Set 39,
+  seed 1116 (`tools/fxlab/sets/set39_ring_accept.json`), references in
+  `tests/move_refs/ring_mod/`; preview checks, `device-check` and
+  listening A/B passed (2026-11-15: no difference heard on any of 16
+  pairs). NOTES "Ring Mod".
 - Then, in this order: Sub Osc and
   Noise's envelopes, following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
@@ -154,9 +154,10 @@ pinned in `tools/fxlab/requirements.txt`).
 8. Then check the preview as the Move plays it. In LiveChopper (a fresh
    session, so the installed `dsp.so` loads), load the test sound and play
    pad 1 once per setting, copying pads of a recorded Set (a dry one
-   first), about 3 s apart, each knob first turned to its bottom end and
-   then dialled by whole clicks to the readout (no Shift, never to the
-   top end), then press Shift+Capture: Skipback saves the
+   first), about 3 s apart, each knob spun to its bottom end before
+   every value and then dialled up by whole clicks to the readout (no
+   Shift; one touch of the top end puts later clicks 2 units off, as in
+   Ring Mod's preview), then press Shift+Capture: Skipback saves the
    last 30 s (Schwung's default; its settings can lengthen it) to
    `Samples/Schwung/Skipback/<date>/`. At 3 s apart that holds about 10
    pads, so a longer list takes two Skipback takes. The Quantized Sampler
@@ -195,9 +196,8 @@ hearing thresholds:
   of knob clicks (so Move's curves apply), on the effect's test sounds plus
   drum_synth, after tuning, from a seed recorded under "Status". It draws
   only positions the preview can be dialled to from the readout: on the
-  grid a knob sits on once turned to its bottom end and then clicked (no
-  Shift, never to the top end), and whose readout no other grid position
-  shows (`dialPositions` in `tools/fxlab/knob_readout.mjs`, checked by
+  grid a knob sits on once spun to its bottom end and then clicked up (no
+  Shift), and whose readout no other grid position shows (`dialPositions` in `tools/fxlab/knob_readout.mjs`, checked by
   `tests/knobs_test.mjs`). A Set
   that fails becomes one more fit Set, and the next try uses a new seed.
 - **Move's repeatability:** pad 1 is dry and the last pad repeats pad 2. A

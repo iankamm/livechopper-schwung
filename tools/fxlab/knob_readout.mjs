@@ -8,14 +8,14 @@ import { pathToFileURL } from 'node:url';
 import { KNOBS, KNOB_UNITS, KNOB_CLICK, knobValue, formatKnob, stepKnob } from '../../src/knobs.mjs';
 
 // The positions an acceptance Set may draw: ones LiveChopper's preview can
-// be dialled to from the readout alone. The preview turns each knob to its
-// bottom end once, then only whole clicks (no Shift), never to the top
-// end: the knob then sits on the grid 0, 10, ... 1300 (the top is 1308, and
-// a click down from it leaves the grid). A click keeps stepping while the
-// readout doesn't change, so a readout two grid positions share is landed
-// on at one going up and the other coming down: only positions the up-path
-// from the bottom reaches and whose readout no other grid position shows
-// are kept. Knob 5 (Decay) has no fine step, and from a fresh session's
+// be dialled to from the readout alone. The preview spins each knob to its
+// bottom end before every value, then clicks up (no Shift): the knob then
+// sits on the grid 0, 10, ... 1300 (the top is 1308, and a click down from
+// it leaves the grid, which is why it starts from the bottom every time).
+// A click keeps stepping while the readout doesn't change, so a readout two
+// grid positions share is landed on at one going up and the other coming
+// down: only positions the up-path from the bottom reaches and whose
+// readout no other grid position shows are kept. Knob 5 (Decay) has no fine step, and from a fresh session's
 // 50 ms it sits off this grid until it meets an end.
 export function dialPositions(spec) {
     const count = new Map();

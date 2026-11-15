@@ -708,6 +708,22 @@ Set 39, the acceptance Set (`accept-set "Ring Mod" --seed 1116 --pads 14
 `fxlab.py refs .claude/recordings/set39/ring --seed 1116` saved them as
 `tests/move_refs/ring_mod/`.
 
+- Preview on the Move (2026-11-15, `.claude/recordings/preview4/`):
+  two Skipback takes of LiveChopper playing Set 39's pads, sine then
+  drum_synth, joined (`joined.wav`, 3 s from 0.5 s before each onset)
+  and split `--like` Set 39. In take 1, Knob 5 touched its top end on
+  hit 4 and Knob 7 after hit 5, so hits 4-9 played 2 units off the
+  drawn values (Decay 33.3 s for 33.9 s, ...): fitted from the audio
+  (`played.json`, each 0.3-0.5 LSB). Take 2, each knob spun to its
+  bottom end before every value, played all seven exactly. Against
+  plugin.c's render at what was played 16 of 16 (within 0.01 dB);
+  Move's pads against the preview 16 of 16 (worst pad 16, 0.17/0.38 dB,
+  Decay 2.45 s for 2.50 s).
+- Device: `fxlab.py device-check` on Sets 39 and 38: 46 pads, bit for
+  bit.
+- Listening A/B (2026-11-15, `................`): no difference heard on
+  any of the 16 pairs.
+
 ### Volume envelope (Set 35)
 
 The first Set written by `fxlab.py make-set`
