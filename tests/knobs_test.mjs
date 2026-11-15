@@ -197,5 +197,38 @@ check(stepKnob(KNOBS.attack, 0, 1) === 10 && stepKnob(KNOBS.attack, 0, 3) === 30
 check(stepKnob(KNOBS.hold, 1300, 1) === KNOB_UNITS, 'the last click is short');
 check(near(10 / KNOB_UNITS, 0.00764526, 1e-6), 'a click is Move\'s 0.00764526 of the travel');
 
+// ---- accept-set's dialable positions (tools/fxlab/knob_readout.mjs) ----
+// Turned to the bottom, then whole clicks either way short of the top: a
+// drawable readout on screen is always its own position, however the knob
+// got there.
+{
+  const { dialPositions, readouts } = await import('../tools/fxlab/knob_readout.mjs');
+  let seed = 1;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (const name of Object.keys(KNOBS)) {
+    const spec = KNOBS[name], ok = dialPositions(spec);
+    const at = new Map(ok.map(p => [formatKnob(spec, p), p]));
+    check(ok.length >= 50 && ok.every(p => p < KNOB_UNITS), `${name}: ${ok.length} dialable positions, none at the top`);
+    let pos = 0, bad = 0;
+    for (let i = 0; i < 20000; i++) {
+      let next = stepKnob(spec, pos, rand() < 0.5 ? -1 : 1, false);
+      if (next >= KNOB_UNITS) next = stepKnob(spec, pos, -1, false);
+      pos = next;
+      const want = at.get(formatKnob(spec, pos));
+      if (want !== undefined && want !== pos) bad++;
+    }
+    check(bad === 0, `${name}: a dialable readout shown at another position ${bad} times`);
+  }
+  const fm = dialPositions(KNOBS.fm_amount);
+  check(formatKnob(KNOBS.fm_amount, fm[0]) === '0.6 %' && !fm.includes(0) && !fm.includes(10),
+        'FM Amount: from 0.6 %, no "0.0 %", which 11 grid positions show (Set 37 pad 11\'s 0.003 %)');
+  const ring = dialPositions(KNOBS.ring_amount);
+  check(dialPositions(KNOBS.decay).length === 131 && !ring.includes(270) && !ring.includes(280) && ring.includes(260),
+        'Decay: every grid position; Ring Mod Amount: "21 %" (270 going up, 280 coming down) is out, "20 %" in');
+  const r = readouts([['ring_freq', 0], ['ring_freq', 0.999999], ['decay', 0.5]]);
+  check(r[0][0] === '1.02 Hz' && r[1][2] === 1300 && r[2][0] === formatKnob(KNOBS.decay, r[2][2]),
+        'readouts: u 0 the lowest dialable, u near 1 the highest, short of the top: ' + JSON.stringify(r));
+}
+
 console.log(failures ? `${failures} FAILED` : `all ${checks} checks passed`);
 process.exit(failures ? 1 : 0);

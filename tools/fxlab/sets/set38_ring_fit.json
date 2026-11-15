@@ -1,0 +1,26 @@
+{
+ "name": "Set 38",
+ "about": "Ring Mod's fit Set (PLAN \"Road to v1.0.0\"): the mix law (Amount 25/50/100 %), the oscillator's shape, phase and frequency (position_ramp divided by its dry render gives the multiplier frame by frame), and its decay with the global Decay (FM's: Decay + 50 ms from note-on, Hold or not?). Attack at its minimum, Hold Inf unless shown, Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 6,
+ "defaults": {"Voice_Envelope_Attack": 0.0001, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0,
+              "Voice_Envelope_Mode": "A-H-D", "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+ "pads": [
+  {"sample": "sine_441.wav"},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 0.5, "Effect_RingModFrequency": 5.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 0.25, "Effect_RingModFrequency": 5.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 1000.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 0.5, "Effect_RingModFrequency": 1000.0}},
+  {"sample": "position_ramp.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 0.5, "Effect_RingModFrequency": 1.0}},
+  {"sample": "position_ramp.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 1000.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5000.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 1000.0, "Voice_Envelope_Decay": 0.1}},
+  {"sample": "position_ramp.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5.0, "Voice_Envelope_Decay": 0.1}},
+  {"sample": "position_ramp.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5.0, "Voice_Envelope_Decay": 0.01}},
+  {"sample": "position_ramp.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5.0, "Voice_Envelope_Decay": 1.0}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 0.5, "Effect_RingModFrequency": 5.0, "Voice_Envelope_Decay": 0.3}},
+  {"sample": "position_ramp.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5.0, "Voice_Envelope_Hold": 0.5, "Voice_Envelope_Decay": 0.1}},
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Ring Mod", "Effect_RingModAmount": 1.0, "Effect_RingModFrequency": 5.0}}
+ ]
+}

@@ -27,8 +27,10 @@ check is the gate for "this effect matches Move" (docs/PLAN.md step 4,
 plugin.c and passes or fails every pad on every metric that applies. refs
 then saves Move's measured curves to tests/move_refs/, and refs-check (run
 by scripts/test.sh) holds plugin.c to them without the recordings.
-accept-set draws an acceptance Set's settings at random (--spec writes
-them for make-set, with --pads 14 to fill 16 pads). make-set writes a
+accept-set draws an acceptance Set's settings at random, only at knob
+positions LiveChopper's preview reaches from the readout alone
+(knob_readout.mjs, dialPositions); --spec writes them for make-set, with
+--pads 14 to fill 16 pads. make-set writes a
 Move Set from a spec (tools/fxlab/sets/): 16 pads at exact settings and a
 clip that plays them in order, so a take is one press of Play; --install
 puts it on the Move. device-check
@@ -1161,7 +1163,10 @@ def cmd_accept_set(effect, seed, pads, spec_path=None):
         drawn.append(out)
     print("Acceptance Set for %s, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % (effect, seed))
     print("Every pad: Attack at its minimum, Hold Inf, Low-Pass 24 fully open, Transpose 0, Full Velocity.")
-    print("Play the pads in order about 3 s apart, then split and run fxlab.py check.\n")
+    print("Play the pads in order about 3 s apart, then split and run fxlab.py check.")
+    print("The preview in LiveChopper: first turn each knob below to its bottom end, then dial only")
+    print("whole clicks (no Shift) and never to the top end; each readout is then one knob position.")
+    print("The dry pad's Decay doesn't matter (Hold Inf).\n")
     print("| Pad | Sound | Settings |")
     print("|---|---|---|")
     print("| 1 | sine_441 | dry (Stretch 1.00) |")

@@ -640,6 +640,9 @@ case, its waveform 566 LSB off from the same drift), position 0.10 ms
   units off them. Two readouts ("20 %", "26 %") sit on two click
   positions, and pad 11's 0.003 % can only be played as 0. What was
   played was fitted from the audio against renders (`played.json`).
+  Since then `accept-set` draws only readouts that name one knob
+  position once the knob has been turned to its bottom end (PLAN "When
+  an effect is done", "Held out").
   Against plugin.c's render at those values 16 of 16 pass, 13 of them
   0.00 dB (worst drum_synth's first hit, bands 0.35/1.47 dB, untraced);
   Move's pads against the preview 16 of 16 (worst pad 14, 0.83/2.69 dB,
