@@ -1197,6 +1197,7 @@ SET_RANGES = {                  # the settings a typo would quietly break (src/k
 SET_CHOICES = {"Voice_Envelope_Mode": ("A-H-D", "A-S-R")}
 DEVICE_SETS = "/data/UserData/UserLibrary/Sets"
 DEVICE_SET_STAGING = "/data/UserData/livechopper-sets"
+SET_VIEW_PADS = 32              # Move's Set view: one pad a Set, song-index 0-31
 
 
 def set_cells(song):
@@ -1307,14 +1308,19 @@ def install_set(song_path, name, host):
     set_dir = "%s/%s" % (DEVICE_SETS, uuid.uuid4())
     inner = "%s/%s" % (set_dir, name)
     q = shlex.quote
+    # A Set's song-index is its pad in Move's 32-pad Set view: one past
+    # the highest can land off the grid (index 32 isn't listed).
     script = "; ".join([
         "set -e",
         "used=$(for d in %s/*/; do getfattr -n user.song-index --only-values \"$d\" 2>/dev/null; echo; done"
-        " | grep -E '^[0-9]+$' | sort -n | tail -n 1)" % DEVICE_SETS,
+        " | grep -E '^[0-9]+$' | sort -n)" % DEVICE_SETS,
+        "slot=''",
+        "for i in $(seq 0 %d); do echo \"$used\" | grep -qx \"$i\" || { slot=$i; break; }; done" % (SET_VIEW_PADS - 1),
+        "[ -n \"$slot\" ] || { echo 'no free pad in the Set view: delete a Set on the Move first' >&2; exit 1; }",
         "mkdir -p %s" % q(inner),
         "cp %s/Song.abl %s/Song.abl" % (DEVICE_SET_STAGING, q(inner)),
         "chown -R ableton:users %s" % q(set_dir),
-        "setfattr -n user.song-index -v $(( ${used:-999} + 1 )) %s" % q(set_dir),
+        "setfattr -n user.song-index -v $slot %s" % q(set_dir),
         "setfattr -n user.last-modified-time -v $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) %s" % q(set_dir),
         "setfattr -n user.local-cloud-state -v notSynced %s" % q(set_dir),
         "setfattr -n user.song-color -v 3 %s" % q(set_dir),

@@ -1,0 +1,26 @@
+{
+ "name": "Set 40",
+ "about": "Sub Osc and Noise's fit Set (PLAN \"Road to v1.0.0\"). Sub Osc on silence_click: its waveform, phase at note-on and level (Amount 50/100 %), at 30/60/120 Hz; its envelope: does it decay with Decay under Hold Inf (100 ms, 1 s: FM's Decay + 50 ms?), under Hold 100 ms, and its Attack (pad 9, on sine_441_quiet, whose sine gives the dry level at that Attack). Noise on silence_click: level (50/100 %), Color 180 Hz / 1 kHz / 15 kHz, Decay under Hold Inf; on sine_441_quiet: does it follow the sound's level; pad 16 repeats pad 10: Move's repeatability, and whether the noise repeats note to note. Attack at its minimum, Hold Inf and Decay 60 s unless shown, Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 6,
+ "defaults": {"Voice_Envelope_Attack": 0.0001, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0,
+              "Voice_Envelope_Mode": "A-H-D", "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+ "pads": [
+  {"sample": "sine_441.wav"},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 60.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 0.5, "Effect_SubOscFrequency": 60.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 30.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 120.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 60.0, "Voice_Envelope_Decay": 0.1}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 60.0, "Voice_Envelope_Decay": 1.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 60.0, "Voice_Envelope_Hold": 0.1, "Voice_Envelope_Decay": 0.1}},
+  {"sample": "sine_441_quiet.wav", "params": {"Effect_Type": "Sub Osc", "Effect_SubOscAmount": 1.0, "Effect_SubOscFrequency": 60.0, "Voice_Envelope_Attack": 0.1}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 1.0, "Effect_NoiseFrequency": 1000.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 0.5, "Effect_NoiseFrequency": 1000.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 1.0, "Effect_NoiseFrequency": 180.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 1.0, "Effect_NoiseFrequency": 15000.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 1.0, "Effect_NoiseFrequency": 1000.0, "Voice_Envelope_Decay": 0.1}},
+  {"sample": "sine_441_quiet.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 1.0, "Effect_NoiseFrequency": 1000.0}},
+  {"sample": "silence_click.wav", "params": {"Effect_Type": "Noise", "Effect_NoiseAmount": 1.0, "Effect_NoiseFrequency": 1000.0}}
+ ]
+}

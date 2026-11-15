@@ -724,6 +724,86 @@ Set 39, the acceptance Set (`accept-set "Ring Mod" --seed 1116 --pads 14
 - Listening A/B (2026-11-15, `................`): no difference heard on
   any of the 16 pairs.
 
+### Sub Osc and Noise (Sets 40, 41)
+
+Set 40 (`tools/fxlab/sets/set40_subnoise_fit.json`, recorded 2026-11-15,
+`.claude/recordings/set40/`) couldn't be split: Sub Osc outlived its
+sample at Decay 60 s, so its pads piled up and clipped the capture from
+pad 4 on. Pad 2 and the Noise pads still showed the shape of both, and
+Set 41 (`set41_subnoise_fit.json`, `.claude/recordings/set41/`, split in
+`set41/subnoise/`) was drawn from that: every Sub Osc Decay at 1 s or
+less, Noise on sine_441_quiet. Attack 0.10 ms, Hold Inf and Decay 60 s
+unless shown, 3 s apart.
+
+| Pad | Sound | Setting |
+|---|---|---|
+| 1 | sine_441 | dry (Stretch 1.00) |
+| 2-4 | silence_click | Sub Osc 100 %, 50 %, 25 %, 60 Hz, Decay 1 s |
+| 5 | silence_click | Sub Osc 100 %, 30 Hz, Decay 1 s |
+| 6, 7 | silence_click | Sub Osc 100 %, 60 Hz, Decay 100 ms, 300 ms |
+| 8 | silence_click | Sub Osc 100 %, 60 Hz, Hold 1 ms, Decay 1 s |
+| 9 | sine_441_quiet | Sub Osc 100 %, 60 Hz, Attack 100 ms, Decay 1 s |
+| 10, 11 | sine_441_quiet | Noise 100 %, 50 %, Color 1 kHz |
+| 12, 13 | sine_441_quiet | Noise 100 %, Color 180 Hz, 15 kHz |
+| 14 | sine_441_quiet | Noise 100 %, 1 kHz, Decay 300 ms |
+| 15 | drum_synth | Noise 50 %, 1 kHz |
+| 16 | sine_441_quiet | a copy of pad 10 |
+
+**Sub Osc** is a tone of its own, added to the sound, on its own envelope:
+
+- **Model**, 2.0-6.0 LSB rms on every pad from frame 150 on: A x 10^(-3.5
+  (1 - Amount)) x exp(-2π t / Decay) x sin(ω_d t), through a first-order
+  high-pass at 11.0 Hz (bilinear). A = 27265 (0.832 of full scale); t from
+  half a frame before the first frame out.
+- **Amount** is linear in dB, -70 dB at 0: 50 % -35.0 dB, 25 % -52.5 dB.
+  Whether 0 is silent or -70 dB isn't measured.
+- **Decay:** τ = Decay / 2π exactly (fitted Decay/τ 6.2811-6.2832 at
+  100 ms, 300 ms and 1 s; Set 40's 60 s pad 6.32 on a 3 s fit), from
+  note-on. Hold, Attack and the volume envelope don't touch it: pad 8
+  (Hold 1 ms, the volume envelope over at 1.001 s) is pad 2 sample for
+  sample after the click, past 1.001 s too; pad 9's 100 ms Attack ramps
+  its sine (dry level 0.93 there) but not the sub (A 27270). So the voice
+  sounds as long as the sub does, long past the sample: at Decay 60 s,
+  -0.92 dB a second for over a minute.
+- **High-pass:** the onset phase leads 11.7° at 60 Hz and 22.6° at 30
+  Hz, a first-order 11 Hz high-pass's (fitted 10.99-11.00 Hz on every
+  pad; second order fits 2-10 x worse). Not in the dry path, which passes
+  position_ramp unbent.
+- **Frequency:** within 0.04 Hz of a damped resonator's, √(ω² - (2π /
+  Decay)²): 59.20 Hz at Decay 100 ms (59.16 predicted), 59.95 at 300 ms,
+  60.02 at 1 s; Set 40's 60 s pad 59.999.
+- At 100 % it peaks at -1.6 dBFS alone, so with a loud sample it clips;
+  Move's capture soft-clips it above 29204 (PLAN "When an effect is
+  done").
+
+**Noise** is noise added to the sound (its dry level stays 0.845), scaled
+by the sound's level:
+
+- **Follows the level:** on silence_click, nothing past the click; on
+  drum_synth, the noise over the source's level stays at 0.053 (10 ms
+  windows) while the drum falls 30 dB. It reaches full level within 2-4
+  ms of the onset and stops with the sample; its spectrum has no copies
+  at the 441 Hz sine's 882 Hz, so it isn't |x| sample by sample. The
+  follower's attack and release aren't measured.
+- **Color:** white noise through (1 + z⁻¹)²/4 and a bilinear band-pass
+  at Color, Q 1.25, one gain for every Color: 0.34-0.48 dB rms on the
+  1/6-octave band powers at 180 Hz, 1 kHz and 15 kHz (pad 12's 20 kHz
+  band, 68 dB under its peak, misses by 5.5 dB). At 15 kHz the peak lands
+  near 11-13 kHz, 13 dB down. Level: 2.45 x the sine's peak, per unit
+  white noise (2.31-2.49 across the three Colors).
+- **Amount:** 50 % is -21.5 dB under 100 %, a different law from Sub
+  Osc's; one point.
+- **Decay:** exp(-t / τ), -57.1 dB/s at Decay 300 ms under Hold Inf: τ =
+  0.152 s, (Decay + 50 ms) / ln 10, i.e. -20 dB at Decay + 50 ms, as FM's
+  modulation falls 40 dB and Ring Mod's 30 dB there (or Decay / 2 = 0.150
+  s; one point).
+- **Random:** pad 16's noise doesn't correlate with pad 10's (0.08), and
+  its level matches (491 against 489 rms).
+
+Open, for Set 42: Noise's Amount law, Decay law, and follower; whether
+Hold, Attack and the volume envelope shape the noise; Amount 0 for both;
+a Gate pad's note-off for both.
+
 ### Volume envelope (Set 35)
 
 The first Set written by `fxlab.py make-set`
