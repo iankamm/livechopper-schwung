@@ -58,13 +58,10 @@ LiveChopper's own designs, not Move's algorithms.
 - Done: the volume envelope's Decay and Gate release (2026-11-14, Set 35,
   NOTES "Volume envelope"): -84 dB over the Decay, a straight line in dB.
   References in `tests/move_refs/envelope/`.
-- Next: Ring Mod. Its fit Set is Set 38
-  (`tools/fxlab/sets/set38_ring_fit.json`, built, not yet recorded): the
-  mix law at Amount 25/50/100 %, the oscillator's shape, phase and
-  frequency (position_ramp pads, whose dry render divides out the
-  multiplier frame by frame), and its decay with the global Decay (10 ms
-  to 1 s, and Hold 500 ms against Hold Inf). LiveChopper's stand-in today
-  is 1 - Amount + Amount x a sine from phase 0, constant.
+- Ring Mod: fitted on Set 38 (2026-11-15, NOTES "Ring Mod"), 15 of 16
+  pass (pad 15 fails on the envelope's rise under Hold, not Ring Mod).
+  Next: its acceptance Set (`accept-set "Ring Mod" --seed 1116 --pads 14
+  --spec`), then refs, preview, `device-check`, A/B.
 - Then, in this order: Sub Osc and
   Noise's envelopes, following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
@@ -272,7 +269,7 @@ reference.
 |---|---|---|
 | Pitch Env | sine_441, position_ramp | Set 32 (NOTES "Pitch Env") |
 | FM | sine_441, position_ramp | Amount 25 %, 100 %; Freq 10 Hz, 1 kHz; global Decay 100 ms and 60 s (with Hold short), for the modulation's decay |
-| Ring Mod | sine_441 | Amount 50 %, 100 %; Freq 5 Hz, 1 kHz; global Decay as for FM |
+| Ring Mod | sine_441, position_ramp | Set 38 (NOTES "Ring Mod") |
 | Sub Osc | silence_click, sine_441 | Amount 100 %; Freq 30, 60, 120 Hz; Attack 0 and 100 ms, Hold short, Decay 100 ms; and Hold Inf with Decay 100 ms, for whether Hold applies |
 | Noise | silence_click, sine_441 | Amount 100 %; Color 180 Hz, 1 kHz, 15 kHz; envelope as for Sub Osc |
 | 8-Bit | click_train, noise_white, sweep | Rate 1 kHz, 14.1 kHz; Decay Off, 100 ms, 1 s |
@@ -308,8 +305,13 @@ reference.
   pad 9: one quiet 44 Hz band window at 4.45 dB against 3, accepted
   2026-11-14). Under 0.2 % of the modulation's net shift; not the depth
   alone. Untraced.
-- **Short Attack (Set 35 pad 15):** Attack 0.1 ms sits up to 0.8 dB under
-  Attack 1 ms for the first ~60 frames; it passes (bands 0.42 dB).
+- **The level under a finite Hold:** Move's level climbs linearly over
+  the Hold, from the Attack's dry level (0.8465 at 0.1 ms, 0.9311 at
+  1 ms) to about 0.933 (NOTES "Volume envelope"); with Hold Inf it stays
+  put. LiveChopper's envelope is flat. At Attack 0.1 ms that's 0.85 dB by
+  the Hold's end: Set 38 pad 15 fails bands on it, Set 35 pad 15 passed.
+  Bears on "Preview level": Move's level isn't one number. Acceptance
+  Sets keep Hold Inf.
 - **Fast turns:** Move skips 2-3 values on a fast turn (NOTES, screen
   session 1). LiveChopper reads the encoder's delta, so it may already do
   the same; unchecked.

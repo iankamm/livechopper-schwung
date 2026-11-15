@@ -166,7 +166,11 @@ a Move drum rack preset or one WAV per slice.
     10 x a parabolic sine at its Freq, rising from 0 at the note-on (so at
     100 % the read runs backwards in the troughs), its depth falling to
     1 % over the global Decay + 50 ms from the note-on, Hold or not.
-  - Ring Mod: multiplies by a sine at its Freq.
+  - Ring Mod: Move's multiplier (NOTES.md "Ring Mod"): the sound times
+    (1 + b/4) x (1 - b x |FM's parabolic sine at its Freq|), b = Amount²,
+    so at 100 % it dips to silence twice a cycle, and with the modulation
+    gone it plays at 1.25 x dry. The depth falls 30 dB over the global
+    Decay + 50 ms from the note-on, Hold or not.
   - Sub Osc: adds a sine at its Freq (-6 dBFS at 100%).
   - Noise: adds noise low-passed at its Color, following the sound's level.
 - Filter: one global setting that sets the drum sampler's filter on every

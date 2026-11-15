@@ -96,8 +96,8 @@
  * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
  * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
  * Each voice plays a stand-in, not an emulation, before the filter, except
- * Punch and Pitch Env, which follow Move's measured curves (docs/NOTES.md,
- * "Punch" and "Pitch Env"). Punch:
+ * Punch, Pitch Env, FM and Ring Mod, which follow Move's measured curves
+ * (docs/NOTES.md, under their names). Punch:
  * a makeup of 1 + Amount^3 with a duck under it, the duck's target
  * 1 - Amount x (1 - (t/L)^n) floored at 0.15 and smoothed in dB by two
  * one-poles of 10.4 ms, so the transient keeps the makeup and the duck
@@ -105,8 +105,9 @@
  * bends the pitch by Amount x 48 semitones, falling to 1/1000 at its
  * Decay; FM adds Amount x 10 x a parabolic sine at its Frequency to the
  * playback rate (backwards at the troughs), fading to 1% over the global
- * Decay + 50 ms from the note on, Hold or not; Ring Mod multiplies by a
- * sine; Sub Osc adds a sine; Noise adds
+ * Decay + 50 ms from the note on, Hold or not; Ring Mod multiplies by
+ * (1 + b/4) x (1 - b x |that parabolic sine|), b = Amount^2, the depth
+ * falling 30 dB over the same time; Sub Osc adds a sine; Noise adds
  * noise low-passed at its Color, following the sound's level; 8-Bit's
  * Decay closes a low-pass on the crushed sound over that time. Stretch
  * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
@@ -229,6 +230,14 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
  * from the note on. Hold doesn't delay it. */
 #define FM_DEPTH 9.995f
 #define FM_DECAY_PAD_S 0.05f
+/* Ring Mod, fitted to Move's multiplier (Set 38: position_ramp pads
+ * divided by their dry render, within 0.0003 rms): the sound times
+ * (1 + b/4) x (1 - b x depth x |parabolic sine|), b = Amount squared, so
+ * at 100 % it dips to silence twice a cycle and the decayed sound sits
+ * at 1.25 x dry. The depth falls 30 dB over FM's global Decay + 50 ms,
+ * from the note on; Hold doesn't delay it. */
+#define RING_MOD_MAKEUP 0.25f
+#define RING_MOD_DECAY_K 3.4538776f  /* 30 dB: 1.5 ln 10 */
 #define SUB_OSC_LEVEL 16384.0f      /* -6 dBFS at 100% */
 #define NOISE_FOLLOW_RELEASE 0.9995f /* the level follower falls ~70 ms to 1/e */
 #define CRUSH_DECAY_FLOOR_HZ 200.0f /* where 8-Bit Decay's low-pass ends up */
@@ -1358,9 +1367,14 @@ static void fx_frame(const live_chopper_t *inst, fx_state_t *x, int t, float *l,
         }
         break;
     case FX_RING_MOD:
-        v = 1.0f - a + a * fx_osc(x, inst->fx_b);
-        *l *= v;
-        *r *= v;
+        if (a > 0.0f) {
+            float b = a * a;
+            float depth = b * expf(-RING_MOD_DECAY_K * (float)t
+                                   / ((float)inst->decay_frames + FM_DECAY_PAD_S * MOVE_SAMPLE_RATE));
+            v = (1.0f + RING_MOD_MAKEUP * b) * (1.0f - depth * fabsf(fx_para(x, inst->fx_b)));
+            *l *= v;
+            *r *= v;
+        }
         break;
     case FX_SUB_OSC:
         v = a * SUB_OSC_LEVEL * fx_osc(x, inst->fx_b);

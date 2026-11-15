@@ -758,13 +758,34 @@ int main(void) {
             CHECK(fabs(at300ms - (pass ? 0.15 : 0.75)) < 0.01, "Punch %.0f%% ducks to %s of the makeup (%.3f at 300 ms)",
                   amt * 100, pass ? "the 0.15 floor" : "1 - Amount", at300ms);
         }
-        FX_PLAY("6", "1 1000");                /* Ring Mod: times a 1 kHz sine */
-        bad = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
-            float want = ref[i * 2] * sinf(2.0f * (float)M_PI * 1000.0f * i / 44100.0f);
-            if (fabsf(out[i * 2] - want) > 1.5f) bad++;
+        /* Ring Mod: Move's multiplier (docs/NOTES.md, "Ring Mod"), frame
+         * by frame for 200 ms against the model in double: (1 + b/4) x
+         * (1 - b x depth x |parabolic sine|), b = Amount^2, the depth
+         * falling 30 dB over the global Decay + 50 ms. */
+        const struct { double amt, hz, dec; const char *v, *us; } rm[] = {
+            { 1.0, 1000, 0.1, "1 1000", "100000" }, { 0.5, 5, 0.01, "0.5 5", "10000" },
+            { 0.25, 5000, 1.0, "0.25 5000", "1000000" },
+        };
+        for (int i = 0; i < 3; i++) {
+            int wrong = 0;
+            double peak = 0;
+            param(inst, "decay_us", rm[i].us);
+            FX_PLAY("6", rm[i].v);
+            for (int t = 0; t < 200 * 441 / 10; t++) {
+                if (t && t % MOVE_FRAMES_PER_BLOCK == 0) api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                double ph = fmod(rm[i].hz * t / 44100.0, 1.0);
+                double c = ph < 0.5 ? 16 * ph * (0.5 - ph) : 16 * (ph - 0.5) * (1 - ph);
+                double b = rm[i].amt * rm[i].amt, d = pow(10, -1.5 * t / 44100.0 / (rm[i].dec + 0.05));
+                double want = ramp(t, 0) * (1 + b / 4) * (1 - b * d * c), got = out[(t % MOVE_FRAMES_PER_BLOCK) * 2];
+                if (want > 32767) want = 32767;            /* 1.25 x the ramp's top clips */
+                if (fabs(got - want) > 1.5 + 0.002 * fabs(want)) wrong++;
+                if (ramp(t, 0) > 1000 && got / ramp(t, 0) > peak) peak = got / ramp(t, 0);
+            }
+            CHECK(wrong == 0 && fabs(peak - (1 + rm[i].amt * rm[i].amt / 4)) < 0.01,
+                  "Ring Mod %s, Decay %g s follows its model (%d frames wrong, peak %.3f x dry)",
+                  rm[i].v, rm[i].dec, wrong, peak);
         }
-        CHECK(bad == 0, "Ring Mod at 100%% multiplies by the sine (%d wrong)", bad);
+        param(inst, "decay_us", "50000");
         FX_PLAY("7", "0.5 60");                /* Sub Osc: adds a 60 Hz sine */
         bad = 0;
         for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {

@@ -652,6 +652,55 @@ case, its waveform 566 LSB off from the same drift), position 0.10 ms
 - Listening A/B (2026-11-15, `................`): no difference heard on
   any of the 16 pairs.
 
+### Ring Mod (Set 38)
+
+Fitted 2026-11-15 on Set 38 (`tools/fxlab/sets/set38_ring_fit.json`,
+written with `make-set`, take and Move's saved Song.abl in
+`.claude/recordings/set38/`, split in `set38/ring/`): Attack 0.10 ms, Hold
+Inf and Decay 60 s unless shown, 3 s apart.
+
+| Pad | Sound | Ring Mod |
+|---|---|---|
+| 1 | sine_441 | dry (Stretch 1.00) |
+| 2-4 | sine_441 | Amount 100 %, 50 %, 25 %, Freq 5 Hz |
+| 5-6 | sine_441 | Amount 100 %, 50 %, Freq 1 kHz |
+| 7 | position_ramp | Amount 50 %, Freq 1 Hz |
+| 8 | position_ramp | Amount 100 %, Freq 1 kHz |
+| 9 | sine_441 | Amount 100 %, Freq 5 kHz |
+| 10 | sine_441 | Amount 100 %, Freq 1 kHz, Decay 100 ms |
+| 11-13 | position_ramp | Amount 100 %, Freq 5 Hz, Decay 100 ms, 10 ms, 1 s |
+| 14 | sine_441 | Amount 50 %, Freq 5 Hz, Decay 300 ms |
+| 15 | position_ramp | Amount 100 %, Freq 5 Hz, Hold 500 ms, Decay 100 ms |
+| 16 | sine_441 | a copy of pad 2 |
+
+The position_ramp pads, divided by their dry render (level 0.84649),
+give the multiplier frame by frame. It is never negative: not a ring
+modulator in the textbook sense.
+
+- **Multiplier:** (1 + b/4) x (1 - b x depth x |c|), b = Amount², c FM's
+  parabolic sine at Freq, phase 0 at note-on. So it peaks where c
+  crosses 0 (twice a cycle: pad 8 at 1 kHz repeats every 22.05 frames),
+  and at 100 % it dips to 0 at c's peaks. Fitted: makeup 0.2500 (pads
+  7, 8, 11-13 each), rms 0.0003 against the measured multiplier (0.004 on
+  pad 8 at 1 kHz). Amount²: pad 7's dips reach 1 - 0.25, and pad 4's 25 %
+  matches with b = 1/16.
+- **Decay:** depth = 10^(-1.5 t / (Decay + 50 ms)), i.e. -30 dB at FM's
+  Decay + 50 ms (FM falls 40 dB there). Fitted time constants against
+  (4/3)(Decay + 50 ms): 0.0800/0.080 s at 10 ms, 0.1999/0.200 at 100 ms,
+  1.399/1.400 at 1 s; at 60 s the 2 s sound fits 79 s against 80
+  (barely constrained). The decayed sound stays at 1 + b/4 (pad 11
+  settles at exactly 1.25 x dry).
+- **Hold doesn't delay it:** pad 15 fits Decay + 50 ms = 0.1499 s, once
+  the envelope's rise under a finite Hold (below, "Volume envelope") is
+  factored out.
+- **Repeatable:** pad 16 gives exactly pad 2's numbers.
+- Sine pads against the model: waveform residuals 6-27 LSB rms (-54 to
+  -60 dB); pad 9 at 5 kHz 111 LSB (-42 dB), untraced (aliasing of |c|'s
+  harmonics, or Move's oscillator).
+- `fxlab.py check`: 15 of 16 pass, bands worst 0.11 dB but pad 7 (0.87
+  dB max). Pad 15 fails bands (0.90/5.44 dB) on the envelope's rise
+  under Hold, which LiveChopper doesn't model; not Ring Mod.
+
 ### Volume envelope (Set 35)
 
 The first Set written by `fxlab.py make-set`
@@ -679,8 +728,14 @@ Set and played its clip; it saved the Set back with the same pad values.
   from full level; held, the level stays at 0 dB.
 - **Attack:** linear in amplitude from 0 on the note-on frame, as ours.
   Pad 15's 0.1 ms Attack sits up to 0.8 dB under the 1 ms pads for its
-  first ~60 frames, 0.09 dB on average up to the Decay: within limits,
-  untraced.
+  first ~60 frames, 0.09 dB on average up to the Decay: within limits.
+  Traced on Set 38 (2026-11-15): under a finite Hold the level climbs
+  linearly over the Hold, from the Attack's dry level to about 0.933
+  (Set 35 pad 15: 0.849 at 2 ms to 0.930 at 95 ms of its 100 ms Hold;
+  Set 38 pad 15, Ring Mod: x1.103 of 0.8465 by its 500 ms Hold's end).
+  With Hold Inf it stays at the Attack's level (0.8465 at 0.1 ms); at
+  Attack 1 ms, 0.9311, it climbs only 0.2 %. LiveChopper doesn't model
+  it (PLAN "Open").
 - **Repeatable:** pad 16 gives exactly pad 4's numbers.
 - `fxlab.py check --gain 0.93114` (the dry level from Set 34; with one
   sustaining pad the estimate from the dry pieces fails): 16 of 16 pass,

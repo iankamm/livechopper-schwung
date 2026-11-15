@@ -1,0 +1,154 @@
+{
+ "name": "Set 39",
+ "about": "fxlab.py accept-set Ring Mod --seed 1116 (PLAN \"When an effect is done\"): drawn, not tuned against. Attack at its minimum, Hold Inf, Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 6,
+ "defaults": {
+  "Voice_Envelope_Attack": 0.0001,
+  "Voice_Envelope_Hold": 60.0,
+  "Voice_Envelope_Decay": 60.0,
+  "Voice_Envelope_Mode": "A-H-D",
+  "Effect_Type": "Stretch",
+  "Effect_StretchFactor": 1.0
+ },
+ "pads": [
+  {
+   "sample": "sine_441.wav"
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.7798165137614679,
+    "Effect_RingModFrequency": 130.58274158337483,
+    "Voice_Envelope_Decay": 2.4963724167600407
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.08409785932721713,
+    "Effect_RingModFrequency": 2.8735411557541557,
+    "Voice_Envelope_Decay": 2.109837264093893
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.9097859327217125,
+    "Effect_RingModFrequency": 1.0702238434294906,
+    "Voice_Envelope_Decay": 7.450785893420088
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.7186544342507645,
+    "Effect_RingModFrequency": 515.3217360631588,
+    "Voice_Envelope_Decay": 18.794655746621803
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.22935779816513763,
+    "Effect_RingModFrequency": 1832.3160650777577,
+    "Voice_Envelope_Decay": 33.86459091576563
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.7110091743119266,
+    "Effect_RingModFrequency": 290.736370509272,
+    "Voice_Envelope_Decay": 0.002984645176896409
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.9480122324159022,
+    "Effect_RingModFrequency": 164.51744574186853,
+    "Voice_Envelope_Decay": 12.34193724026283
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.5122324159021406,
+    "Effect_RingModFrequency": 3529.9342775362043,
+    "Voice_Envelope_Decay": 2.953723184824287
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.8409785932721713,
+    "Effect_RingModFrequency": 205.21604943437077,
+    "Voice_Envelope_Decay": 0.002984645176896409
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.9480122324159022,
+    "Effect_RingModFrequency": 190.84054864809434,
+    "Voice_Envelope_Decay": 1.3854725221713657
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.191131498470948,
+    "Effect_RingModFrequency": 615.2379891738684,
+    "Voice_Envelope_Decay": 20.44393934029236
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.26758409785932724,
+    "Effect_RingModFrequency": 3529.9342775362043,
+    "Voice_Envelope_Decay": 1.639299602575245
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.2599388379204893,
+    "Effect_RingModFrequency": 1.048479840056349,
+    "Voice_Envelope_Decay": 0.017459310291179548
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.42048929663608564,
+    "Effect_RingModFrequency": 1.3233050003196556,
+    "Voice_Envelope_Decay": 9.589428131396911
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Ring Mod",
+    "Effect_RingModAmount": 0.7798165137614679,
+    "Effect_RingModFrequency": 130.58274158337483,
+    "Voice_Envelope_Decay": 2.4963724167600407
+   }
+  }
+ ]
+}
