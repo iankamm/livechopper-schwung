@@ -58,10 +58,10 @@ LiveChopper's own designs, not Move's algorithms.
 - Done: the volume envelope's Decay and Gate release (2026-11-14, Set 35,
   NOTES "Volume envelope"): -84 dB over the Decay, a straight line in dB.
   References in `tests/move_refs/envelope/`.
-- Ring Mod: fitted on Set 38 (2026-11-15, NOTES "Ring Mod"), 15 of 16
-  pass (pad 15 fails on the envelope's rise under Hold, not Ring Mod).
-  Next: its acceptance Set (`accept-set "Ring Mod" --seed 1116 --pads 14
-  --spec`), then refs, preview, `device-check`, A/B.
+- Ring Mod: fitted on Set 38, accepted on Set 39 (2026-11-15), seed 1116
+  (`tools/fxlab/sets/set39_ring_accept.json`), references in
+  `tests/move_refs/ring_mod/`. NOTES "Ring Mod". Next: the preview
+  checks, `device-check` and the listening A/B.
 - Then, in this order: Sub Osc and
   Noise's envelopes, following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.

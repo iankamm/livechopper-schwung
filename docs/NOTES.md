@@ -701,6 +701,13 @@ modulator in the textbook sense.
   dB max). Pad 15 fails bands (0.90/5.44 dB) on the envelope's rise
   under Hold, which LiveChopper doesn't model; not Ring Mod.
 
+Set 39, the acceptance Set (`accept-set "Ring Mod" --seed 1116 --pads 14
+--spec`, the first drawn at dialable positions only), recorded
+2026-11-15: 16 of 16, bands worst 0.02 dB; every pad's waveform within
+0.4-12.8 LSB rms of Move's (the dry pad 5.0), pad 16 bit for bit pad 2.
+`fxlab.py refs .claude/recordings/set39/ring --seed 1116` saved them as
+`tests/move_refs/ring_mod/`.
+
 ### Volume envelope (Set 35)
 
 The first Set written by `fxlab.py make-set`
