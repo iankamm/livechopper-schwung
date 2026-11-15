@@ -5,6 +5,31 @@ today; when something here is built, its decisions move into SPEC.md and it
 comes off this list. What was measured along the way goes to
 [NOTES.md](NOTES.md).
 
+## Road to v1.0.0
+
+Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
+fix bugs, then release v1.0.0. Point releases in between are fine.
+
+1. **Match the remaining effects** (below, "Status"), easiest first:
+   Ring Mod's decay (likely FM's: the global Decay + 50 ms), Sub Osc and
+   Noise's envelopes (one Set may cover both), following Transpose
+   across the effects, 8-Bit, then Stretch and Loop. Before the next
+   acceptance Set, make `accept-set` draw only values LiveChopper reaches
+   ("Open", "Dialling an acceptance Set"). Punch's listening A/B is owed.
+2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
+   to Move, or shipped as LiveChopper's own stand-ins, documented in
+   SPEC as such. Move's grain algorithm is unknown, so they are the
+   costliest.
+3. **Settle the "Open" items that change the sound:** the preview level
+   (unity, 1.45 dB above Move), Move's dry onset (its 4-frame attack ramp
+   and end fade, the onset heard in Pitch Env's A/B), and fast turns. The
+   small untraced offsets that pass can stay open past 1.0.
+4. **Polish and bug-fix on the device:** a full pass of the workflow
+   (chop, fine-tune, export, then the exported preset on Move against
+   chop mode), help.json, the screen reader's announcements, and anything
+   found in use; the weekly CI run ("Maintenance").
+5. **Release v1.0.0**, its notes summing up the module as a whole.
+
 ## Match the drum sampler effects to Move
 
 Steps 1-3 are done: one knob model for every knob that mirrors Move (SPEC
