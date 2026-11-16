@@ -23,8 +23,12 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
    small untraced offsets that pass can stay open past 1.0.
 4. **Polish and bug-fix on the device:** a full pass of the workflow
    (chop, fine-tune, export, then the exported preset on Move against
-   chop mode), help.json, the screen reader's announcements, and anything
-   found in use; the weekly CI run ("Maintenance").
+   chop mode), help.json, the screen reader's announcements, a knob
+   reversed by one click (Punch's preview, 2026-11-16: 83 % reached from
+   84 % with one click down may have landed on 1080, not the 1090
+   `stepKnob` predicts; a two-hit take, straight up and up-then-down,
+   settles it), and anything found in use; the weekly CI run
+   ("Maintenance").
 5. **Release v1.0.0**, its notes summing up the module as a whole.
 
 ## Match the drum sampler effects to Move
