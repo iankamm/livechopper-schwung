@@ -1,0 +1,27 @@
+{
+ "name": "Set 49 8-Bit",
+ "about": "8-Bit's fit Set (PLAN \"Road to v1.0.0\"; no Set has had an 8-Bit pad before). The bit reduction: sine_441_quiet at 14.08 kHz (how many bits, against full scale or the input's level? dither? pad 16 repeats it), position_ramp at 14.08 kHz (the staircase: step size, rounding, offset at 0), and position_ramp under a volume Decay of 1 s from a 1 ms Hold (are the bits cut before the envelope, steps shrinking, or after, steps fixed?). The sample-and-hold: click_train at 1 kHz and 14.08 kHz (point-sampled or averaged, the hold's length and phase from the note-on, the fractional pattern at 3.13 frames), sweep at 1 kHz, 14.08 kHz and 30 kHz (aliasing, and any filter before or after the hold). The Decay: noise_white at 30 kHz with Decay Off, 1 s, 100 ms and 10 ms (the low-pass's start, shape, order and floor; Off: no filter at all?). Transpose +12: click_train at 1 kHz (does the rate follow the pitch?) and noise_white at Decay 100 ms (does the Decay?). Attack at its minimum, Hold Inf and Decay 60 s unless shown, Low-Pass 24 open; 5 s apart for the 4 s sweep.",
+ "tempo": 120,
+ "spacing_beats": 10,
+ "defaults": {"Voice_Envelope_Attack": 0.0001, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0,
+              "Voice_Envelope_Mode": "A-H-D", "Effect_Type": "8-bit",
+              "Effect_EightBitResamplingRate": 14080.0, "Effect_EightBitFilterDecay": 5.0},
+ "pads": [
+  {"sample": "sine_441.wav", "params": {"Effect_Type": "Stretch", "Effect_StretchFactor": 1.0}},
+  {"sample": "sine_441_quiet.wav"},
+  {"sample": "position_ramp.wav"},
+  {"sample": "position_ramp.wav", "params": {"Voice_Envelope_Hold": 0.001, "Voice_Envelope_Decay": 1.0}},
+  {"sample": "click_train.wav", "params": {"Effect_EightBitResamplingRate": 1000.0}},
+  {"sample": "click_train.wav"},
+  {"sample": "sweep.wav", "params": {"Effect_EightBitResamplingRate": 1000.0}},
+  {"sample": "sweep.wav"},
+  {"sample": "sweep.wav", "params": {"Effect_EightBitResamplingRate": 30000.0}},
+  {"sample": "noise_white.wav", "params": {"Effect_EightBitResamplingRate": 30000.0}},
+  {"sample": "noise_white.wav", "params": {"Effect_EightBitResamplingRate": 30000.0, "Effect_EightBitFilterDecay": 1.0}},
+  {"sample": "noise_white.wav", "params": {"Effect_EightBitResamplingRate": 30000.0, "Effect_EightBitFilterDecay": 0.1}},
+  {"sample": "noise_white.wav", "params": {"Effect_EightBitResamplingRate": 30000.0, "Effect_EightBitFilterDecay": 0.01}},
+  {"sample": "click_train.wav", "params": {"Effect_EightBitResamplingRate": 1000.0, "Voice_Transpose": 12}},
+  {"sample": "noise_white.wav", "params": {"Effect_EightBitResamplingRate": 30000.0, "Effect_EightBitFilterDecay": 0.1, "Voice_Transpose": 12}},
+  {"sample": "sine_441_quiet.wav"}
+ ]
+}
