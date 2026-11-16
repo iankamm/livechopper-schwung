@@ -231,6 +231,19 @@ v, _ = verdicts(off)
 check(r.returncode == 1 and v[1]["pitch"] == "FAIL" and v[2]["pitch"] == "FAIL"
       and v[3]["pitch"] == "PASS" and v[4]["position"] == "FAIL",
       "47 st for 48, and Decay 5.5 ms for 5 ms, fail: %s" % v)
+# refs --waive: a failing Set is refused unless every failure is waived;
+# a waived metric is left out of its ref, which names it.
+_, offrows = verdicts(off)
+fails = ["%s:%s" % (r["piece"].rsplit(".", 1)[0], n) for r in offrows
+         for n, m in r["metrics"].items() if m["verdict"] == "FAIL"]
+wdest = os.path.join(OUT, "waive_refs")
+part = run("refs", off, "--dest", wdest, "--seed", "1", *sum((["--waive", f] for f in fails[1:]), []))
+full = run("refs", off, "--dest", wdest, "--seed", "1", *sum((["--waive", f] for f in fails), []))
+wpiece, wmetric = fails[0].split(":")
+wref = json.load(open(os.path.join(wdest, "pitch_env", wpiece + ".json")))
+check(len(fails) >= 2 and part.returncode != 0 and full.returncode == 0 and wmetric not in wref["metrics"]
+      and wmetric in wref["waived"], "refs --waive: only with every failure waived, and the ref says so:\n"
+      + part.stdout + full.stdout)
 
 # make-set: the Set split reads back is the spec, and its clip plays it.
 spec = {"name": "Selftest", "tempo": 120, "spacing_beats": 6,

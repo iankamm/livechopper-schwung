@@ -71,10 +71,15 @@ LiveChopper's own designs, not Move's algorithms.
   that drops the dry click's Nyquist ring, gain within 0.5 %, overdamped
   pads included). Noise not accepted on Set 44: its Amount law was up to
   5.7 dB loud under 25 %, which bands can't see; refitted on Set 45, and
-  check has a noise metric. Fresh acceptance Set 46, seed 1119
-  (`set46_noise_accept.json`). Open past them: Noise under a finite Hold, at other Attacks and on
-  Gate pads, its follower's exact shape, and a Gate Sub Osc pad's jump at
-  the note-off.
+  check has a noise metric. Noise accepted on a fresh Set 46, seed 1119
+  (`set46_noise_accept.json`), 16 of 16 with pad 3's bands waived (`refs
+  --waive`: drum and noise equally loud near 160 Hz, so one take's bands
+  swing past the limit; plugin.c against itself over 10 seeds up to
+  1.67/5.44), refs in `tests/move_refs/noise/`. Next: the Skipback
+  previews (dsp.so from this plugin.c installed first), device-check,
+  the A/B. Open past them: Noise under a finite Hold, at other Attacks
+  and on Gate pads, its follower's exact shape, and a Gate Sub Osc pad's
+  jump at the note-off.
 - Then, in this order: following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad

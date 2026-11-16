@@ -906,7 +906,23 @@ Acceptance, 2026-11-15:
   passes the new. Noise pads now line up on the dry render: loud noise
   threw the match against ours (Set 44 pad 8 at lag -19, Set 42 pads 5
   and 15 too; pad 5's bands, aligned, are 0.96/3.18). Set 42 pad 9
-  (click_train) fails it by 33 dB on the dry clicks' Nyquist ring.
+  (click_train) fails it by 33 dB on the dry clicks' Nyquist ring. The
+  floor was 50 dB under the dry block at first; Set 46 showed that hid
+  its 13-23 % pads, and drum_synth's transient, fitted out, sits ~66 dB
+  under, so it is 60 (stricter: Sets 44 and 46 pass it).
+- **Noise accepted on Set 46** (seed 1119, a fresh draw), 16 of 16 with
+  one waiver, refs in `tests/move_refs/noise/`. Noise measured on pads 3-8,
+  13 and 15 (0.06-0.87 dB rms), among them 13.8 % (pad 6) and 16 % on
+  drum_synth (pad 15): the refitted low range, held out. The others'
+  noise (1.5-12 %, or Decays of a few ms) sits under the floor. Pad 3
+  (drum_synth, 77 %, Color 202 Hz, Decay 218 ms) fails bands 1.62/5.90
+  with its noise level matching (0.19/0.32): drum and noise are equally
+  loud near 160 Hz, so one take's band power swings with their random
+  phase. Rendered under 10 other seeds, plugin.c against itself differs
+  by up to 1.67/5.44 (median 1.21/3.21); Move against the 10-seed mean
+  is 1.03/3.57, a seed against the other nine's 0.44-1.17/1.12-3.27.
+  Waived (`refs --waive 03_drum_synth:bands`): the ref keeps pad 3's
+  noise curve and says the bands one was left out.
 
 ### Volume envelope (Set 35)
 
