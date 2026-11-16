@@ -1257,7 +1257,119 @@ def accept_spec(effect, seed, drawn, sounds, knobs):
             "pads": pads}
 
 
+# accept-set Transpose: the envelope and the matched effects under a drawn
+# Transpose and Detune (Set 47, NOTES "Following Transpose"). Every Attack is
+# 1 ms or more, pad 1's too: Move's level is then ~0.931 under any Hold, and
+# only at the minimum Attack under Hold Inf is it 0.8465 (NOTES "Volume
+# envelope"), so the level reference holds for every pad.
+TRANSPOSE_PADS = ([(None, False)] * 2 + [(None, True)] * 2 + [("Punch", False)] * 2 + [("Pitch Env", False)] * 2
+                  + [("FM", False)] * 2 + [("Ring Mod", False)] * 2 + [("Sub Osc", False), ("Noise", False)])
+TRANSPOSE_SOUNDS = {None: ["sine_441", "position_ramp", "drum_synth"]}
+TRANSPOSE_SEMIS = 24            # drawn in -24..24, not 0
+TRANSPOSE_ATTACK = (0.001, 0.3)
+TRANSPOSE_HOLD = (0.001, 1.0)   # or Inf, on a third of the Trigger pads
+TRANSPOSE_DECAY = (0.001, 1.0)
+TRANSPOSE_SPACING_BEATS = 10    # 5 s at 120 BPM: -24 st makes a 2 s sound 8 s, so the envelope ends it
+TRANSPOSE_MAX_S = 4.2           # each pad's sound, ended by then
+# Where Move's behaviour past its own ranges is unmeasured, keep out:
+TRANSPOSE_MAX_HZ = {"Ring Mod": 5000.0, "Noise": 15000.0}
+
+
+def transpose_draw(rng, effect, gate, sound):
+    """One pad: Transpose, Detune, envelope, and the effect's settings
+    (None: Stretch 1.00); or None to draw again."""
+    semis = rng.choice([s for s in range(-TRANSPOSE_SEMIS, TRANSPOSE_SEMIS + 1) if s])
+    cents = rng.choice([c for c in range(-50, 51) if c]) if rng.random() < 0.5 else 0
+    r = 2 ** ((semis * 100 + cents) / 1200)
+    knobs = [("attack", "Attack"), ("hold", "Hold"), ("decay", "Decay")] + list(KNOBS_FOR.get(effect, ()))
+    out = json.loads(subprocess.check_output(
+        ["node", os.path.join(REPO, "tools", "fxlab", "knob_readout.mjs"),
+         json.dumps([[k, rng.random()] for k, _ in knobs])]))
+    attack, hold, decay = out[0][1], out[1][1], out[2][1]
+    if not (TRANSPOSE_ATTACK[0] - 1e-9 <= attack <= TRANSPOSE_ATTACK[1]
+            and TRANSPOSE_HOLD[0] - 1e-9 <= hold <= TRANSPOSE_HOLD[1]
+            and TRANSPOSE_DECAY[0] - 1e-9 <= decay <= TRANSPOSE_DECAY[1]):
+        return None
+    inf = not gate and effect not in ("Sub Osc",) and (effect == "Noise" or rng.random() < 1 / 3)
+    p = {"Voice_Transpose": semis, "Voice_Detune": cents / 100, "Voice_Envelope_Attack": attack,
+         "Voice_Envelope_Hold": 60.0 if inf else hold, "Voice_Envelope_Decay": decay}
+    if effect == "Noise":
+        p["Voice_Envelope_Attack"] = 0.001   # Noise is accepted at a short Attack under Hold Inf only (Set 46)
+    pad = {"sample": sound + ".wav", "params": p}
+    src_s = len(read_mono(os.path.join(WAVS, pad["sample"]))) / RATE
+    if gate:
+        p["Voice_Envelope_Mode"] = "A-S-R"
+        pad["gate_s"] = round(0.3 + 0.7 * rng.random(), 2)
+        length = min(src_s / r, pad["gate_s"] + decay)          # the release doesn't follow
+    else:
+        length = min(src_s / r, 1e9 if inf else (p["Voice_Envelope_Attack"] + hold + decay) / r)
+    if length > TRANSPOSE_MAX_S:
+        return None
+    labels = ["Transpose %d st" % semis] + (["Detune %d ct" % cents] if cents else [])
+    labels += ["Attack %s" % ("1.00 ms" if effect == "Noise" else out[0][0]),
+               "Hold %s" % ("Inf" if inf else out[1][0]) if not gate else "Gate %.2f s" % pad["gate_s"],
+               "Decay %s" % out[2][0]]
+    if effect:
+        i = [e[0] for e in EFFECTS].index(effect)
+        a, b = out[3][1], out[4][1]
+        rule = EFFECTS[i][3]
+        if rule is not None and abs({EFFECTS[i][1]: a, EFFECTS[i][2]: b}.get(rule[0], -1) - rule[1]) < 1e-6:
+            return None
+        if effect in TRANSPOSE_MAX_HZ and b * r > TRANSPOSE_MAX_HZ[effect]:
+            return None
+        if effect == "Pitch Env" and abs(semis + cents / 100 + 48 * a) > 48:
+            return None                  # past Move's own pitch range: unmeasured
+        if effect == "Sub Osc" and decay > ACCEPT_MAX_DECAY["Sub Osc"]:
+            return None
+        p.update({"Effect_Type": effect, EFFECTS[i][1]: a, EFFECTS[i][2]: b})
+        labels += ["%s %s" % (KNOBS_FOR[effect][0][1], out[3][0]), "%s %s" % (KNOBS_FOR[effect][1][1], out[4][0])]
+    if accept_clips(pad):
+        return None
+    return pad, ", ".join(labels)
+
+
+def cmd_accept_transpose(seed, spec_path=None):
+    rng = random.Random(seed)
+    drawn = []
+    for k, (effect, gate) in enumerate(TRANSPOSE_PADS):
+        sounds = TRANSPOSE_SOUNDS[None] if effect is None else ACCEPT_SOUNDS[effect] + ["drum_synth"]
+        sound = sounds[k % len(sounds)]
+        while True:
+            got = transpose_draw(rng, effect, gate, sound)
+            if got:
+                break
+        drawn.append(got)
+    print("Acceptance Set for following Transpose, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % seed)
+    print("Every pad: Low-Pass 24 fully open, Full Velocity; Attack 1 ms or more (the level reference).")
+    print("Play the pads in order 5 s apart, then split and run fxlab.py check.\n")
+    print("| Pad | Sound | Settings |")
+    print("|---|---|---|")
+    print("| 1 | sine_441 | dry (Stretch 1.00), Attack 1.00 ms |")
+    for k, (pad, text) in enumerate(drawn):
+        print("| %d | %s | %s%s |" % (k + 2, pad["sample"][:-4], "" if pad["params"].get("Effect_Type") else "no effect, ",
+                                     text))
+    print("| 16 | %s | a copy of pad 2 (Move's repeatability) |" % drawn[0][0]["sample"][:-4])
+    if spec_path:
+        pads = [{"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.001}}] + [p for p, _ in drawn]
+        pads.append(json.loads(json.dumps(pads[1])))
+        spec = {"name": "Transpose acceptance %d" % seed,
+                "about": "fxlab.py accept-set Transpose --seed %d (PLAN \"When an effect is done\"): drawn, not "
+                         "tuned against. Transpose and Detune across the envelope (Trigger and Gate) and the "
+                         "matched effects; every Attack 1 ms or more, Low-Pass 24 open." % seed,
+                "tempo": 120, "spacing_beats": TRANSPOSE_SPACING_BEATS,
+                "defaults": {"Voice_Envelope_Attack": 0.001, "Voice_Envelope_Hold": 60.0,
+                             "Voice_Envelope_Decay": 60.0, "Voice_Envelope_Mode": "A-H-D",
+                             "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+                "pads": pads}
+        build_set(spec)                 # refuses what Move wouldn't take
+        with open(spec_path, "w") as f:
+            json.dump(spec, f, indent=1)
+        print("\nspec: %s (fxlab.py make-set %s <outdir>)" % (spec_path, spec_path))
+
+
 def cmd_accept_set(effect, seed, pads, spec_path=None):
+    if effect.lower() == "transpose":
+        return cmd_accept_transpose(seed, spec_path)
     match = [e for e in KNOBS_FOR if e.lower() == effect.lower()]
     if not match:
         sys.exit("accept-set: no effect %r (one of %s)" % (effect, ", ".join(KNOBS_FOR)))
