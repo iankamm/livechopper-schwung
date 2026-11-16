@@ -12,7 +12,7 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
 
 1. **Match the remaining effects** (below, "Status"), easiest first:
    following Transpose across the effects, 8-Bit, then Stretch and
-   Loop. Punch's listening A/B is owed.
+   Loop.
 2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Move's grain algorithm is unknown, so they are the
@@ -40,9 +40,9 @@ LiveChopper's own designs, not Move's algorithms.
 ### Status
 
 - Done: Punch (2026-11-12). Acceptance Set 31, seed 1112, references in
-  `tests/move_refs/punch/`; measurements and model in NOTES "Punch". Its
-  listening A/B is still owed: Punch was done before that step was
-  added, and needs a preview take of Set 31's pads to compare.
+  `tests/move_refs/punch/`; measurements and model in NOTES "Punch".
+  Preview checks and listening A/B passed 2026-11-16 (no difference
+  heard on any of 12 pairs).
 - Done: Pitch Env (2026-11-13). Fitted on Set 32, acceptance Set 33,
   seed 1113, references in `tests/move_refs/pitch_env/`; preview checks,
   `device-check` and listening A/B passed (2026-11-13: a subtle onset

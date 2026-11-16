@@ -477,6 +477,15 @@ repeat Set 30 settings, so a halved time would show directly:
   Move (plugin.c built with build.sh's flags, the Move's libm) and
   compares them with the host's: all 56 renders identical, bit for bit.
   What `check` measures on the host is what the Move plays.
+- Listening A/B, 2026-11-16 (owed since Punch was done before that
+  step): Set 31's 12 pads played in chop mode in three Skipback takes
+  (`.claude/recordings/preview6/`). Against the renders, exact at the
+  positions played (`played.json`: 28 % and 83 % landed one grid position
+  under Set 31's, 50 % two units under; Set 31's Punch times sit ~5e-4
+  off the grid, the preview plays the grid). Against Move, 12 of 12
+  (gain worst 0.10 dB rms, bands 0.20). The 12 st, 100 % pad reaches full
+  scale: the render hard-clips, the take holds its peaks to 31918.
+  No difference heard on any of the 12 pairs.
 
 ### Pitch Env (Sets 32, 33)
 
