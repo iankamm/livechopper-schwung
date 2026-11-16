@@ -253,11 +253,12 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define SUB_OSC_LEVEL 32209.5f
 #define SUB_OSC_AMOUNT_DB 70.0f
 #define SUB_OSC_HP_HZ 11.0f
-/* Noise, fitted to Move's (Sets 41 and 42): white noise through
+/* Noise, fitted to Move's (Sets 41, 42 and 45): white noise through
  * (1 + z^-1)^2 / 4 and a bilinear band-pass at Color (Q 1.25), scaled by a
  * follower of the sound's level (|x|, attack 3.5 ms, release 6 ms: a
  * one-frame click barely moves it, a sine sits at 0.71 of its peak) and by
- * Amount^1.25 x 10^(-28.5 (1 - Amount) / 20), falling 20 dB over the global
+ * Amount's gain, linear in dB through -70 dB at 0+, -30 dB at 30 % and
+ * 0 dB at 100 % (0 is off), falling 20 dB over the global
  * Decay + 50 ms from the note on, or a Gate pad's note off
  * (noise_decay_pos). The gain makes a sine's noise 0.568 of its peak at
  * 100 % and 1 kHz (0.706 follower x 0.2255 band-pass rms per unit white,
@@ -266,8 +267,9 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define NOISE_GAIN (3.571f * 1.7320508f)
 #define NOISE_ATTACK_K 0.0064581f   /* 1 - exp(-1 / 3.5 ms) */
 #define NOISE_RELEASE_K 0.0037721f  /* 1 - exp(-1 / 6 ms) */
-#define NOISE_AMOUNT_E 1.25f
-#define NOISE_AMOUNT_DB 28.5f
+#define NOISE_AMOUNT_FLOOR_DB -70.0f /* Amount's gain just above 0 */
+#define NOISE_AMOUNT_KNEE 0.3f       /* where its slope changes */
+#define NOISE_AMOUNT_KNEE_DB -30.0f  /* and its gain there */
 #define NOISE_DECAY_K 2.3025851f    /* 20 dB: ln 10 */
 #define CRUSH_DECAY_FLOOR_HZ 200.0f /* where 8-Bit Decay's low-pass ends up */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
@@ -1360,7 +1362,10 @@ static void set_fx(live_chopper_t *inst, float a, float b) {
     }
     if (inst->effect == FX_NOISE) {
         float a = inst->fx_a;
-        inst->noise_amt = a > 0.0f ? powf(a, NOISE_AMOUNT_E) * powf(10.0f, -NOISE_AMOUNT_DB * (1.0f - a) / 20.0f) : 0.0f;
+        float db = a < NOISE_AMOUNT_KNEE
+            ? NOISE_AMOUNT_FLOOR_DB + (NOISE_AMOUNT_KNEE_DB - NOISE_AMOUNT_FLOOR_DB) * a / NOISE_AMOUNT_KNEE
+            : NOISE_AMOUNT_KNEE_DB * (1.0f - a) / (1.0f - NOISE_AMOUNT_KNEE);
+        inst->noise_amt = a > 0.0f ? powf(10.0f, db / 20.0f) : 0.0f;
         float k = tanf((float)M_PI * inst->fx_b / MOVE_SAMPLE_RATE), d = 1.0f + k / NOISE_Q + k * k;
         inst->noise_b0 = k / NOISE_Q / d;
         inst->noise_a1 = 2.0f * (k * k - 1.0f) / d;

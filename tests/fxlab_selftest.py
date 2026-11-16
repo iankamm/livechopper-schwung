@@ -274,5 +274,29 @@ for bad in ({"Voice_Envelope_Decya": 0.1}, {"Voice_Envelope_Decay": 0.0}, {"Voic
     except ValueError:
         pass
 
+# The noise metric: quiet noise on a sine (Set 44 pad 2's, ~45 dB under
+# it), Move's dry path a fiftieth of a frame and 0.05 % off ours. The same
+# noise level passes; 3.5 dB more fails; a sound one block long still
+# gets its one block.
+rng = np.random.default_rng(7)
+nt = np.arange(2 * fxlab.RATE)
+dry = 1100 * np.sin(2 * np.pi * 441 * nt / fxlab.RATE)
+mdry = 1.0005 * 1100 * np.sin(2 * np.pi * 441 * (nt - 0.02) / fxlab.RATE)
+nc = {"dry": dry, "end_ms": 1900.0}
+
+
+def noise_err(gain_db, c=nc):
+    mv = fxlab.curve_noise(mdry + 3.0 * rng.standard_normal(len(nt)), c)
+    ov = fxlab.curve_noise(dry + 3.0 * 10 ** (gain_db / 20) * rng.standard_normal(len(nt)), c)
+    ref = fxlab.store_curve("noise", *mv, c["end_ms"])
+    return fxlab.judge("noise", fxlab.curve_error("noise", ref, *ov), 1.0, 3.0)
+
+
+same, louder = noise_err(0.0), noise_err(3.5)
+short = noise_err(0.0, {"dry": dry, "end_ms": 150.0})
+check(same[1] == "PASS" and louder[1] == "FAIL" and abs(louder[0]["rms"] - 3.5) < 0.3
+      and short[0] is not None and short[1] == "PASS",
+      "noise metric: same level passes, 3.5 dB louder fails, one short block counts: %s %s %s" % (same, louder, short))
+
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)

@@ -307,8 +307,9 @@ def cmd_render(outdir, quiet=False):
         if p.get("Voice_Envelope_Mode") == "A-S-R" and "release_s" not in pc:
             print("  warning: %s is gated; the release time isn't in the take, so ours never releases" % pc["piece"])
         render_pad(pc["sample"], settings, pc["frames"], os.path.join(outdir, "ours_" + pc["piece"]))
-        if gain_effect(p):
-            # The same pad with no effect: what the gain curve divides by.
+        if needs_dry(p):
+            # The same pad with no effect: what the gain curve divides by,
+            # and what a Noise pad's noise is measured against.
             render_pad(pc["sample"], dry_settings(settings), pc["frames"], os.path.join(outdir, "dry_" + pc["piece"]))
         pc["settings"] = settings
         if not quiet:
@@ -537,6 +538,48 @@ def noise_pad(p):
     return effect_name(p) == "Noise" and fx_value(p, 0) > 0
 
 
+NOISE_BLOCK = 8192          # a noise level is the power over this many frames: 186 ms,
+NOISE_START = 220           # ... the first from 5 ms, past the onset (where the dry paths differ),
+NOISE_FLOOR_LSB = 1.0       # ... floored at this rms (the renders round to 0.3)
+NOISE_LIVE_DB = 50          # ... or this far under the dry sound in the block, if higher
+
+
+def needs_dry(p):
+    """A pad whose metrics use plugin.c's render of it with no effect."""
+    return gain_effect(p) or noise_pad(p)
+
+
+def uses_noise(p, sample):
+    return noise_pad(p)
+
+
+def curve_noise(x, c):
+    """A Noise pad's noise level: what's left of the piece in each
+    NOISE_BLOCK from NOISE_START to end_ms, once
+    plugin.c's dry render and its derivative are fitted out (Move's dry
+    path runs a fraction of a frame off ours: 5.9 rms on sine_441, 0.36
+    once fitted out), in dB, floored at NOISE_FLOOR_LSB or NOISE_LIVE_DB
+    under the dry block (drum_synth's transient leaves ~2e-3 of it).
+    bands can't see quiet noise (Set 44 pads 2 and 6: 16-20 % on
+    sine_441_quiet, some 45 dB under the sine and 3-4.5 dB off, passed
+    0.00 dB)."""
+    dry = c["dry"]
+    end = int(min(len(x), len(dry), max(0.0, c["end_ms"]) * RATE / 1000))
+    # Whole blocks, and a last one cut short at end if a quarter's left.
+    edges = list(range(NOISE_START, end - NOISE_BLOCK // 4 + 1, NOISE_BLOCK))
+    n = len(edges)
+    t, v = np.zeros(n), np.zeros(n)
+    for i, e in enumerate(edges):
+        s = slice(e, min(e + NOISE_BLOCK, end))
+        d, y = dry[s], x[s]
+        a = np.stack([d, np.gradient(d)], axis=1)
+        r = y - a @ np.linalg.lstsq(a, y, rcond=None)[0]
+        floor = max(NOISE_FLOOR_LSB ** 2, float(np.mean(d ** 2)) * 10 ** (-NOISE_LIVE_DB / 10))
+        t[i] = (s.start + s.stop) / 2 / RATE * 1000
+        v[i] = 10 * np.log10(max(float(np.mean(r ** 2)), floor))
+    return t, v
+
+
 def uses_pitch(p, sample):
     name = effect_name(p)
     return sample in SINES and (neutral(p) or name in ("Punch", "Pitch Env")
@@ -589,6 +632,7 @@ METRICS = [
     ("pitch", "ct", 5.0, 15.0, uses_pitch, curve_pitch),
     ("position", "ms", 1.0, 2.0, uses_position, curve_position),
     ("bands", "dB", 1.0, 3.0, lambda p, s: True, curve_bands),
+    ("noise", "dB", 1.0, 3.0, uses_noise, curve_noise),
 ]
 
 _band_fs = []
@@ -630,6 +674,10 @@ def curve_error(name, ref, t, v):
         # other lacks counts as at most BAND_LIVE_DB, not as -240 dB.
         floor = max(top.max() - BAND_LIVE_DB, band_fs_db() - BAND_FLOOR_DB)
         return (np.maximum(rb, floor) - np.maximum(ob, floor))[top > floor]
+    if name == "noise":
+        # The same blocks on both sides; a short sound has only one.
+        n = min(len(rv), len(v))
+        return rv[:n] - v[:n]
     if len(rt) == 0 or len(t) < 2:
         return np.array([])
     m = (rt >= t[0]) & (rt <= t[-1])
@@ -658,7 +706,7 @@ def measure(sample, params, x, ours, dry, end_ms):
     c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, sample))), "params": params, "end_ms": end_ms}
     out = {}
     for name, _, _, _, applies, curve in METRICS:
-        if not applies(params, sample) or (name == "gain" and dry is None):
+        if not applies(params, sample) or (name in ("gain", "noise") and dry is None):
             continue
         mt, mv = curve(x, c)
         ot, ov = curve(ours, c)
@@ -727,10 +775,13 @@ def load_pieces(outdir, gain_arg, ours_take=None):
         ours = read_mono(os.path.join(outdir, "ours_" + pc["piece"]))
         dry_path = os.path.join(outdir, "dry_" + pc["piece"])
         dry = read_mono(dry_path) if os.path.exists(dry_path) else None
-        d = {"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "move_lag": align(move, ours)}
+        # A Noise pad lines up on its dry render: loud noise throws the
+        # match against ours, which has noise of its own (Set 44 pad 8).
+        ref = dry if dry is not None and noise_pad(pc["params"]) else ours
+        d = {"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "move_lag": align(move, ref)}
         if takes:
             d["take"] = read_mono(os.path.join(ours_take, takes[k]["piece"]))
-            d["take_lag"] = align(d["take"], ours)
+            d["take_lag"] = align(d["take"], ref)
         data.append(d)
 
     found = False
@@ -1402,7 +1453,7 @@ def cmd_device_check(outdirs, host):
             settings = dsp_settings(pc["params"])
             where = os.path.join(*os.path.normpath(os.path.abspath(outdir)).split(os.sep)[-2:])
             jobs.append((pc["sample"], settings, pc["frames"], "%s %s" % (where, pc["piece"])))
-            if gain_effect(pc["params"]):
+            if needs_dry(pc["params"]):
                 jobs.append((pc["sample"], dry_settings(settings), pc["frames"], jobs[-1][3] + " (dry)"))
     local = os.path.join(REPO, "build", "device_check")
     shutil.rmtree(local, ignore_errors=True)

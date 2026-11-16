@@ -66,7 +66,13 @@ LiveChopper's own designs, not Move's algorithms.
   (NOTES "Sub Osc and Noise"); acceptance Sets drawn: Set 43, Sub Osc,
   seed 1117 (`tools/fxlab/sets/set43_subosc_accept.json`), and Set 44,
   Noise, seed 1118 (`set44_noise_accept.json`), Trigger pads at Hold Inf.
-  Open past them: Noise under a finite Hold, at other Attacks and on
+  Sub Osc accepted on Set 43, 16 of 16, refs in `tests/move_refs/sub_osc/`
+  (the click pads have no bands metric: checked by hand, after a low-pass
+  that drops the dry click's Nyquist ring, gain within 0.5 %, overdamped
+  pads included). Noise not accepted on Set 44: its Amount law was up to
+  5.7 dB loud under 25 %, which bands can't see; refitted on Set 45, and
+  check has a noise metric. Fresh acceptance Set 46, seed 1119
+  (`set46_noise_accept.json`). Open past them: Noise under a finite Hold, at other Attacks and on
   Gate pads, its follower's exact shape, and a Gate Sub Osc pad's jump at
   the note-off.
 - Then, in this order: following Transpose, 8-Bit, Stretch, Loop. Sets

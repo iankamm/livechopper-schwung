@@ -817,7 +817,8 @@ pad of each released at 0.3 s.
 - **Noise's Amount:** 25 % -36.5 dB (pads 2 and 16: 7.10 and 6.90 rms),
   50 % -21.5, 75 % -10.7 under 100 %. Neither a power of Amount nor
   linear in dB; Amount^1.25 x 10^(-28.5 (1 - Amount) / 20) fits within
-  0.4 dB (Amount x 10^(-32.2 (1 - Amount) / 20) within 0.6).
+  0.4 dB (Amount x 10^(-32.2 (1 - Amount) / 20) within 0.6). Set 45
+  replaced it (below).
 - **Noise's Decay:** depth 10^(-t / (Decay + 50 ms)), from note-on:
   (Decay + 50 ms) / τ = 2.311, 2.289, 2.306 at 100 ms, 300 ms, 1 s, i.e.
   ln 10 (FM's is 2 ln 10, Ring Mod's 1.5 ln 10).
@@ -870,6 +871,42 @@ takes of Set 41 pad 10 differ by 0.95/3.52 dB.
   reference at 0.1 ms for a pad at 300 ms), pad 10 (position_ramp,
   1.56/4.10: the follower) and pad 15 (Gate, 2.08/8.71). Pad 13 (Sub Osc
   0 %) fails on the dry click's ring alone, pad 14 on the Gate jump.
+
+Acceptance, 2026-11-15:
+
+- **Sub Osc accepted on Set 43** (seed 1117), 16 of 16, refs in
+  `tests/move_refs/sub_osc/`. Half its pads are overdamped, none fitted;
+  the click pads (the tone alone) have no bands metric, so checked by
+  hand: after a low-pass dropping the dry click's Nyquist ring (Move's,
+  not ours: "Move's dry path"), gain 0.995-1.003 and 0.3-3 LSB rms.
+- **Set 44** (Noise, seed 1118) passed check 16 of 16, but measured by
+  hand plugin.c's noise was 4.5 dB loud at 16 % (pads 2, 16) and ~3 dB at
+  20 % (pad 6): bands can't see noise ~45 dB under the sound. Not
+  accepted; it led to Set 45 and the noise metric, so the next acceptance
+  Set is a fresh draw, Set 46 (seed 1119).
+- **Set 45** (`set45_noise_amount.json`, `.claude/recordings/set45/`):
+  Noise on sine_441 at 1 kHz, Amounts 1-40 %, each pad less Move's own
+  dry pad 1 (exact: the same sound, so no dry-path error). Amount's gain
+  is linear in dB in two pieces: -70 dB just above 0 to -30 dB at 30 %
+  (1.33 dB a %), then to 0 dB at 100 % (0.43 dB a %): 1 % -68.4 (line
+  -68.7), 5 % -63.3 (-63.3), 10 % -56.4 (-56.7), 20 % -43.2 (-43.3), 30 %
+  -29.8 (-30.0), 40 % -25.5 (-25.7), and Set 42's 50 % -21.5 (-21.4), 75 %
+  -10.7 (-10.7). The spectrum's shape doesn't change with Amount (its
+  30 % and 40 % pads failed bands on level alone). In plugin.c: Set 45 now
+  sits 0.25 ± 0.08 dB under Move at every Amount, Set 44's pads within
+  -0.14 to +0.51 dB; the gain is left as it is (Set 44's 62-82 % pads,
+  within 0.2 dB, would go high).
+- **check's noise metric** (`curve_noise`): on Noise pads, each 186 ms
+  block from 5 ms of the piece once plugin.c's dry render and its
+  derivative are fitted out, in dB, Move's against ours, limits 1/3 dB.
+  The fit takes out Move's dry path, which runs a fraction of a frame off
+  ours (5.9 rms on sine_441, 0.36 after); levels are floored at 1 LSB or
+  50 dB under the dry block (drum_synth's transient leaves ~2e-3).
+  Against Set 44 it fails the old Amount law (pads 2, 16: 4.2/4.6 dB) and
+  passes the new. Noise pads now line up on the dry render: loud noise
+  threw the match against ours (Set 44 pad 8 at lag -19, Set 42 pads 5
+  and 15 too; pad 5's bands, aligned, are 0.96/3.18). Set 42 pad 9
+  (click_train) fails it by 33 dB on the dry clicks' Nyquist ring.
 
 ### Volume envelope (Set 35)
 

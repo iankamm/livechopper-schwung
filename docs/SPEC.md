@@ -182,8 +182,8 @@ a Move drum rack preset or one WAV per slice.
   - Noise: Move's (NOTES.md "Sub Osc and Noise"): noise band-passed at
     its Color (Q 1.25, with a gentle roll-off near Nyquist), added to the
     sound in proportion to its level (a follower of |x|, attack 3.5 ms,
-    release 6 ms), Amount^1.25 x 10^(-28.5 (1 - Amount) / 20) of it, off
-    at 0, falling 20 dB over the global Decay + 50 ms from the note-on (on
+    release 6 ms), at a gain linear in dB through -70 dB just above 0,
+    -30 dB at 30 % and 0 dB at 100 %, off at 0, falling 20 dB over the global Decay + 50 ms from the note-on (on
     a Gate pad, from the note-off). New on every note.
 - Filter: one global setting that sets the drum sampler's filter on every
   pad. Type (Filter & Setup Knob 3): Low-Pass 12, Low-Pass 24 (the

@@ -930,11 +930,12 @@ int main(void) {
         CHECK(memcmp(first, fx_b_buf, sizeof first) != 0, "Noise is new on every note");
         const struct { const char *v; double want_db; } nl[] = {
             { "0.25 1000", -36.5 }, { "0.5 1000", -21.5 }, { "0.75 1000", -10.7 },   /* Set 42 and 41 */
+            { "0.05 1000", -63.3 }, { "0.15 1000", -49.8 }, { "0.3 1000", -29.8 }, { "0.4 1000", -25.5 },   /* Set 45 */
             { "1 180", 20 * log10(214.4 / 489.0) }, { "1 15000", 20 * log10(353.5 / 489.0) },   /* Set 41 */
         };
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 9; i++) {
             double db = 20 * log10(noise_rms(inst, nl[i].v, 4410, 39690, 1.0) / r100);
-            CHECK(fabs(db - nl[i].want_db) < (i < 3 ? 0.6 : 1.0), "Noise %s: %.1f dB under 1 kHz at 100 %% (Move %.1f)",
+            CHECK(fabs(db - nl[i].want_db) < (i < 7 ? 0.6 : 1.0), "Noise %s: %.1f dB under 1 kHz at 100 %% (Move %.1f)",
                   nl[i].v, db, nl[i].want_db);
         }
         param(inst, "decay_us", "100000");
