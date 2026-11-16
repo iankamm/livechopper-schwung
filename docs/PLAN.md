@@ -11,8 +11,8 @@ Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
 1. **Match the remaining effects** (below, "Status"), easiest first:
-   following Transpose across the effects, 8-Bit, then Stretch and
-   Loop.
+   8-Bit, then Stretch and Loop (following Transpose done
+   2026-11-16).
 2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Move's grain algorithm is unknown, so they are the
@@ -83,7 +83,7 @@ LiveChopper's own designs, not Move's algorithms.
   heard on any of 32 pairs, 16 a Set; NOTES "Sub Osc and Noise"). Open:
   Noise under a finite Hold, at other Attacks and on Gate pads, its
   follower's exact shape, and a Gate Sub Osc pad's jump at the note-off.
-- Then, in this order: following Transpose, 8-Bit, Stretch, Loop. Sets
+- Then, in this order: 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio
@@ -95,8 +95,11 @@ LiveChopper's own designs, not Move's algorithms.
   31 and 32 pass whole. Accepted on Set 48 (2026-11-16, seed 1120,
   `fxlab.py accept-set Transpose`, `tools/fxlab/sets/set48_transpose_accept.json`):
   13 of 16, pads 3 and 9's position and pad 15's bands waived (NOTES
-  "Following Transpose"), refs in `tests/move_refs/transpose/`. Next:
-  preview, `device-check`, A/B.
+  "Following Transpose"), refs in `tests/move_refs/transpose/`. Done
+  2026-11-16: preview checks (16 of 16 against the render at the values
+  played; against Move the 3 waived pads and pad 4, held 0.345 s by hand
+  against the clip's 0.40 s), `device-check` (Sets 47 and 48, 38 pads bit
+  for bit) and listening A/B (no difference heard on any of 16 pairs).
   8-Bit's rate, Stretch and Loop under Transpose go in their own Sets.
 
 ### What Live's manual says
@@ -314,6 +317,9 @@ reference.
   level or a Decay it reports level as position (Set 48 pads 3 and 9,
   waived). To fix: divide out the envelope and fit the level per pad, then
   re-score the position refs.
+- **`check --ours-take` on a Gate pad:** it compares only while both
+  pieces sound, so a preview let go early passes (Set 48 pad 4 held
+  0.119 s against 0.40 s, bands 0.04). Compare to the longer piece's end.
 
 - **Preview level:** LiveChopper's chop mode plays at unity, 1.45 dB above
   Move's dry level (0.8465, NOTES "Move's dry path"), so a chop sounds

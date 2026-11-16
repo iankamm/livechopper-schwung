@@ -1078,3 +1078,11 @@ placed by the clip's note time (pad 14: Attack 24.6 ms over the click, a
 it crosses the onset level (pad 6 crossed it 145 frames in, past
 `align`'s 64; pads 7 and 10 also moved and improved). Sets 39, 43 and 46
 split as before. Refs in `tests/move_refs/transpose/`.
+
+Preview (2026-11-16): Set 48's 16 pads played in LiveChopper in 5
+Skipback takes, joined in pad order. Against the render at the values
+played (Attack 1.03 ms for 1.00 ms, which the knob can't reach; the Gate
+holds fitted from the audio) all 16 match, most bit for bit. Against Move:
+the 3 waived pads as above and pad 4, held 0.345 s by hand against the
+clip's 0.40 s. `device-check` on Sets 47 and 48: 38 pads bit for bit.
+Listening A/B: no difference heard on any of 16 pairs.
