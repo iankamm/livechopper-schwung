@@ -993,3 +993,57 @@ Set and played its clip; it saved the Set back with the same pad values.
 - `fx_render` lets go of a Gate pad on the clip's frame, splitting the
   block; on the Move, Schwung hands LiveChopper MIDI a block at a time,
   up to 128 frames (2.9 ms) late.
+
+### Following Transpose (Set 47)
+
+Fit Set `tools/fxlab/sets/set47_transpose_fit.json`, recorded
+2026-11-16, 5 s apart (-12 st doubles a 2 s sound). r is the pitch
+ratio, 2^((Transpose x 100 + Detune in cents) / 1200).
+
+| Pad | Sound | Settings |
+|---|---|---|
+| 1 | sine_441 | dry |
+| 2, 3, 4 | sine_441 | +12, -12, +7 st; Attack 100 ms, Hold 200 ms, Decay 200 ms |
+| 5 | sine_441 | Detune +50 ct; Attack, Hold, Decay 500 ms |
+| 6 | sine_441 | pad 2 with Voice_PitchToEnvelopeModulation false |
+| 7 | sine_441 | +12, Gate let go at 0.5 s, Decay (release) 200 ms |
+| 8 | position_ramp | +12, dry |
+| 9, 10 | position_ramp | +12, -12; FM 25 %, 10 Hz, Decay 300 ms |
+| 11 | position_ramp | +12; Ring Mod 50 %, 20 Hz, Decay 300 ms |
+| 12, 13 | silence_click | +12, -12; Sub Osc 100 %, 60 Hz, Decay 300 ms |
+| 14, 15 | sine_441_quiet | +12, -12; Noise 100 %, Color 1 kHz, Decay 300 ms |
+| 16 | sine_441 | a copy of pad 2 |
+
+Hold Inf and Attack at its minimum unless shown.
+
+- **Envelope:** Attack, Hold and Decay each take their time / r: the 50 %
+  point of the rise, the end of the hold and the -42 dB point land
+  within 3-6 ms of that on pads 2-5 (+12: 25/147/200 ms for 25/150/200),
+  Detune included (pad 5: 966 ms against 972 following and 1000 fixed).
+  With Voice_PitchToEnvelopeModulation false (pad 6) they keep their
+  times, so that is Live's "Envelope Follows Pitch". LiveChopper always
+  follows, and exports the flag on.
+- **Gate release:** doesn't follow (pad 7: -21 dB at 51 ms and -42 dB at
+  101 ms after the note-off at +12, the 200 ms curve).
+- **Effect frequencies follow, their decays don't:** with Freq or Color x
+  r and the Decay as set, Ring Mod, Sub Osc and both Noise pads pass;
+  scaling their decays by 1/r as well fails them all (Sub Osc bands
+  7-11 dB, Noise 9-15 dB on the noise metric). So the effects' decays
+  use the knob's Decay even though the volume envelope's Decay follows.
+- **FM's swing isn't scaled:** the read rate is r + Amount x 10 x depth
+  x sine, not r x (1 + ...). Fitted on the read position with free
+  Freq, depth and decay: pad 9 (+12) 20.0 Hz and 1.246 (2.5 / 2), pad 10
+  (-12) 4.98 Hz and 4.96 (2.5 x 2), both spans 349 ms (Decay + 50 ms).
+  The 10 Hz floor of FM's Freq applies before the x r (pad 10 plays
+  5 Hz).
+- Pad 8 and the Transpose pads of Sets 31 and 32 need nothing more: the
+  read is 2.002x at +12 within the level estimate, and Set 32 pad 15 (1 ms
+  Attack at +12) passes once the Attack follows.
+- `fxlab.py check` with the model: 15 of 16 pass, FM positions 0.58 ms;
+  pad 6 fails bands (2.07/3.89 dB) because LiveChopper has no setting
+  for the flag. The finite-Hold and Gate pads read 0.86 dB over our
+  render: Move's level under a finite Hold ("Volume envelope"), not
+  Transpose. Set 31 passes 12 of 12, Set 32 16 of 16.
+- Untested: Attack on a Gate pad (we follow, as on Trigger pads), Sub
+  Osc's 11 Hz high-pass, 8-Bit's rate, Stretch and Loop (their own Sets),
+  and Transpose turned during a note (we follow it live).

@@ -50,7 +50,10 @@
  * the pad that started the voice is held, then Decay is the release, and
  * Hold does nothing. One-shot (the default) is A-H-D. Attack rises
  * linearly; Decay and the release fall in a straight line in dB, -84 dB
- * at their time, then silence (Move's, Set 35). When
+ * at their time, then silence (Move's, Set 35). Attack, Hold and Decay
+ * follow the pitch, as Move's Envelope Follows Pitch does (on in every
+ * preset LiveChopper exports): at +12 st each takes half its time. The
+ * release doesn't (Set 47). When
  * a pad cuts off another, the old voice fades out over DECLICK_FRAMES.
  *
  * Delete: set_param("delete") removes a slice by merging it into the
@@ -388,6 +391,9 @@ typedef struct {
     int play_start;     /* the playing slice, [start, end) */
     int play_end;
     int env_pos;        /* output frames since the voice was triggered */
+    double env_clock;   /* the envelope's own time: pitch_ratio a frame, so its
+                         * Attack, Hold and Decay follow Transpose and Detune
+                         * (Move's Envelope Follows Pitch, Set 47) */
     int gate_note;      /* pad note that started the voice; -1 once released */
     int release_pos;    /* gated: frames since release, -1 while held */
     float release_gain; /* gated: level when the release began */
@@ -1239,7 +1245,7 @@ static int note_to_pad(int note) {
 /* Start a slice from its beginning. Cuts off whatever was playing. */
 /* Envelope gain for the main voice at its current position. */
 static float env_gain(const live_chopper_t *inst) {
-    int p = inst->env_pos;
+    double p = inst->env_clock;
     if (inst->gated) {
         if (inst->release_pos >= 0) {
             if (inst->release_pos >= inst->decay_frames) return 0.0f;
@@ -1259,7 +1265,7 @@ static float env_gain(const live_chopper_t *inst) {
 static int env_finished(const live_chopper_t *inst) {
     if (inst->gated) return inst->release_pos >= 0 && inst->release_pos >= inst->decay_frames;
     if (inst->hold_frames == HOLD_FULL) return 0;
-    return inst->env_pos >= inst->attack_frames + inst->hold_frames + inst->decay_frames;
+    return inst->env_clock >= inst->attack_frames + inst->hold_frames + inst->decay_frames;
 }
 
 /* Gated: start the release from wherever the envelope is now. */
@@ -1279,8 +1285,13 @@ static int clamp_us(int us) {
     return us;
 }
 
+static void set_noise_color(live_chopper_t *inst);
+
+/* Move's effect frequencies follow the pitch (FM, Ring Mod, Sub Osc,
+ * Noise's Color: Set 47), so Noise's band-pass follows it too. */
 static void update_pitch_ratio(live_chopper_t *inst) {
     inst->pitch_ratio = pow(2.0, (inst->transpose * 100 + inst->detune) / 1200.0);
+    set_noise_color(inst);
 }
 
 static void set_transpose(live_chopper_t *inst, int semis) {
@@ -1366,11 +1377,19 @@ static void set_fx(live_chopper_t *inst, float a, float b) {
             ? NOISE_AMOUNT_FLOOR_DB + (NOISE_AMOUNT_KNEE_DB - NOISE_AMOUNT_FLOOR_DB) * a / NOISE_AMOUNT_KNEE
             : NOISE_AMOUNT_KNEE_DB * (1.0f - a) / (1.0f - NOISE_AMOUNT_KNEE);
         inst->noise_amt = a > 0.0f ? powf(10.0f, db / 20.0f) : 0.0f;
-        float k = tanf((float)M_PI * inst->fx_b / MOVE_SAMPLE_RATE), d = 1.0f + k / NOISE_Q + k * k;
-        inst->noise_b0 = k / NOISE_Q / d;
-        inst->noise_a1 = 2.0f * (k * k - 1.0f) / d;
-        inst->noise_a2 = (1.0f - k / NOISE_Q + k * k) / d;
+        set_noise_color(inst);
     }
+}
+
+/* Noise's band-pass at Color times the pitch, kept under Nyquist. */
+static void set_noise_color(live_chopper_t *inst) {
+    if (inst->effect != FX_NOISE) return;
+    float hz = inst->fx_b * (float)inst->pitch_ratio;
+    if (hz > FILTER_NYQUIST_FRAC * MOVE_SAMPLE_RATE) hz = FILTER_NYQUIST_FRAC * MOVE_SAMPLE_RATE;
+    float k = tanf((float)M_PI * hz / MOVE_SAMPLE_RATE), d = 1.0f + k / NOISE_Q + k * k;
+    inst->noise_b0 = k / NOISE_Q / d;
+    inst->noise_a1 = 2.0f * (k * k - 1.0f) / d;
+    inst->noise_a2 = (1.0f - k / NOISE_Q + k * k) / d;
 }
 
 /* Sub Osc's tone, one frame. Its settings are taken at the note on. */
@@ -1420,7 +1439,7 @@ static void start_sub(live_chopper_t *inst) {
     if (inst->effect != FX_SUB_OSC || inst->fx_a <= 0.0f) return;
     sub_state_t *s = &inst->sub;
     double dec = inst->decay_frames > 1 ? inst->decay_frames : 1;   /* frames */
-    double w = 2.0 * M_PI * inst->fx_b / MOVE_SAMPLE_RATE, al = 2.0 * M_PI / dec;
+    double w = 2.0 * M_PI * inst->fx_b * inst->pitch_ratio / MOVE_SAMPLE_RATE, al = 2.0 * M_PI / dec;
     float hk = tanf((float)M_PI * SUB_OSC_HP_HZ / MOVE_SAMPLE_RATE);
     double g = pow(10.0, -SUB_OSC_AMOUNT_DB * (1.0 - inst->fx_a) / 20.0) * SUB_OSC_LEVEL;
     double d = w * w - al * al, b = sqrt(fabs(d));
@@ -1483,7 +1502,10 @@ static double fx_rate(const live_chopper_t *inst, fx_state_t *x, int t) {
     if (inst->effect == FX_FM && inst->fx_a > 0.0f) {
         float depth = expf(-FX_DECAY_K * (float)t
                            / ((float)inst->decay_frames + FM_DECAY_PAD_S * MOVE_SAMPLE_RATE));
-        return 1.0 + (double)(inst->fx_a * FM_DEPTH * depth * fx_para(x, inst->fx_b));
+        /* Freq follows the pitch, the swing doesn't: Move reads at
+         * pitch + Amount x 10 x ..., not pitch x (1 + ...) (Set 47). */
+        return 1.0 + (double)(inst->fx_a * FM_DEPTH * depth * fx_para(x, inst->fx_b * (float)inst->pitch_ratio))
+                     / inst->pitch_ratio;
     }
     return 1.0;
 }
@@ -1519,7 +1541,8 @@ static void fx_frame(const live_chopper_t *inst, fx_state_t *x, int t, float *l,
             float b = a * a;
             float depth = b * expf(-RING_MOD_DECAY_K * (float)t
                                    / ((float)inst->decay_frames + FM_DECAY_PAD_S * MOVE_SAMPLE_RATE));
-            v = (1.0f + RING_MOD_MAKEUP * b) * (1.0f - depth * fabsf(fx_para(x, inst->fx_b)));
+            v = (1.0f + RING_MOD_MAKEUP * b)
+                * (1.0f - depth * fabsf(fx_para(x, inst->fx_b * (float)inst->pitch_ratio)));
             *l *= v;
             *r *= v;
         }
@@ -1786,6 +1809,7 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
         inst->play_pos = ls;
     }
     inst->env_pos = 0;
+    inst->env_clock = 0.0;
     inst->gate_note = note;
     inst->release_pos = -1;
     inst->crush.phase = MOVE_SAMPLE_RATE;   /* hold the slice's first frame */
@@ -2383,6 +2407,9 @@ static void render_block(void *instance, int16_t *out, int frames) {
                 l += vl * g;
                 r += vr * g;
                 inst->env_pos++;
+                inst->env_clock += inst->pitch_ratio;
+                /* Gate's release runs in output time: it doesn't follow
+                 * the pitch (Set 47 pad 7). */
                 if (inst->release_pos >= 0) inst->release_pos++;
             }
         }

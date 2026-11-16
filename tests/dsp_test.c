@@ -468,12 +468,12 @@ int main(void) {
     CHECK(field(inst, F_PLAYING) == -1, "voice ends after hold + decay");
     {   /* Move's Decay (Set 35): a straight line in dB, -84 dB at its end */
         live_chopper_t *q = (live_chopper_t *)inst;
-        int keep = q->env_pos, d0 = q->attack_frames + q->hold_frames;
-        q->env_pos = d0 + q->decay_frames / 2;
+        double keep = q->env_clock; int d0 = q->attack_frames + q->hold_frames;
+        q->env_clock = d0 + q->decay_frames / 2;
         float half = env_gain(q);
-        q->env_pos = d0 + q->decay_frames - 1;
+        q->env_clock = d0 + q->decay_frames - 1;
         float last = env_gain(q);
-        q->env_pos = keep;
+        q->env_clock = keep;
         CHECK(fabsf(20.0f * log10f(half) + 42.0f) < 0.2f && fabsf(20.0f * log10f(last) + 84.0f) < 0.3f,
               "Decay falls in dB: %.2f dB halfway, %.2f dB at the end", 20.0f * log10f(half), 20.0f * log10f(last));
     }
@@ -948,6 +948,107 @@ int main(void) {
         double db = 20 * log10(noise_rms(inst, "1 1000", 4410, 39690, 1.0) / r100);
         CHECK(fabs(db + 12.04) < 0.6, "Noise follows the sound's level: a sine 12 dB down, its noise %.1f dB", db);
         api->destroy_instance(inst);
+    }
+
+    /* ---- Following Transpose (Set 47): the envelope's times and the
+     * effects' frequencies follow the pitch; the release and the effects'
+     * decays don't; FM's swing isn't scaled by it ---- */
+    {
+        inst = load("build/t16.wav");          /* frame i = 3i */
+        live_chopper_t *q = (live_chopper_t *)inst;
+        param(inst, "transpose", "12");
+        param(inst, "attack_us", "10000");      /* 441 frames, 220.5 at +12 */
+        until_silent(inst);
+        note(inst, 68);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(abs(out[200] - ramp(200, 0) * 200 / 441) <= 1, "Attack follows +12: frame 100 at 200/441 (%d, want %d)",
+              out[200], ramp(200, 0) * 200 / 441);
+        param(inst, "attack_us", "0");
+        param(inst, "hold_us", "10000");
+        param(inst, "decay_us", "10000");       /* 441 + 441 frames, 441 at +12 */
+        until_silent(inst);
+        note(inst, 68); render(inst, 3);
+        int mid = field(inst, F_PLAYING);
+        render(inst, 1);
+        CHECK(mid != -1 && field(inst, F_PLAYING) == -1, "Hold + Decay follow +12: over by 441 frames (%d, %d)",
+              mid, field(inst, F_PLAYING));
+        param(inst, "transpose", "0");
+        param(inst, "detune", "50");
+        until_silent(inst);
+        note(inst, 68); render(inst, 1);
+        CHECK(fabs(q->env_clock - MOVE_FRAMES_PER_BLOCK * pow(2.0, 50 / 1200.0)) < 1e-9,
+              "Detune counts: %.4f envelope frames in a block", q->env_clock);
+        param(inst, "detune", "0");
+        param(inst, "transpose", "12");
+        param(inst, "gate", "1");               /* the release is 441 frames at any pitch */
+        until_silent(inst);
+        note(inst, 68); render(inst, 2);
+        note_off(inst, 68); render(inst, 3);
+        mid = field(inst, F_PLAYING);
+        render(inst, 1);
+        CHECK(mid != -1 && field(inst, F_PLAYING) == -1, "the Gate release doesn't follow +12 (%d, %d)",
+              mid, field(inst, F_PLAYING));
+        param(inst, "gate", "0");
+        param(inst, "hold_us", "-1");
+        param(inst, "decay_us", "300000");
+
+        /* FM: 10 Hz at +12 is 20 Hz's swing over 2, the decay unchanged */
+        fx_state_t xa, xb;
+        memset(&xa, 0, sizeof xa); memset(&xb, 0, sizeof xb);
+        param(inst, "effect", "5");
+        double worst = 0;
+        for (int t = 0; t < 20000; t++) {
+            param(inst, "transpose", "12"); param(inst, "fx", "0.25 10");
+            double ra = fx_rate(q, &xa, t);
+            param(inst, "transpose", "0"); param(inst, "fx", "0.25 20");
+            double rb = fx_rate(q, &xb, t);
+            if (fabs(2.0 * (ra - 1.0) - (rb - 1.0)) > worst) worst = fabs(2.0 * (ra - 1.0) - (rb - 1.0));
+        }
+        CHECK(worst < 1e-6, "FM follows +12 in Freq, not in its swing or decay (off by %g)", worst);
+        /* Ring Mod: 20 Hz at +12 multiplies as 40 Hz does */
+        memset(&xa, 0, sizeof xa); memset(&xb, 0, sizeof xb);
+        param(inst, "effect", "6");
+        worst = 0;
+        for (int t = 0; t < 20000; t++) {
+            float la = 1, ra_ = 1, lb = 1, rb_ = 1;
+            param(inst, "transpose", "12"); param(inst, "fx", "0.5 20");
+            fx_frame(q, &xa, t, &la, &ra_);
+            param(inst, "transpose", "0"); param(inst, "fx", "0.5 40");
+            fx_frame(q, &xb, t, &lb, &rb_);
+            if (fabs(la - lb) > worst) worst = fabs(la - lb);
+        }
+        CHECK(worst < 1e-6, "Ring Mod follows +12 in Freq, not in its decay (off by %g)", worst);
+        /* Noise: Color follows, also when Transpose turns after the Color */
+        param(inst, "effect", "8"); param(inst, "transpose", "0"); param(inst, "fx", "1 2000");
+        float b0 = q->noise_b0, a1 = q->noise_a1, a2 = q->noise_a2;
+        param(inst, "fx", "1 1000"); param(inst, "transpose", "12");
+        CHECK(q->noise_b0 == b0 && q->noise_a1 == a1 && q->noise_a2 == a2, "Noise's Color follows +12");
+        param(inst, "fx", "1 15000");
+        CHECK(isfinite(q->noise_b0) && q->noise_a1 > -2.0f && q->noise_a1 < 2.0f,
+              "Noise's Color at 30 kHz stays under Nyquist (a1 %f)", q->noise_a1);
+        param(inst, "transpose", "0");
+        api->destroy_instance(inst);
+
+        /* Sub Osc: 60 Hz at +12 is the 120 Hz tone, its decay unchanged */
+        write_sine("build/silent.wav", 44100, 1, 16, 1, 0.0);
+        int16_t sub_a[MOVE_FRAMES_PER_BLOCK * 2 * 40], sub_b[MOVE_FRAMES_PER_BLOCK * 2 * 40];
+        for (int k = 0; k < 2; k++) {
+            inst = load("build/silent.wav");
+            param(inst, "decay_us", "300000");
+            param(inst, "effect", "7");
+            param(inst, "transpose", k ? "0" : "12");
+            param(inst, "fx", k ? "1 120" : "1 60");
+            note(inst, 68);
+            for (int b = 0; b < 40; b++) {
+                api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                memcpy((k ? sub_b : sub_a) + b * MOVE_FRAMES_PER_BLOCK * 2, out, sizeof out);
+            }
+            api->destroy_instance(inst);
+        }
+        int peak = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2 * 40; i++) if (abs(sub_a[i]) > peak) peak = abs(sub_a[i]);
+        CHECK(peak > 10000 && memcmp(sub_a, sub_b, sizeof sub_a) == 0,
+              "Sub Osc follows +12 in Freq, not in its decay (peak %d)", peak);
     }
 
     /* ---- Stretch and Loop: they change how the slice is read ---- */

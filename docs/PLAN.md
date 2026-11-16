@@ -85,9 +85,16 @@ LiveChopper's own designs, not Move's algorithms.
   follower's exact shape, and a Gate Sub Osc pad's jump at the note-off.
 - Then, in this order: following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
-- Following Transpose, already seen: Move's Attack follows it (Set 32 pad
-  15: 1.0 ms at +12 st ramps in ~22 frames), Pitch Env's Decay and
-  Punch's times don't. Hold and Decay are unchecked.
+- Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
+  Transpose"): Attack, Hold and Decay take their time / pitch ratio
+  (Detune included), Gate's release doesn't; FM, Ring Mod and Sub Osc's
+  Freq and Noise's Color follow the pitch, the effects' decays don't, and
+  FM's swing isn't scaled by it. Pitch Env's Decay and Punch's times
+  don't follow (Sets 31, 32). `check`: Set 47 15 of 16 (pad 6 has
+  Envelope Follows Pitch off, which LiveChopper has no setting for), Sets
+  31 and 32 pass whole. Next: an acceptance Set (Transpose and Detune
+  drawn across the effects done so far), preview, `device-check`, A/B.
+  8-Bit's rate, Stretch and Loop under Transpose go in their own Sets.
 
 ### What Live's manual says
 
@@ -103,17 +110,17 @@ description of each effect, against LiveChopper's stand-ins:
 | 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
 | FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
 | Sub Osc, Noise | their envelope is "the device's attack and decay settings" (Hold isn't mentioned: they may decay even at Hold Inf) | both go through the voice's whole envelope, Hold included; Noise also follows the sound's level, which Move may not |
-| Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | fixed (only Loop Length follows Transpose) |
+| Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | FM, Ring Mod, Sub Osc and Noise's frequencies follow, as on Move (Set 47); of Stretch and Loop only Loop Length follows |
 
 Live's Drum Sampler reference also has "Envelope Follows Pitch", a
 context-menu option scaling the amplitude envelope with the pitch. Move
 has no knob for it, but its presets store it as
 `Voice_PitchToEnvelopeModulation`: true on every pad of Set 28 (Move's
 default), and LiveChopper's export writes true too (`src/drum_rack.mjs`).
-LiveChopper's envelope runs in output time, so it doesn't follow pitch.
-Punch's times don't follow Transpose (Set 31), nor does Pitch Env's Decay,
-but the Attack does (Set 32, NOTES "Pitch Env"); the Transpose +12 takes
-of "What to record" show what else does.
+LiveChopper's envelope follows the pitch as Move's does with it on (Set
+47; Gate's release doesn't). Punch's times don't follow Transpose (Set
+31), nor does Pitch Env's Decay (Set 32), nor the other effects' decays
+(Set 47).
 
 ### Method
 
@@ -295,7 +302,7 @@ reference.
 | 8-Bit | click_train, noise_white, sweep | Rate 1 kHz, 14.1 kHz; Decay Off, 100 ms, 1 s |
 | Stretch | click_train, position_ramp, sine_441 | Factor 2, 20; Grain 5 ms, 100 ms, 300 ms |
 | Loop | click_train, position_ramp | Offset 0, 25 %; Length 10 ms, 300 ms, 500 ms |
-| Transpose +12 | sine_441 | Ring Mod 1 kHz, Sub Osc 60 Hz, Noise 1 kHz, FM 100 Hz, Stretch 2 / 100 ms, Loop 100 ms: which settings follow the pitch; and no effect with Hold 200 ms, Decay 200 ms: whether the envelope follows it |
+| Transpose +12 | sine_441, position_ramp | 8-Bit 1 kHz, Stretch 2 / 100 ms, Loop 100 ms: whether they follow the pitch (the envelope and the other effects: Set 47) |
 
 ### Open
 

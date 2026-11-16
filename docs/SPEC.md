@@ -93,7 +93,9 @@ a Move drum rack preset or one WAV per slice.
   changes with Shift (Knobs 1, 2 and 5) shows its new role at once.
 - Transpose: repitch only (changes length and pitch together), one global
   setting (Main Knob 1, -48 to +48 semitones, Move's drum sampler range),
-  shown as Move does: "12 st", "-12 st".
+  shown as Move does: "12 st", "-12 st". Transpose and Detune carry the
+  envelope's times and the effects' frequencies with them, as on Move
+  (below; NOTES.md "Following Transpose").
 - Detune: fine repitch on top of transpose, one global setting (Shift +
   Main Knob 1, -50 to +50 cents, default 0, shown "5 ct"). Exported as
   Voice_Detune.
@@ -104,7 +106,11 @@ a Move drum rack preset or one WAV per slice.
   slice ends), Decay 1.00 ms to 60.0 s. Default: attack at its minimum
   (played as 0, so slices sound like the raw sample), Hold Inf, Decay
   50.0 ms. The Decay, and Gate's release, fall as Move's do: a straight
-  line in dB, -84 dB at the Decay time (NOTES.md "Volume envelope"). A chop
+  line in dB, -84 dB at the Decay time (NOTES.md "Volume envelope").
+  Attack, Hold and Decay follow the pitch (Transpose and Detune), as
+  Move's Envelope Follows Pitch does, which every exported pad has on: at
+  +12 st each takes half its time, so the envelope covers the same part
+  of the sample. Gate's release keeps its time. A chop
   does not retrigger the envelope. This mode is for chopping; per-pad sound
   shaping is done in the drum rack after export.
 - Declick: when a pad cuts off another, the old voice fades out over ~1.5 ms.
@@ -162,15 +168,18 @@ a Move drum rack preset or one WAV per slice.
   - 8-Bit: samples and holds each voice at the rate (after repitching) and
     cuts it to 8 bits; its Decay closes a low-pass on that over the Decay
     time.
-  - FM: Move's modulation (NOTES.md "FM"): the read rate is 1 + Amount x
-    10 x a parabolic sine at its Freq, rising from 0 at the note-on (so at
-    100 % the read runs backwards in the troughs), its depth falling to
-    1 % over the global Decay + 50 ms from the note-on, Hold or not.
+  - FM: Move's modulation (NOTES.md "FM"): the read rate is the pitch's
+    + Amount x 10 x a parabolic sine at its Freq, rising from 0 at the
+    note-on (so at 100 % the read runs backwards in the troughs), its
+    depth falling to 1 % over the global Decay + 50 ms from the note-on,
+    Hold or not. The Freq follows the pitch; the swing and the decay
+    don't.
   - Ring Mod: Move's multiplier (NOTES.md "Ring Mod"): the sound times
     (1 + b/4) x (1 - b x |FM's parabolic sine at its Freq|), b = Amount²,
     so at 100 % it dips to silence twice a cycle, and with the modulation
     gone it plays at 1.25 x dry. The depth falls 30 dB over the global
-    Decay + 50 ms from the note-on, Hold or not.
+    Decay + 50 ms from the note-on, Hold or not. The Freq follows the
+    pitch, the decay doesn't.
   - Sub Osc: Move's tone (NOTES.md "Sub Osc and Noise"): a sine of its
     own at its Freq, a resonator's impulse response (damped, and past
     critical damping at short Decays), 0.83 of full scale against
@@ -178,13 +187,15 @@ a Move drum rack preset or one WAV per slice.
     0, decaying as exp(-2 pi t / Decay) from the note-on through an 11 Hz
     high-pass. It is added after the envelope and the filter and doesn't
     follow them, Attack or Hold, so it sounds on past the slice; the next
-    note or leaving chop mode fades it out.
+    note or leaving chop mode fades it out. The Freq follows the pitch
+    (taken at the note-on), the decay doesn't.
   - Noise: Move's (NOTES.md "Sub Osc and Noise"): noise band-passed at
     its Color (Q 1.25, with a gentle roll-off near Nyquist), added to the
     sound in proportion to its level (a follower of |x|, attack 3.5 ms,
     release 6 ms), at a gain linear in dB through -70 dB just above 0,
     -30 dB at 30 % and 0 dB at 100 %, off at 0, falling 20 dB over the global Decay + 50 ms from the note-on (on
-    a Gate pad, from the note-off). New on every note.
+    a Gate pad, from the note-off). New on every note. The Color follows
+    the pitch (kept under Nyquist), the decay doesn't.
 - Filter: one global setting that sets the drum sampler's filter on every
   pad. Type (Filter & Setup Knob 3): Low-Pass 12, Low-Pass 24 (the
   default), High-Pass 24, Peak; no Off, as on Move: Low-Pass 24 fully open
