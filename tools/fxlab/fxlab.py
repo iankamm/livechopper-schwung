@@ -73,6 +73,8 @@ RATE = 44100
 DEFAULT_GAIN = 0.8465       # Set 28's dry path (PLAN "Move's dry path")
 ONSET_LEVEL = 200           # |sample| that starts a piece
 ONSET_GAP_S = 0.25          # ... after at least this much quieter signal
+ONSET_QUIET = 2             # a pad placed by the clip starts at the first |sample| over this
+QUIET_RUN = 64              # ... and a sound starts after this many frames that quiet
 EDGE = 2000                 # frames left out at each end of the residual
 
 # Move's Effect_Type and field order (src/drum_rack.mjs EFFECTS), with the
@@ -145,6 +147,71 @@ def clip_releases(song):
     return {k: v[0] for k, v in seen.items() if len(v) == 1}
 
 
+def clip_starts(song):
+    """{note: seconds from the clip's start} for pads played exactly once."""
+    tempo = float(song.get("tempo", 120.0))
+    seen = {}
+    for t in song.get("tracks", []):
+        for slot in t.get("clipSlots", []):
+            for n in ((slot or {}).get("clip") or {}).get("notes", []):
+                seen.setdefault(n["noteNumber"], []).append(n["startTime"] * 60 / tempo)
+    return {k: v[0] for k, v in seen.items() if len(v) == 1}
+
+
+def clip_offset(ons, pads, starts):
+    """Frames from the clip's time to the take's, from the onsets that line
+    up with the clip (within 50 ms of the first's offset); None if fewer
+    than half do, or a pad has no single note in the clip."""
+    if any(note not in starts for note, _, _ in pads) or not ons:
+        return None
+    want = [starts[note] * RATE for note, _, _ in pads]
+    tol = 0.05 * RATE
+    offs = [o - w for o in ons for w in want if abs(o - w - (ons[0] - want[0])) < tol]
+    return float(np.median(offs)) if len(offs) >= len(ons) // 2 else None
+
+
+def onsets_from_clip(v, ons, pads, starts):
+    """A generated Set's onsets when a pad is too quiet for onsets() (Set 48
+    pad 14: a slow Attack over a click, a -50 dB Sub Osc): each pad's clip
+    time, put on the take by the onsets that do line up with the clip, then
+    the detected onset within 50 ms of it, else the first frame above
+    ONSET_QUIET from 50 ms before it. None if the clip can't place them."""
+    off = clip_offset(ons, pads, starts)
+    if off is None:
+        return None
+    want = [starts[note] * RATE for note, _, _ in pads]
+    tol = 0.05 * RATE
+    out = []
+    for w in want:
+        at = w + off
+        near = [o for o in ons if abs(o - at) < tol]
+        if near:
+            out.append(near[0])
+            continue
+        lo = max(0, int(at - tol))
+        quiet = np.flatnonzero(np.abs(v[lo:int(at + tol)]) > ONSET_QUIET)
+        out.append(lo + int(quiet[0]) if len(quiet) else int(round(at)))
+        print("  pad at %.2f s: under the onset level, placed by the clip at %.3f s" % (w / RATE, out[-1] / RATE))
+    return out
+
+
+def sound_start(v, on):
+    """Where the sound crossing ONSET_LEVEL at on began: the end of the last
+    QUIET_RUN quiet frames (|x| <= ONSET_QUIET) before it, within 50 ms. A
+    slow Attack on a quiet sound crosses late (Set 48 pad 6: ~145 frames,
+    past align's 64). If nothing that quiet comes first (a tail still
+    sounding), on stays."""
+    lo = max(0, on - int(0.05 * RATE))
+    quiet = np.abs(v[lo:on]) <= ONSET_QUIET
+    run = 0
+    for i in range(len(quiet) - 1, -1, -1):
+        run = run + 1 if quiet[i] else 0
+        if run >= QUIET_RUN:
+            start = lo + i + QUIET_RUN
+            return start if on - start > 16 else on
+    return on
+
+
 def onsets(v):
     loud = np.flatnonzero(np.abs(v) > ONSET_LEVEL)
     out, last = [], -10 ** 9
@@ -186,6 +253,9 @@ def cmd_split(take, song_path, outdir, like=None):
             print("  skipping pad %d: %s isn't a test sound" % (note, name))
     pads = [pd for pd in pads if os.path.exists(os.path.join(WAVS, pd[1]))]
     ons = onsets(v)
+    if len(ons) != len(pads) and song_path and not like:
+        ons = onsets_from_clip(v, ons, pads, clip_starts(song)) or ons
+    ons = [sound_start(v, o) for o in ons]
     if len(ons) != len(pads):
         sys.exit("split: %d onsets (at %s s) but %d pads with samples (notes %s)" % (
             len(ons), [round(o / RATE, 2) for o in ons], len(pads), [p[0] for p in pads]))

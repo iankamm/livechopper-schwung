@@ -92,8 +92,11 @@ LiveChopper's own designs, not Move's algorithms.
   FM's swing isn't scaled by it. Pitch Env's Decay and Punch's times
   don't follow (Sets 31, 32). `check`: Set 47 15 of 16 (pad 6 has
   Envelope Follows Pitch off, which LiveChopper has no setting for), Sets
-  31 and 32 pass whole. Next: an acceptance Set (Transpose and Detune
-  drawn across the effects done so far), preview, `device-check`, A/B.
+  31 and 32 pass whole. Accepted on Set 48 (2026-11-16, seed 1120,
+  `fxlab.py accept-set Transpose`, `tools/fxlab/sets/set48_transpose_accept.json`):
+  13 of 16, pads 3 and 9's position and pad 15's bands waived (NOTES
+  "Following Transpose"), refs in `tests/move_refs/transpose/`. Next:
+  preview, `device-check`, A/B.
   8-Bit's rate, Stretch and Loop under Transpose go in their own Sets.
 
 ### What Live's manual says
@@ -305,6 +308,12 @@ reference.
 | Transpose +12 | sine_441, position_ramp | 8-Bit 1 kHz, Stretch 2 / 100 ms, Loop 100 ms: whether they follow the pitch (the envelope and the other effects: Set 47) |
 
 ### Open
+
+- **The position metric needs a flat envelope:** it reads position_ramp's
+  value as the read position, so under an Attack ramp, a finite Hold's
+  level or a Decay it reports level as position (Set 48 pads 3 and 9,
+  waived). To fix: divide out the envelope and fit the level per pad, then
+  re-score the position refs.
 
 - **Preview level:** LiveChopper's chop mode plays at unity, 1.45 dB above
   Move's dry level (0.8465, NOTES "Move's dry path"), so a chop sounds

@@ -1047,3 +1047,34 @@ Hold Inf and Attack at its minimum unless shown.
 - Untested: Attack on a Gate pad (we follow, as on Trigger pads), Sub
   Osc's 11 Hz high-pass, 8-Bit's rate, Stretch and Loop (their own Sets),
   and Transpose turned during a note (we follow it live).
+
+Accepted on Set 48 (`fxlab.py accept-set Transpose --seed 1120`,
+`tools/fxlab/sets/set48_transpose_accept.json`), recorded 2026-11-16:
+4 pads with no effect (2 of them Gate), 2 each of Punch, Pitch Env, FM
+and Ring Mod, 1 Sub Osc and 1 Noise, at Transpose -23 to +17 st, Detune
+on 9 of the 14 drawn pads, Attack 1-231 ms, Hold 1 ms to Inf, Decay 3 ms
+to 1 s; every Attack 1 ms or more, pad 1's too, so Move's level is 0.93
+on every pad. `check`: 13 of 16, the 3 others waived in `refs --waive`:
+
+- **Pad 3** (no effect, -17 st, Attack 24.6 ms, Hold 3.5 ms, Decay 79 ms)
+  position 1.70/3.99 ms: the waveform is within -44 to -49 dB of Move's,
+  Move 0.031 dB louder (its level under a finite Hold, "Volume
+  envelope"), and after that one gain the read matches to 0.21/0.63 ms.
+  The position metric reads the ramp's value as the read position, so it
+  takes level for position.
+- **Pad 9** (Pitch Env 82 %, +7 st, Attack 1.24 ms, Decay 650 ms)
+  position 0.91/8.41 ms: values within ~0.5 % of Move's for the whole
+  sound; the error sits in the 0.8 ms Attack and the decay, where the
+  falling level reads as a move toward the ramp's middle. The metric
+  needs a flat envelope (PLAN "Open").
+- **Pad 15** (Noise 95 %, 326 Hz, on drum_synth, +12 st 20 ct) bands
+  1.16/3.60 with the noise metric passing (0.46/0.80): plugin.c against
+  itself over 10 seeds gives bands 0.69-1.22 / 1.48-3.93, 4 of 10
+  failing, so one take can't resolve this pad's bands (as Set 46 pad 3).
+
+Two `split` fixes came from this Set: a pad under the onset level is
+placed by the clip's note time (pad 14: Attack 24.6 ms over the click, a
+-50 dBFS Sub Osc), and a piece starts where its sound begins, not where
+it crosses the onset level (pad 6 crossed it 145 frames in, past
+`align`'s 64; pads 7 and 10 also moved and improved). Sets 39, 43 and 46
+split as before. Refs in `tests/move_refs/transpose/`.
