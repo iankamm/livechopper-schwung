@@ -326,10 +326,11 @@ def neutral(p):
 
 def plain(p):
     """Dry all through: no effect, a low-pass fully open, no gain or
-    transpose. Only these set the level reference."""
+    transpose or detune. Only these set the level reference."""
     return (neutral(p) and p.get("Voice_Filter_Type", "Lowpass") in ("Lowpass", "Lowpass 12dB")
             and p.get("Voice_Filter_Frequency", 22000.0) >= 21999.0
-            and abs(p.get("Voice_Gain", 1.0) - 1.0) < 1e-6 and p.get("Voice_Transpose", 0) == 0)
+            and abs(p.get("Voice_Gain", 1.0) - 1.0) < 1e-6 and p.get("Voice_Transpose", 0) == 0
+            and abs(p.get("Voice_Detune", 0.0)) < 1e-6)
 
 
 def align(move, ours, max_lag=64, n=8192):
