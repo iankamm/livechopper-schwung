@@ -11,9 +11,8 @@ Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
 1. **Match the remaining effects** (below, "Status"), easiest first:
-   Sub Osc and Noise's envelopes (one Set may cover both), following Transpose
-   across the effects, 8-Bit, then Stretch and Loop. Punch's listening
-   A/B is owed.
+   following Transpose across the effects, 8-Bit, then Stretch and
+   Loop. Punch's listening A/B is owed.
 2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Move's grain algorithm is unknown, so they are the
@@ -62,7 +61,7 @@ LiveChopper's own designs, not Move's algorithms.
   `tests/move_refs/ring_mod/`; preview checks, `device-check` and
   listening A/B passed (2026-11-15: no difference heard on any of 16
   pairs). NOTES "Ring Mod".
-- In progress: Sub Osc and Noise (2026-11-15). Fitted on Sets 40-42
+- Done: Sub Osc and Noise (2026-11-16). Fitted on Sets 40-42
   (NOTES "Sub Osc and Noise"); acceptance Sets drawn: Set 43, Sub Osc,
   seed 1117 (`tools/fxlab/sets/set43_subosc_accept.json`), and Set 44,
   Noise, seed 1118 (`set44_noise_accept.json`), Trigger pads at Hold Inf.
@@ -75,11 +74,11 @@ LiveChopper's own designs, not Move's algorithms.
   (`set46_noise_accept.json`), 16 of 16 with pad 3's bands waived (`refs
   --waive`: drum and noise equally loud near 160 Hz, so one take's bands
   swing past the limit; plugin.c against itself over 10 seeds up to
-  1.67/5.44), refs in `tests/move_refs/noise/`. Next: the Skipback
-  previews (dsp.so from this plugin.c installed first), device-check,
-  the A/B. Open past them: Noise under a finite Hold, at other Attacks
-  and on Gate pads, its follower's exact shape, and a Gate Sub Osc pad's
-  jump at the note-off.
+  1.67/5.44), refs in `tests/move_refs/noise/`. Preview checks,
+  `device-check` and listening A/B passed (2026-11-16: no difference
+  heard on any of 32 pairs, 16 a Set; NOTES "Sub Osc and Noise"). Open:
+  Noise under a finite Hold, at other Attacks and on Gate pads, its
+  follower's exact shape, and a Gate Sub Osc pad's jump at the note-off.
 - Then, in this order: following Transpose, 8-Bit, Stretch, Loop. Sets
   are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose, already seen: Move's Attack follows it (Set 32 pad

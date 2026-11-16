@@ -923,6 +923,23 @@ Acceptance, 2026-11-15:
   is 1.03/3.57, a seed against the other nine's 0.44-1.17/1.12-3.27.
   Waived (`refs --waive 03_drum_synth:bands`): the ref keeps pad 3's
   noise curve and says the bands one was left out.
+- **Previews and A/B, 2026-11-16** (`.claude/recordings/preview5/`,
+  five Skipback takes of Sets 43 and 46's pads, played in chop mode from
+  the readouts). Against the renders: Sub Osc bit-exact after the onset
+  (frames 0-7: the preview's Attack minimum plays as 0), Noise 16 of 16
+  on the noise metric. Three knobs landed one or two units off the grid
+  with the right readout (`played.json`); rendered at them, bit-exact.
+  Against Move: Sub Osc 16 of 16, Noise 14 of 16: pad 3's bands (the
+  waived pad) and pad 7's noise, 1.16/2.59 (the render: 0.87/1.93; 10
+  seeds 0.17-1.16). Pad 7 (22.9 %, Color 181 Hz, Decay 9.7 ms) has noise
+  only in its first block, right at the 60 dB floor; Move's dry path
+  leaves a residual on drum_synth's transient (frames 0-384, the same on
+  pads 9 and 11, whose noise is gone) that lifts Move's block over the
+  floor, and the preview's noise falls under it. From 17 ms Move's tail
+  matches the seeds' mean. A metric edge, not Noise; the metric stays as
+  accepted. `device-check` bit-exact. Listening A/B: no difference heard
+  on any of the 32 pairs, the silence_click pairs' full onset click
+  included.
 
 ### Volume envelope (Set 35)
 
