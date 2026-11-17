@@ -275,6 +275,29 @@ check(len(apads) == 16 and apads[0][2]["Effect_Type"] == "Stretch" and apads[15]
       and apads[5][2]["Effect_FmFrequency"] == 14.0 and abs(apads[5][2]["Voice_Envelope_Decay"] - 0.005) < 1e-12
       and apads[5][2]["Voice_Envelope_Hold"] == 60.0 and apads[5][2]["Voice_Envelope_Attack"] == fxlab.ACCEPT_ATTACK,
       "accept-set --spec: the drawn FM pads and their Decay, Hold Inf, Attack at its minimum")
+# accept-set Loop: every pad ends before the next (a finite Hold or a gate,
+# ended by 4.2 s at its pitch), Attack 1 ms on every pad, pad 16 repeats pad 2.
+lspec_path = os.path.join(OUT, "loop_accept.json")
+lrun = run("accept-set", "Loop", "--seed", "5", "--spec", lspec_path)
+lspec = json.load(open(lspec_path)) if lrun.returncode == 0 else {"pads": []}
+lpads = lspec["pads"]
+
+
+def loop_ends(p, pad):
+    q = dict(lspec.get("defaults", {}), **p)
+    r = 2 ** (q.get("Voice_Transpose", 0) / 12)
+    if q.get("Voice_Envelope_Mode") == "A-S-R":
+        return pad.get("gate_s", 1e9) + q["Voice_Envelope_Decay"]
+    return (q["Voice_Envelope_Attack"] + q["Voice_Envelope_Hold"] + q["Voice_Envelope_Decay"]) / r
+
+
+check(lrun.returncode == 0 and len(lpads) == 16 and lpads[15] == lpads[1]
+      and all(p["params"]["Effect_Type"] == "Loop" and p["params"]["Voice_Envelope_Attack"] == 0.001
+              and loop_ends(p["params"], p) <= fxlab.TRANSPOSE_MAX_S for p in lpads[1:])
+      and sum(p["params"].get("Voice_Envelope_Mode") == "A-S-R" for p in lpads[1:15]) == len(fxlab.LOOP_GATE_PADS)
+      and sum(bool(p["params"].get("Voice_Transpose")) for p in lpads[1:15]) == len(fxlab.LOOP_TRANSPOSE_PADS),
+      "accept-set Loop: finite Holds or gates, ending in time, Attack 1 ms, the gates and transposed pads:\n"
+      + lrun.stdout[-500:])
 rel = fxlab.clip_releases(song)
 check(abs(rel[pads[3][0]] - 0.5) < 1e-9, "split: a Gate pad's release time comes from the clip: %s" % rel.get(pads[3][0]))
 pc = {"params": pads[3][2], "release_s": rel[pads[3][0]]}

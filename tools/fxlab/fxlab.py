@@ -1381,7 +1381,9 @@ KNOBS_FOR = {
 # kept under Move's output ceiling; drum_synth is added to every Set.
 ACCEPT_SOUNDS = {
     "Stretch": ["click_train", "position_ramp", "sine_441"],
-    "Loop": ["click_train", "position_ramp"],
+    # sine_441: a wrap off the sine's period is where the crossfade is heard
+    # (Set 52 pad 14).
+    "Loop": ["position_ramp", "sine_441", "click_train"],
     "Pitch Env": ["sine_441", "position_ramp"],
     "Punch": ["sine_441", "sine_441_quiet"],
     # Not click_train: Move's hold period drifts (NOTES "8-Bit"), walking a
@@ -1562,9 +1564,97 @@ def cmd_accept_transpose(seed, spec_path=None):
         print("\nspec: %s (fxlab.py make-set %s <outdir>)" % (spec_path, spec_path))
 
 
+# accept-set Loop: a loop repeats until the envelope ends, so every pad has a
+# finite Hold (or is a Gate pad) and ends before the next; Attack 1 ms on
+# every pad, pad 1's too, for the level reference (as Transpose's). A few
+# pads are transposed: Length follows the pitch (Set 52 pad 15).
+LOOP_GATE_PADS = (5, 11)         # drawn pads 0-13 played as Gate pads
+LOOP_TRANSPOSE_PADS = (2, 6, 9, 12)
+LOOP_SEMIS = 12
+LOOP_HOLD = (0.3, 2.5)
+LOOP_DECAY = (0.001, 0.5)
+
+
+def loop_draw(rng, k, sound):
+    """Drawn pad k (0-13): Offset, Length, Hold (or a gate), Decay, maybe
+    Transpose; or None to draw again."""
+    gate = k in LOOP_GATE_PADS
+    semis = rng.choice([s for s in range(-LOOP_SEMIS, LOOP_SEMIS + 1) if s]) if k in LOOP_TRANSPOSE_PADS else 0
+    r = 2 ** (semis / 12)
+    knobs = [("hold", "Hold"), ("decay", "Decay")] + list(KNOBS_FOR["Loop"])
+    out = json.loads(subprocess.check_output(
+        ["node", os.path.join(REPO, "tools", "fxlab", "knob_readout.mjs"),
+         json.dumps([[name, rng.random()] for name, _ in knobs])]))
+    hold, decay, offset, length = (o[1] for o in out)
+    if not (LOOP_HOLD[0] - 1e-9 <= hold <= LOOP_HOLD[1] and LOOP_DECAY[0] - 1e-9 <= decay <= LOOP_DECAY[1]):
+        return None
+    p = {"Effect_Type": "Loop", "Effect_LoopOffset": offset, "Effect_LoopLength": length,
+         "Voice_Envelope_Attack": 0.001, "Voice_Envelope_Hold": hold, "Voice_Envelope_Decay": decay}
+    pad = {"sample": sound + ".wav", "params": p}
+    labels = []
+    if semis:
+        p["Voice_Transpose"] = semis
+        labels.append("Transpose %d st" % semis)
+    if gate:
+        p["Voice_Envelope_Mode"] = "A-S-R"
+        pad["gate_s"] = round(0.3 + 2.2 * rng.random(), 2)
+        length_s = pad["gate_s"] + decay                        # the release doesn't follow
+        labels.append("Gate %.2f s" % pad["gate_s"])
+    else:
+        length_s = (0.001 + hold + decay) / r
+        labels.append("Hold %s" % out[0][0])
+    if length_s > TRANSPOSE_MAX_S:
+        return None
+    labels += ["Decay %s" % out[1][0], "Loop Offset %s" % out[2][0], "Loop Length %s" % out[3][0]]
+    if accept_clips(pad):
+        return None
+    return pad, ", ".join(labels)
+
+
+def cmd_accept_loop(seed, spec_path=None):
+    rng = random.Random(seed)
+    sounds = ACCEPT_SOUNDS["Loop"] + ["drum_synth"]
+    drawn = []
+    for k in range(SET_PADS - 2):
+        while True:
+            got = loop_draw(rng, k, sounds[k % len(sounds)])
+            if got:
+                break
+        drawn.append(got)
+    print("Acceptance Set for Loop, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % seed)
+    print("Every pad: Attack 1.00 ms, Low-Pass 24 fully open, Full Velocity; a finite Hold or a gate.")
+    print("Play the pads in order 5 s apart, then split and run fxlab.py check.")
+    print("The preview in LiveChopper: before every value, spin that knob to its bottom end, then click")
+    print("up to the readout (no Shift). Gate pads need Mode on, held for the time shown.\n")
+    print("| Pad | Sound | Settings |")
+    print("|---|---|---|")
+    print("| 1 | sine_441 | dry (Stretch 1.00), Attack 1.00 ms |")
+    for k, (pad, text) in enumerate(drawn):
+        print("| %d | %s | %s |" % (k + 2, pad["sample"][:-4], text))
+    print("| 16 | %s | a copy of pad 2 (Move's repeatability) |" % drawn[0][0]["sample"][:-4])
+    if spec_path:
+        pads = [{"sample": "sine_441.wav"}] + [p for p, _ in drawn]
+        pads.append(json.loads(json.dumps(pads[1])))
+        spec = {"name": "Loop acceptance %d" % seed,
+                "about": "fxlab.py accept-set Loop --seed %d (PLAN \"When an effect is done\"): drawn, not tuned "
+                         "against. Every Attack 1 ms, a finite Hold or a gate, %d pads transposed, "
+                         "Low-Pass 24 open." % (seed, len(LOOP_TRANSPOSE_PADS)),
+                "tempo": 120, "spacing_beats": TRANSPOSE_SPACING_BEATS,
+                "defaults": {"Voice_Envelope_Attack": 0.001, "Voice_Envelope_Hold": 60.0,
+                             "Voice_Envelope_Decay": 60.0, "Voice_Envelope_Mode": "A-H-D",
+                             "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+                "pads": pads}
+        build_set(spec)                 # refuses what Move wouldn't take
+        with open(spec_path, "w") as f:
+            json.dump(spec, f, indent=1)
+        print("\nspec: %s (fxlab.py make-set %s <outdir>)" % (spec_path, spec_path))
+
+
 def cmd_accept_set(effect, seed, pads, spec_path=None):
     if effect.lower() == "transpose":
         return cmd_accept_transpose(seed, spec_path)
+    if effect.lower() == "loop":
+        return cmd_accept_loop(seed, spec_path)
     match = [e for e in KNOBS_FOR if e.lower() == effect.lower()]
     if not match:
         sys.exit("accept-set: no effect %r (one of %s)" % (effect, ", ".join(KNOBS_FOR)))

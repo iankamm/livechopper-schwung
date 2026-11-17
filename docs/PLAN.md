@@ -29,9 +29,13 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
    - 2c. Loop: the per-effect workflow to "matched" (PLAN "Method"). If
      its wrap turns out to be Move's end fade, model that with it (step 3).
      Built 2026-11-17 (not Move's end fade: a 9 ms linear crossfade);
-     Set 52's Loop pads pass `check` (position 0.01-0.02 ms rms). Next:
-     the acceptance Set (finite Holds or Gate, Attack 1 ms or more), refs,
-     preview, `device-check`, A/B. Open: how Move's Loop treats a Drum
+     Set 52's Loop pads pass `check` (position 0.01-0.02 ms rms).
+     Acceptance Set 53 drawn with `accept-set Loop` (its own draw: every
+     Attack 1 ms, a finite Hold of 0.3-2.5 s or a gate on pads 7 and 13,
+     4 pads transposed within 12 st, on position_ramp, sine_441,
+     click_train and drum_synth), seed 1123,
+     `tools/fxlab/sets/set53_loop_accept.json`. Next: record it, `check`,
+     refs, then preview, `device-check`, A/B. Open: how Move's Loop treats a Drum
      Preset pad's region (Voice_PlaybackStart/Length): Set 52 measured
      whole files, as the Slices export makes; the region may count as the
      sample (as built) or the loop may read on past it.
@@ -345,7 +349,7 @@ reference.
 | Noise | silence_click, sine_441 | Amount 100 %; Color 180 Hz, 1 kHz, 15 kHz; envelope as for Sub Osc |
 | 8-Bit | Set 49 (NOTES "8-Bit"); acceptance: sweep, noise_white, sine_441_quiet, position_ramp (not click_train: Move's hold drifts) | Set 49 |
 | Stretch | click_train, position_ramp, sine_441 | Factor 2, 20; Grain 5 ms, 100 ms, 300 ms |
-| Loop | click_train, position_ramp | Offset 0, 25 %; Length 10 ms, 300 ms, 500 ms |
+| Loop | Set 52 (NOTES "Stretch and Loop on Move"); acceptance: position_ramp, sine_441, click_train, a finite Hold or a gate | Set 52 |
 | Transpose +12 | sine_441, position_ramp | 8-Bit 1 kHz, Stretch 2 / 100 ms, Loop 100 ms: whether they follow the pitch (the envelope and the other effects: Set 47) |
 
 ### Open
