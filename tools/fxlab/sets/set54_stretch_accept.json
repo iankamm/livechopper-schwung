@@ -1,0 +1,178 @@
+{
+ "name": "Stretch acceptance 1124",
+ "about": "fxlab.py accept-set Stretch --seed 1124 (PLAN \"When an effect is done\"): drawn, not tuned against. Every Attack 1.03 ms (dialable); 5 pads under Hold Inf to the sample's end, the rest a finite Hold; 4 pads transposed; Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 16,
+ "defaults": {
+  "Voice_Envelope_Attack": 0.0010308460390251867,
+  "Voice_Envelope_Hold": 60.0,
+  "Voice_Envelope_Decay": 60.0,
+  "Voice_Envelope_Mode": "A-H-D",
+  "Effect_Type": "Stretch",
+  "Effect_StretchFactor": 1.0
+ },
+ "pads": [
+  {
+   "sample": "sine_441.wav"
+  },
+  {
+   "sample": "click_train.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.866834535065324,
+    "Effect_StretchGrainSize": 0.05715931833272545,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 0.464200077414915,
+    "Voice_Envelope_Decay": 0.006921413436888658
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.77687998578496,
+    "Effect_StretchGrainSize": 0.2701245218790038,
+    "Voice_Envelope_Attack": 0.0010308460390251867
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 5.548812763609497,
+    "Effect_StretchGrainSize": 0.06916027223671782,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Transpose": -12,
+    "Voice_Envelope_Hold": 1.639299602575245,
+    "Voice_Envelope_Decay": 0.034219113173370244
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 3.1500247827998016,
+    "Effect_StretchGrainSize": 0.07128113046975096,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 0.7068971817574017,
+    "Voice_Envelope_Decay": 0.09389257509235173
+   }
+  },
+  {
+   "sample": "click_train.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.6036341871709263,
+    "Effect_StretchGrainSize": 0.019501152633990777,
+    "Voice_Envelope_Attack": 0.0010308460390251867
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 3.888540526891676,
+    "Effect_StretchGrainSize": 0.005068970999448232,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 1.7831527263614562,
+    "Voice_Envelope_Decay": 0.07935436732980834
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 9.405752882753976,
+    "Effect_StretchGrainSize": 0.05527985859776113,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Transpose": -12,
+    "Voice_Envelope_Hold": 2.294981383352916,
+    "Voice_Envelope_Decay": 0.05210984625250687
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 1.3209489474324083,
+    "Effect_StretchGrainSize": 0.16390918272872657,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Transpose": 6
+   }
+  },
+  {
+   "sample": "click_train.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 19.76829484985364,
+    "Effect_StretchGrainSize": 0.2787458968100328,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 0.5974421147828608,
+    "Voice_Envelope_Decay": 0.01605080708928959
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 7.081371751349026,
+    "Effect_StretchGrainSize": 0.2574511007303912,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 1.2737016417033786,
+    "Voice_Envelope_Decay": 0.001959934991856909
+   }
+  },
+  {
+   "sample": "sine_441.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.6036341871709263,
+    "Effect_StretchGrainSize": 0.005017242749862058,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Transpose": 3
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.2837957897296333,
+    "Effect_StretchGrainSize": 0.22129305426965556,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 1.507051609923974,
+    "Voice_Envelope_Decay": 0.002131924767584057
+   }
+  },
+  {
+   "sample": "click_train.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 18.35234361118125,
+    "Effect_StretchGrainSize": 0.026122368581021054,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 2.294981383352916,
+    "Voice_Envelope_Decay": 0.008189458913676778
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.6036341871709263,
+    "Effect_StretchGrainSize": 0.09192070205463439,
+    "Voice_Envelope_Attack": 0.0010308460390251867
+   }
+  },
+  {
+   "sample": "click_train.wav",
+   "params": {
+    "Effect_Type": "Stretch",
+    "Effect_StretchFactor": 2.866834535065324,
+    "Effect_StretchGrainSize": 0.05715931833272545,
+    "Voice_Envelope_Attack": 0.0010308460390251867,
+    "Voice_Envelope_Hold": 0.464200077414915,
+    "Voice_Envelope_Decay": 0.006921413436888658
+   }
+  }
+ ]
+}

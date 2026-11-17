@@ -298,6 +298,37 @@ check(lrun.returncode == 0 and len(lpads) == 16 and lpads[15] == lpads[1]
       and sum(bool(p["params"].get("Voice_Transpose")) for p in lpads[1:15]) == len(fxlab.LOOP_TRANSPOSE_PADS),
       "accept-set Loop: finite Holds or gates, ending in time, Attack 1 ms, the gates and transposed pads:\n"
       + lrun.stdout[-500:])
+# accept-set Stretch: Attack 1.03 ms on every pad, pad 1's too; the end pads
+# under Hold Inf play out within STRETCH_MAX_S, the rest end by then too.
+sspec_path = os.path.join(OUT, "stretch_accept.json")
+srun = run("accept-set", "Stretch", "--seed", "5", "--spec", sspec_path)
+sspec = json.load(open(sspec_path)) if srun.returncode == 0 else {"pads": []}
+spads = sspec["pads"]
+
+
+def stretch_ends(p):
+    q = dict(sspec.get("defaults", {}), **p["params"])
+    r = 2 ** (q.get("Voice_Transpose", 0) / 12)
+    n = len(fxlab.read_mono(os.path.join(fxlab.WAVS, p["sample"])))
+    whole = fxlab.stretch_length_s(n, q["Effect_StretchFactor"], q["Effect_StretchGrainSize"], r)
+    if q["Voice_Envelope_Hold"] >= 60.0:
+        return whole
+    return min(whole, (q["Voice_Envelope_Attack"] + q["Voice_Envelope_Hold"] + q["Voice_Envelope_Decay"]) / r)
+
+
+check(srun.returncode == 0 and len(spads) == 16 and spads[15] == spads[1]
+      and sspec["defaults"]["Voice_Envelope_Attack"] == fxlab.STRETCH_ATTACK
+      and all(p["params"]["Effect_Type"] == "Stretch" and p["params"]["Effect_StretchFactor"] > 1.0
+              and p["params"]["Voice_Envelope_Attack"] == fxlab.STRETCH_ATTACK
+              and stretch_ends(p) <= fxlab.STRETCH_MAX_S for p in spads[1:])
+      and sum("Voice_Envelope_Hold" not in p["params"] for p in spads[1:15]) == len(fxlab.STRETCH_END_PADS)
+      and sum(bool(p["params"].get("Voice_Transpose")) for p in spads[1:15]) == len(fxlab.STRETCH_TRANSPOSE_PADS),
+      "accept-set Stretch: Attack 1.03 ms, end pads under Hold Inf, all ending in time, transposed pads:\n"
+      + srun.stdout[-500:])
+# Move's grain count: 2 s at Factor 2, 100 ms grains, is 40 grains (Set 52 pad 7).
+check(abs(fxlab.stretch_length_s(88200, 2.0, 0.1, 1.0) - 4.0) < 1e-9
+      and abs(fxlab.stretch_length_s(88200, 20.0, 0.005, 1.0) - 8019 * 220 / 44100) < 1e-9,
+      "stretch_length_s: grains until the playhead reaches the end")
 # split on a generated Set places every pad by the clip, even when the
 # onset count matches: pad 2 starts under the onset level and turns loud
 # 0.2 s in (Set 53 pad 8), and is placed at its clip time, not there.

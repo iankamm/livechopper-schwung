@@ -1655,11 +1655,119 @@ def cmd_accept_loop(seed, spec_path=None):
         print("\nspec: %s (fxlab.py make-set %s <outdir>)" % (spec_path, spec_path))
 
 
+# accept-set Stretch: Set 52 measured it on whole sounds at Transpose 0 or
+# +12, so the draw covers what that left open. Five pads play under Hold Inf
+# to the sample's end (Move's end fade on each grain and the voice's end at
+# the playhead's), two of them transposed (the end fade taken as source
+# time, untested); the rest a finite Hold and Decay at any Factor. Every
+# Attack is 1.03 ms, pad 1's too: the dialable position nearest 1 ms (Set
+# 53's preview couldn't play its 1.00 ms, and 4 pads' position failed on
+# it), with Move's level at ~0.931 under any Hold.
+STRETCH_END_PADS = (1, 4, 7, 10, 13)        # drawn pads 0-13 under Hold Inf
+STRETCH_TRANSPOSE_PADS = (2, 6, 7, 10)
+STRETCH_SEMIS = 12
+STRETCH_HOLD = (0.3, 2.5)
+STRETCH_DECAY = (0.001, 0.5)
+STRETCH_ATTACK = 0.0010308460390251867     # "1.03 ms", knob position 250 (src/knobs.mjs)
+STRETCH_SPACING_BEATS = 16                 # 8 s at 120 BPM: an end pad may run 7 s
+STRETCH_MAX_S = 7.0
+
+
+def stretch_length_s(src_frames, factor, grain_s, r):
+    """How long Move's Stretch plays a whole sound under Hold Inf: grains of
+    floor(Grain x 44100) frames until the playhead (a grain's read / Factor a
+    grain) reaches the end (NOTES "Stretch and Loop on Move")."""
+    h = int(np.float32(grain_s) * np.float32(RATE))
+    return int(np.ceil(src_frames * factor / (h * r))) * h / RATE
+
+
+def stretch_draw(rng, k, sound):
+    """Drawn pad k (0-13): Factor, Grain, Hold Inf or a finite Hold and
+    Decay, maybe Transpose; or None to draw again."""
+    end = k in STRETCH_END_PADS
+    semis = rng.choice([s for s in range(-STRETCH_SEMIS, STRETCH_SEMIS + 1) if s]) if k in STRETCH_TRANSPOSE_PADS else 0
+    r = 2 ** (semis / 12)
+    knobs = [("hold", "Hold"), ("decay", "Decay")] + list(KNOBS_FOR["Stretch"])
+    out = json.loads(subprocess.check_output(
+        ["node", os.path.join(REPO, "tools", "fxlab", "knob_readout.mjs"),
+         json.dumps([[name, rng.random()] for name, _ in knobs])]))
+    hold, decay, factor, grain = (o[1] for o in out)
+    if abs(factor - 1.0) < 1e-6:
+        return None                     # plain playback
+    src = len(read_mono(os.path.join(WAVS, sound + ".wav")))
+    whole_s = stretch_length_s(src, factor, grain, r)
+    p = {"Effect_Type": "Stretch", "Effect_StretchFactor": factor, "Effect_StretchGrainSize": grain,
+         "Voice_Envelope_Attack": STRETCH_ATTACK}
+    labels = []
+    if semis:
+        p["Voice_Transpose"] = semis
+        labels.append("Transpose %d st" % semis)
+    if end:
+        if whole_s > STRETCH_MAX_S:
+            return None
+        labels.append("Hold Inf")
+    else:
+        if not (STRETCH_HOLD[0] - 1e-9 <= hold <= STRETCH_HOLD[1]
+                and STRETCH_DECAY[0] - 1e-9 <= decay <= STRETCH_DECAY[1]):
+            return None
+        if min(whole_s, (STRETCH_ATTACK + hold + decay) / r) > STRETCH_MAX_S:
+            return None
+        p.update({"Voice_Envelope_Hold": hold, "Voice_Envelope_Decay": decay})
+        labels += ["Hold %s" % out[0][0], "Decay %s" % out[1][0]]
+    labels += ["Stretch Factor %s" % out[2][0], "Grain Size %s" % out[3][0]]
+    pad = {"sample": sound + ".wav", "params": p}
+    if accept_clips(pad):
+        return None
+    return pad, ", ".join(labels)
+
+
+def cmd_accept_stretch(seed, spec_path=None):
+    rng = random.Random(seed)
+    sounds = ACCEPT_SOUNDS["Stretch"] + ["drum_synth"]
+    drawn = []
+    for k in range(SET_PADS - 2):
+        while True:
+            got = stretch_draw(rng, k, sounds[k % len(sounds)])
+            if got:
+                break
+        drawn.append(got)
+    print("Acceptance Set for Stretch, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % seed)
+    print("Every pad: Attack 1.03 ms, Low-Pass 24 fully open, Full Velocity; Hold Inf plays to the sample's end.")
+    print("Play the pads in order %g s apart, then split and run fxlab.py check." % (STRETCH_SPACING_BEATS / 2))
+    print("The preview in LiveChopper: before every value, spin that knob to its bottom end, then click")
+    print("up to the readout (no Shift).\n")
+    print("| Pad | Sound | Settings |")
+    print("|---|---|---|")
+    print("| 1 | sine_441 | dry (Stretch 1.00), Attack 1.03 ms |")
+    for k, (pad, text) in enumerate(drawn):
+        print("| %d | %s | %s |" % (k + 2, pad["sample"][:-4], text))
+    print("| 16 | %s | a copy of pad 2 (Move's repeatability) |" % drawn[0][0]["sample"][:-4])
+    if spec_path:
+        pads = [{"sample": "sine_441.wav"}] + [p for p, _ in drawn]
+        pads.append(json.loads(json.dumps(pads[1])))
+        spec = {"name": "Stretch acceptance %d" % seed,
+                "about": "fxlab.py accept-set Stretch --seed %d (PLAN \"When an effect is done\"): drawn, not "
+                         "tuned against. Every Attack 1.03 ms (dialable); %d pads under Hold Inf to the "
+                         "sample's end, the rest a finite Hold; %d pads transposed; Low-Pass 24 open."
+                         % (seed, len(STRETCH_END_PADS), len(STRETCH_TRANSPOSE_PADS)),
+                "tempo": 120, "spacing_beats": STRETCH_SPACING_BEATS,
+                "defaults": {"Voice_Envelope_Attack": STRETCH_ATTACK, "Voice_Envelope_Hold": 60.0,
+                             "Voice_Envelope_Decay": 60.0, "Voice_Envelope_Mode": "A-H-D",
+                             "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+                "pads": pads}
+        build_set(spec)                 # refuses what Move wouldn't take
+        with open(spec_path, "w") as f:
+            json.dump(spec, f, indent=1)
+        print("\nspec: %s (fxlab.py make-set %s <outdir>)" % (spec_path, spec_path))
+
+
 def cmd_accept_set(effect, seed, pads, spec_path=None):
     if effect.lower() == "transpose":
         return cmd_accept_transpose(seed, spec_path)
     if effect.lower() == "loop":
         return cmd_accept_loop(seed, spec_path)
+    if effect.lower() == "stretch":
+        return cmd_accept_stretch(seed, spec_path)
     match = [e for e in KNOBS_FOR if e.lower() == effect.lower()]
     if not match:
         sys.exit("accept-set: no effect %r (one of %s)" % (effect, ", ".join(KNOBS_FOR)))

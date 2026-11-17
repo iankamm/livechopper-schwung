@@ -144,9 +144,15 @@ measurements; Stretch (built 2026-11-17) still needs its acceptance
   Move", "Built"): back-to-back grains of floor(Grain x 44100) frames
   with 1 ms linear fades to 0 at both ends (none in on the voice's first),
   the playhead a grain's read / Factor a grain, and Move's 10 ms end fade
-  on each grain's read. `check` on Set 52: 16 of 16. Next: `accept-set
-  Stretch`, record, refs, preview, `device-check`, A/B. Sets are written
-  with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
+  on each grain's read. `check` on Set 52: 16 of 16. Acceptance Set 54
+  drawn with `accept-set Stretch` (its own draw: every Attack 1.03 ms,
+  the dialable position nearest 1 ms; 5 pads under Hold Inf to the
+  sample's end, 2 of them transposed; the rest a finite Hold of 0.3-2.5 s;
+  4 pads transposed within 12 st; click_train, position_ramp, sine_441
+  and drum_synth; 8 s apart), seed 1124,
+  `tools/fxlab/sets/set54_stretch_accept.json`. Next: record it, `check`,
+  refs, preview, `device-check`, A/B. Sets are written with
+  `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio
   (Detune included), Gate's release doesn't; FM, Ring Mod and Sub Osc's
