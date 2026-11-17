@@ -64,6 +64,16 @@ ${CROSS_PREFIX}gcc -O2 -shared -fPIC \
     -Isrc/dsp \
     -lm -lpthread
 
+# The Move's glibc is 2.35: a newer symbol version (fmod@GLIBC_2.38 once)
+# would stop dsp.so loading there, while every host test passes.
+MOVE_GLIBC_MINOR=35
+newest=$(${CROSS_PREFIX}objdump -T build/dsp.so | grep -o 'GLIBC_2\.[0-9]*' | sed 's/GLIBC_2\.//' | sort -n | tail -1)
+if [ "${newest:-0}" -gt "$MOVE_GLIBC_MINOR" ]; then
+    echo "Error: dsp.so needs GLIBC_2.$newest, the Move has 2.$MOVE_GLIBC_MINOR:"
+    ${CROSS_PREFIX}objdump -T build/dsp.so | grep -E "GLIBC_2\.(3[6-9]|[4-9][0-9])"
+    exit 1
+fi
+
 # Create dist directory
 rm -rf "dist/$MODULE_ID"
 mkdir -p "dist/$MODULE_ID"

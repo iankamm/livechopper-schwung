@@ -1363,7 +1363,7 @@ static float alaw8(float v) {
  * is held from the next one, as Move's are (Set 49 pad 6: a click on an
  * instant holds 3 frames at 14.08 kHz, not 4). Off keeps the phase
  * negative, so turning crush on takes a fresh frame at once, and keeps
- * the low-pass settled on the input. Bounded: one fmod, the cut, one expf
+ * the low-pass settled on the input. Bounded: one floor, the cut, one expf
  * and one tanf. */
 static void crush_frame(const live_chopper_t *inst, crush_state_t *c, int t, float *l, float *r) {
     float hz = inst->crush_hz;
@@ -1380,7 +1380,9 @@ static void crush_frame(const live_chopper_t *inst, crush_state_t *c, int t, flo
     if (c->phase > MOVE_SAMPLE_RATE || c->phase < 0.0) {
         /* The instant was this many frames ago, between the last frame
          * read and this one. */
-        c->phase = c->phase < 0.0 ? 0.0 : fmod(c->phase, (double)MOVE_SAMPLE_RATE);
+        /* floor, not fmod: the Move's glibc (2.35) lacks fmod@GLIBC_2.38. */
+        c->phase = c->phase < 0.0 ? 0.0
+                 : c->phase - MOVE_SAMPLE_RATE * floor(c->phase / MOVE_SAMPLE_RATE);
         float back = (float)(c->phase / inc);
         c->l = alaw8(*l + back * (c->pl - *l));
         c->r = alaw8(*r + back * (c->pr - *r));
