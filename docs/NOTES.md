@@ -1196,3 +1196,17 @@ the same day: 12 of 16 pass (the sines, ramps and drum_synth at
 
 The take has one 128-frame jump, between pads 4 and 5, in the silence.
 Refs in `tests/move_refs/8_bit/`.
+
+Preview (2026-11-17, `.claude/recordings/preview8/`): Set 51's 16 pads
+played in LiveChopper in 5 Skipback takes, one a sound, joined with take
+1's dry hit first. Against the render all 16 match (0.00-0.01 dB),
+against Move exactly the acceptance's result (the same 4 waived pads,
+the same numbers). `device-check` on Sets 49-51: 48 pads, 44 bit for
+bit, 4 within 1 LSB on 1-2 frames (the Move's `logf`/`expf`). Listening
+A/B: no difference heard on any of 16 pairs, the 4 waived ones included.
+
+Also from 8-Bit: the first build of it used `fmod`, whose symbol in the
+cross toolchain's glibc is `fmod@GLIBC_2.38`; the Move has 2.35, so that
+`dsp.so` wouldn't load there, with every host test passing. It uses
+`floor` now, and `scripts/build.sh` refuses a `dsp.so` that needs any
+glibc symbol past 2.35.

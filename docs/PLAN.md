@@ -10,10 +10,9 @@ comes off this list. What was measured along the way goes to
 Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
-1. **Match the remaining effects** (below, "Status"), easiest first:
-   8-Bit (fitted on Set 49, 2026-11-16), then Stretch and Loop
-   (following Transpose done 2026-11-16).
-2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
+1. **Match the remaining effects** (below, "Status"): Stretch and Loop
+   (8-Bit done 2026-11-17, following Transpose 2026-11-16).
+2. **Decide what 1.0 needs of Stretch and Loop** (next): matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Move's grain algorithm is unknown, so they are the
    costliest.
@@ -83,26 +82,21 @@ LiveChopper's own designs, not Move's algorithms.
   heard on any of 32 pairs, 16 a Set; NOTES "Sub Osc and Noise"). Open:
   Noise under a finite Hold, at other Attacks and on Gate pads, its
   follower's exact shape, and a Gate Sub Osc pad's jump at the note-off.
-- 8-Bit: fitted on Set 49 (2026-11-16, NOTES "8-Bit"): a hold at Rate x
-  the pitch ratio read between frames, 8 bits of A-law truncated toward
-  zero, a two-pole low-pass at 19.75 kHz that a Decay closes towards
-  300 Hz. `check`: 9 of 16 pass; pads 5 and 14 fail on Move's drifting
-  hold period (untraced, NOTES), the 1 and 30 kHz sweeps and the noise
-  pads on bands' per-window cells of aliasing and quantization
-  by-products. Decided 2026-11-16: an 8-Bit pad's bands are averaged
-  over 16 windows, as a Noise pad's (`crush_pad` in fxlab.py; Set 49 then
-  12 of 16, pad 7 at 3.22 max, pad 15 the +12 read), and click_train
-  leaves 8-Bit's acceptance sounds. Set 50 (seed 1121) not accepted: the
-  Rate is no longer rounded and the low-pass is k = 2.18 at 20 kHz, fitted
-  on it and Set 49; then 13 of 15 8-Bit pads pass, pads 2/16 (8 kHz
-  sweep under a short Decay) fail in the beats under 300 Hz (NOTES
-  "8-Bit"). Its dry pad has a capture glitch (`--gain 0.84649`).
-  Accepted on Set 51 (2026-11-17, seed 1122,
-  `tools/fxlab/sets/set51_8bit_accept.json`): 12 of 16, the bands of
-  pads 2, 12, 16 (sweeps' sub-140 Hz beats under the closed low-pass) and
-  8 (noise, one cell 3.32) waived on the evidence in NOTES, the A/B to
-  decide whether any of it is heard; refs in `tests/move_refs/8_bit/`.
-  Next: preview checks, `device-check`, listening A/B.
+- Done: 8-Bit (2026-11-17). Fitted on Sets 49 and 50 (NOTES "8-Bit"): a
+  hold at the Rate (unrounded) x the pitch ratio, read between frames,
+  8 bits of A-law truncated toward zero, a two-pole low-pass (k = 2.18)
+  at 20 kHz that a Decay closes towards 300 Hz. An 8-Bit pad's bands are
+  averaged over 16 windows (`crush_pad`), and click_train left its
+  acceptance sounds (Move's hold period drifts, untraced). Set 50 (seed
+  1121) not accepted, a fit Set now. Accepted on Set 51, seed 1122
+  (`tools/fxlab/sets/set51_8bit_accept.json`), 12 of 16 with the bands
+  of pads 2, 12, 16 (sweeps' sub-140 Hz beats under the closed low-pass)
+  and 8 (noise, one cell 3.32) waived on the evidence in NOTES; refs in
+  `tests/move_refs/8_bit/`. Preview checks (16 of 16 against the render;
+  against Move the acceptance's result), `device-check` (Sets 49-51,
+  48 pads, worst 1 LSB) and listening A/B passed (2026-11-17: no
+  difference heard on any of 16 pairs, the 4 waived ones included).
+  Open: the hold's drift.
 - Then Stretch, Loop. Sets are written with `fxlab.py make-set` from a
   spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
