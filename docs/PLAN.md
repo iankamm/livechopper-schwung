@@ -89,9 +89,11 @@ LiveChopper's own designs, not Move's algorithms.
   300 Hz. `check`: 9 of 16 pass; pads 5 and 14 fail on Move's drifting
   hold period (untraced, NOTES), the 1 and 30 kHz sweeps and the noise
   pads on bands' per-window cells of aliasing and quantization
-  by-products (0.47-0.77 dB power-averaged over 16 windows). Before an
-  acceptance Set: how bands treats those pads (as Noise got its noise
-  metric), and whether click_train stays in 8-Bit's acceptance sounds.
+  by-products. Decided 2026-11-16: an 8-Bit pad's bands are averaged
+  over 16 windows, as a Noise pad's (`crush_pad` in fxlab.py; Set 49 then
+  12 of 16, pad 7 at 3.22 max, pad 15 the +12 read), and click_train
+  leaves 8-Bit's acceptance sounds. Acceptance Set 50 drawn, seed 1121
+  (`tools/fxlab/sets/set50_8bit_accept.json`, 5 s apart for the sweep).
 - Then Stretch, Loop. Sets are written with `fxlab.py make-set` from a
   spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
@@ -315,7 +317,7 @@ reference.
 | Ring Mod | sine_441, position_ramp | Set 38 (NOTES "Ring Mod") |
 | Sub Osc | silence_click, sine_441 | Amount 100 %; Freq 30, 60, 120 Hz; Attack 0 and 100 ms, Hold short, Decay 100 ms; and Hold Inf with Decay 100 ms, for whether Hold applies |
 | Noise | silence_click, sine_441 | Amount 100 %; Color 180 Hz, 1 kHz, 15 kHz; envelope as for Sub Osc |
-| 8-Bit | click_train, noise_white, sweep | Rate 1 kHz, 14.1 kHz; Decay Off, 100 ms, 1 s |
+| 8-Bit | Set 49 (NOTES "8-Bit"); acceptance: sweep, noise_white, sine_441_quiet, position_ramp (not click_train: Move's hold drifts) | Set 49 |
 | Stretch | click_train, position_ramp, sine_441 | Factor 2, 20; Grain 5 ms, 100 ms, 300 ms |
 | Loop | click_train, position_ramp | Offset 0, 25 %; Length 10 ms, 300 ms, 500 ms |
 | Transpose +12 | sine_441, position_ramp | 8-Bit 1 kHz, Stretch 2 / 100 ms, Loop 100 ms: whether they follow the pitch (the envelope and the other effects: Set 47) |

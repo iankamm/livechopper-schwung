@@ -609,6 +609,20 @@ def noise_pad(p):
     return effect_name(p) == "Noise" and fx_value(p, 0) > 0
 
 
+CRUSH_BAND_GROUP = 16                   # and an 8-Bit pad's
+
+
+def crush_pad(p):
+    """8-Bit on: the cells that hold only its aliasing and quantization
+    by-products turn over with any difference in timing, and Move's hold
+    period drifts off the nominal one (NOTES "8-Bit"), so one window's
+    levels swing by many dB where the averaged power matches (Set 49:
+    sweeps and noise_white 0.47-0.77 dB rms over 16 windows, per window
+    max 12-27 dB). Compared averaged over CRUSH_BAND_GROUP windows, like a
+    noise_pad's."""
+    return effect_name(p) == "8-bit" and fx_value(p, 0) > 0
+
+
 NOISE_BLOCK = 8192          # a noise level is the power over this many frames: 186 ms,
 NOISE_START = 220           # ... the first from 5 ms, past the onset (where the dry paths differ),
 NOISE_FLOOR_LSB = 1.0       # ... floored at this rms (the renders round to 0.3)
@@ -681,7 +695,8 @@ def curve_position(x, c):
 def curve_bands(x, c):
     """Band levels a window at a time; for fm_reverses, one column: their
     power average over the windows ending by end_ms; for a noise_pad, the
-    power average of each NOISE_BAND_GROUP windows."""
+    power average of each NOISE_BAND_GROUP windows, for a crush_pad of
+    each CRUSH_BAND_GROUP."""
     b, tb = band_levels(x, BAND_NFFT, BAND_HOP)
     t = tb * 1000
     if c.get("params") and fm_reverses(c["params"]):
@@ -689,12 +704,13 @@ def curve_bands(x, c):
         if keep.any():
             b = 10 * np.log10(np.mean(10 ** (b[:, keep] / 10), axis=1, keepdims=True))
             t = np.zeros(1)
-    elif c.get("params") and noise_pad(c["params"]):
-        n = int(np.sum(t + BAND_NFFT / RATE * 1000 <= c["end_ms"])) // NOISE_BAND_GROUP * NOISE_BAND_GROUP
+    elif c.get("params") and (noise_pad(c["params"]) or crush_pad(c["params"])):
+        k = NOISE_BAND_GROUP if noise_pad(c["params"]) else CRUSH_BAND_GROUP
+        n = int(np.sum(t + BAND_NFFT / RATE * 1000 <= c["end_ms"])) // k * k
         if n:
             g = 10 ** (b[:, :n] / 10)
-            b = 10 * np.log10(g.reshape(len(b), n // NOISE_BAND_GROUP, NOISE_BAND_GROUP).mean(axis=2))
-            t = t[:n:NOISE_BAND_GROUP]
+            b = 10 * np.log10(g.reshape(len(b), n // k, k).mean(axis=2))
+            t = t[:n:k]
     return t, b
 
 
@@ -1269,7 +1285,9 @@ ACCEPT_SOUNDS = {
     "Loop": ["click_train", "position_ramp"],
     "Pitch Env": ["sine_441", "position_ramp"],
     "Punch": ["sine_441", "sine_441_quiet"],
-    "8-bit": ["click_train", "noise_white", "sweep"],
+    # Not click_train: Move's hold period drifts (NOTES "8-Bit"), walking a
+    # click locked to the Rate off its instant; drum_synth has transients.
+    "8-bit": ["sweep", "noise_white", "sine_441_quiet", "position_ramp"],
     "FM": ["sine_441", "position_ramp"],
     "Ring Mod": ["sine_441"],
     # Sub Osc peaks at -1.6 dBFS alone and Noise adds 0.57 of a sine's
@@ -1311,6 +1329,14 @@ def accept_clips(pad):
     return np.abs(x).max() * DEFAULT_GAIN > 0.95 * CAPTURE_KNEE
 
 
+def accept_spacing_beats(sounds):
+    """Beats between pads at 120 BPM: the longest sound and a second's
+    silence (6 for the 2 s sounds; 10 with the 4 s sweep, which at Hold
+    Inf would run into the next pad)."""
+    longest = max(len(read_mono(os.path.join(WAVS, x + ".wav"))) for x in ["sine_441"] + sounds) / RATE
+    return int(np.ceil((longest + 1.0) * 2))
+
+
 def accept_spec(effect, seed, drawn, sounds, knobs):
     """The draw as a make-set spec: pad 1 dry, the drawn pads, a repeat of pad 2."""
     pads = [{"sample": "sine_441.wav"}]
@@ -1320,7 +1346,7 @@ def accept_spec(effect, seed, drawn, sounds, knobs):
     return {"name": "%s acceptance %d" % (effect, seed),
             "about": "fxlab.py accept-set %s --seed %d (PLAN \"When an effect is done\"): drawn, "
                      "not tuned against. Attack at its minimum, Hold Inf, Low-Pass 24 open." % (effect, seed),
-            "tempo": 120, "spacing_beats": 6,
+            "tempo": 120, "spacing_beats": accept_spacing_beats(sounds),
             "defaults": {"Voice_Envelope_Attack": ACCEPT_ATTACK, "Voice_Envelope_Hold": 60.0,
                          "Voice_Envelope_Decay": 60.0, "Voice_Envelope_Mode": "A-H-D",
                          "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
@@ -1466,7 +1492,7 @@ def cmd_accept_set(effect, seed, pads, spec_path=None):
         drawn.append(out)
     print("Acceptance Set for %s, seed %d (docs/PLAN.md step 4, \"When an effect is done\")." % (effect, seed))
     print("Every pad: Attack at its minimum, Hold Inf, Low-Pass 24 fully open, Transpose 0, Full Velocity.")
-    print("Play the pads in order about 3 s apart, then split and run fxlab.py check.")
+    print("Play the pads in order about %g s apart, then split and run fxlab.py check." % (accept_spacing_beats(sounds) / 2))
     print("The preview in LiveChopper: before every value, spin that knob to its bottom end, then click")
     print("up to the readout (no Shift); if it touches the top end, back to the bottom and again.")
     print("Each readout is then one knob position.")

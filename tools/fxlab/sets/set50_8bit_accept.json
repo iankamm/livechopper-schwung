@@ -1,0 +1,139 @@
+{
+ "name": "8-bit acceptance 1121",
+ "about": "fxlab.py accept-set 8-bit --seed 1121 (PLAN \"When an effect is done\"): drawn, not tuned against. Attack at its minimum, Hold Inf, Low-Pass 24 open.",
+ "tempo": 120,
+ "spacing_beats": 10,
+ "defaults": {
+  "Voice_Envelope_Attack": 0.0001,
+  "Voice_Envelope_Hold": 60.0,
+  "Voice_Envelope_Decay": 60.0,
+  "Voice_Envelope_Mode": "A-H-D",
+  "Effect_Type": "Stretch",
+  "Effect_StretchFactor": 1.0
+ },
+ "pads": [
+  {
+   "sample": "sine_441.wav"
+  },
+  {
+   "sample": "sweep.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 8006.4146119957195,
+    "Effect_EightBitFilterDecay": 0.04361783896450825
+   }
+  },
+  {
+   "sample": "noise_white.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 7800.906998560513,
+    "Effect_EightBitFilterDecay": 0.012093090667760813
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 9604.812870204745,
+    "Effect_EightBitFilterDecay": 0.6240027027828073
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 1331.1369397039773,
+    "Effect_EightBitFilterDecay": 0.04361783896450825
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 3669.8540919162674,
+    "Effect_EightBitFilterDecay": 0.015335888603146679
+   }
+  },
+  {
+   "sample": "sweep.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 1477.048103338665,
+    "Effect_EightBitFilterDecay": 0.8298363110389967
+   }
+  },
+  {
+   "sample": "noise_white.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 3483.8772578551425,
+    "Effect_EightBitFilterDecay": 0.2782293284539186
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 4179.397488899189,
+    "Effect_EightBitFilterDecay": 0.023518947924812416
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 5420.55102599456,
+    "Effect_EightBitFilterDecay": 2.5954716427310776
+   }
+  },
+  {
+   "sample": "drum_synth.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 1000,
+    "Effect_EightBitFilterDecay": 0.0771393671786732
+   }
+  },
+  {
+   "sample": "sweep.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 2550.0408307467083,
+    "Effect_EightBitFilterDecay": 0.027121947580483453
+   }
+  },
+  {
+   "sample": "noise_white.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 3483.8772578551425,
+    "Effect_EightBitFilterDecay": 0.5411074196696553
+   }
+  },
+  {
+   "sample": "sine_441_quiet.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 13467.829055954571,
+    "Effect_EightBitFilterDecay": 0.07014672785898297
+   }
+  },
+  {
+   "sample": "position_ramp.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 7405.581203566847,
+    "Effect_EightBitFilterDecay": 0.013945699111439246
+   }
+  },
+  {
+   "sample": "sweep.wav",
+   "params": {
+    "Effect_Type": "8-bit",
+    "Effect_EightBitResamplingRate": 8006.4146119957195,
+    "Effect_EightBitFilterDecay": 0.04361783896450825
+   }
+  }
+ ]
+}

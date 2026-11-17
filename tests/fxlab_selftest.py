@@ -311,5 +311,26 @@ check(same[1] == "PASS" and louder[1] == "FAIL" and abs(louder[0]["rms"] - 3.5) 
       and short[0] is not None and short[1] == "PASS",
       "noise metric: same level passes, 3.5 dB louder fails, one short block counts: %s %s %s" % (same, louder, short))
 
+# 8-Bit pads compare bands averaged over CRUSH_BAND_GROUP windows: one
+# white noise with a different noise 10 dB under it on each side
+# (standing in for its by-products, which turn over with timing) passes
+# there and fails window by window; 1.5 dB louder still fails. (Over 12
+# seeds at 10.5 dB under, all three hold; at 9 dB the averaged max swings
+# past 3 dB on a few: the narrowest low bands hold under one FFT bin.)
+crush = {"Effect_Type": "8-bit", "Effect_EightBitResamplingRate": 14080.0, "Effect_EightBitFilterDecay": 5.0}
+shared = 3000 * rng.standard_normal(2 * fxlab.RATE)
+w1, w2 = (shared + 0.3 * 3000 * rng.standard_normal(2 * fxlab.RATE) for _ in range(2))
+
+
+def bands_err(p, ours_gain_db=0.0):
+    c = {"params": p, "end_ms": 1900.0}
+    ref = fxlab.store_curve("bands", *fxlab.curve_bands(w1, c), c["end_ms"])
+    return fxlab.judge("bands", fxlab.curve_error("bands", ref, *fxlab.curve_bands(w2 * 10 ** (ours_gain_db / 20), c)),
+                       1.0, 3.0)[1]
+
+
+got = (bands_err(crush), bands_err(params()), bands_err(crush, 1.5))
+check(got == ("PASS", "FAIL", "FAIL"), "8-Bit bands: averaged noise passes, per window fails, 1.5 dB louder fails: %s" % (got,))
+
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)
