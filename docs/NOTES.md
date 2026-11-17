@@ -1086,3 +1086,66 @@ holds fitted from the audio) all 16 match, most bit for bit. Against Move:
 the 3 waived pads as above and pad 4, held 0.345 s by hand against the
 clip's 0.40 s. `device-check` on Sets 47 and 48: 38 pads bit for bit.
 Listening A/B: no difference heard on any of 16 pairs.
+
+### 8-Bit (Set 49)
+
+Set 49 (`tools/fxlab/sets/set49_8bit_fit.json`), recorded 2026-11-16,
+the first Set with 8-Bit pads: Rate 1 kHz, 14.08 kHz (Move's default) and
+30 kHz on sine_441_quiet, position_ramp, click_train, sweep and
+noise_white; Decay Off, 1 s, 100 ms and 10 ms on noise_white at 30 kHz;
+a ramp under a volume Decay; click_train and noise_white at +12 st; pad 16
+repeats pad 2. Take and split in `.claude/recordings/set49/`. Move's 8-Bit
+is three stages, in this order:
+
+- **The hold.** The sound is sampled at instants k x 44100 / (Rate x the
+  pitch ratio) frames from the note-on, so the hold follows Transpose (a
+  1 kHz hold is 45 frames, 23 at +12), and held from the frame after each
+  instant (Set 49 pad 6: a click on an instant at 14.08 kHz holds 3
+  frames, not 4), the note-on's at once. The value held is the sound read
+  between frames at the instant: linearly, which fits the 1 kHz sweep's
+  holds better than the nearest frame, the frame before or a cubic. No
+  low-pass before it: the held levels reach the source's on the sweeps up
+  to 18 kHz at every Rate.
+- **The cut: 8 bits of A-law**, A = 87.6, the continuous law (not G.711's
+  segments): the code is 128 (1 + ln A|x|) / (1 + ln A) of full scale,
+  128 A|x| / (1 + ln A) under 1/A, truncated toward zero, and the value is
+  the code's. On the ramp (pad 3) every level sits on a whole code to
+  0.018 code rms (after Move's 0.8465), truncation predicts 99.8 % of its
+  frames (rounding 50 %), each step is 0.958140 of the one above (16.2 a
+  doubling) and near 0 the steps are 16 LSB. It is cut before the volume
+  envelope (pad 4 over pad 3 is a smooth decay, 5e-5 a frame) and before
+  Move's 0.8465. Truncation costs about 0.2 dB of level. Pads 2 and 16
+  score the same against the render: no dither.
+- **A low-pass**: a two-pole TPT low-pass with k = 2 (Q 0.5, two real
+  poles, a zero pair at Nyquist), fitted on the click edges of pad 5 (the
+  same edge on every click, whatever the instant's fraction): 19.75 kHz
+  with Decay Off (39 LSB rms against a free 48-tap fit's 29; flat to
+  10 kHz, -0.8 dB at 15 kHz, -6.8 dB at 20 kHz). A Decay closes it:
+  cutoff = 300 Hz + (19750 - 300) e^(-ln 1000 t / Decay), from the
+  note-on in output time, so it doesn't follow Transpose (pad 15 traces
+  pad 12's cutoffs). Spectral fits per window, pad 11 (1 s): 17.8 kHz at
+  12 ms, 9.9 kHz at 0.1 s, 2.7 kHz at 0.3 s, 915 Hz at 0.5 s, 317 Hz at
+  1 s; pad 12 (100 ms) the same over a tenth of the time; pad 13 (10 ms)
+  at 300 Hz within 17 ms. A hard floor (an exponential to 30 Hz held at
+  300 Hz) left our render 7 dB too dark at 0.5-0.8 s of pad 11.
+
+Open: **the hold's period drifts** off 44100 / Rate on Move. Fitted on the
+sweeps, the instants come early by 5.9e-6 of the period at 1 kHz and
+7.0e-6 at 30 kHz, by 2.95e-6 at 1 kHz +12 st, and not at all at 14.08 kHz
+(pad 6's 19 clicks are identical). On pad 5 it walks each click's instant
+0.026 frames earlier a click, and with the linear read each held click
+falls a code or so: codes 124, 124, 123 ... 108 over 19 clicks (-6 dB),
+predicted to a code. A float32 phase, a float32 read position or float32
+seconds don't produce it; the cause is untraced, and LiveChopper holds at
+the nominal period.
+
+`check` with the model: pads 2, 3, 6, 8 and 16 pass (bands 0.06-0.39
+rms), pad 4 too at 0.83 (Move's level under a finite Hold, "Volume
+envelope"). Pads 5 and 14 fail on the drift (3.18 and 1.44 rms). The
+sweeps at 1 kHz and 30 kHz and the noise pads fail bands' per-window cells
+(max 12-27 dB) where the cell holds only aliasing and quantization
+by-products, which turn over with any difference in timing; power-averaged
+over 16 windows they are 0.47-0.77 dB rms (max 2.6 dB, in the narrow
+bands under 130 Hz), the sweep at 14.08 kHz 0.23. Pad 15's 7.5 dB at
+20 kHz in its first second is the read at +12 on white noise (Move's
+resampler, not 8-Bit).

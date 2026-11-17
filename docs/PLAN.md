@@ -11,8 +11,8 @@ Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
 1. **Match the remaining effects** (below, "Status"), easiest first:
-   8-Bit, then Stretch and Loop (following Transpose done
-   2026-11-16).
+   8-Bit (fitted on Set 49, 2026-11-16), then Stretch and Loop
+   (following Transpose done 2026-11-16).
 2. **Decide what 1.0 needs of Stretch and Loop**, after 8-Bit: matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Move's grain algorithm is unknown, so they are the
@@ -83,8 +83,17 @@ LiveChopper's own designs, not Move's algorithms.
   heard on any of 32 pairs, 16 a Set; NOTES "Sub Osc and Noise"). Open:
   Noise under a finite Hold, at other Attacks and on Gate pads, its
   follower's exact shape, and a Gate Sub Osc pad's jump at the note-off.
-- Then, in this order: 8-Bit, Stretch, Loop. Sets
-  are written with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
+- 8-Bit: fitted on Set 49 (2026-11-16, NOTES "8-Bit"): a hold at Rate x
+  the pitch ratio read between frames, 8 bits of A-law truncated toward
+  zero, a two-pole low-pass at 19.75 kHz that a Decay closes towards
+  300 Hz. `check`: 9 of 16 pass; pads 5 and 14 fail on Move's drifting
+  hold period (untraced, NOTES), the 1 and 30 kHz sweeps and the noise
+  pads on bands' per-window cells of aliasing and quantization
+  by-products (0.47-0.77 dB power-averaged over 16 windows). Before an
+  acceptance Set: how bands treats those pads (as Noise got its noise
+  metric), and whether click_train stays in 8-Bit's acceptance sounds.
+- Then Stretch, Loop. Sets are written with `fxlab.py make-set` from a
+  spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio
   (Detune included), Gate's release doesn't; FM, Ring Mod and Sub Osc's
@@ -100,7 +109,8 @@ LiveChopper's own designs, not Move's algorithms.
   played; against Move the 3 waived pads and pad 4, held 0.345 s by hand
   against the clip's 0.40 s), `device-check` (Sets 47 and 48, 38 pads bit
   for bit) and listening A/B (no difference heard on any of 16 pairs).
-  8-Bit's rate, Stretch and Loop under Transpose go in their own Sets.
+  8-Bit's rate follows the pitch, its Decay doesn't (Set 49); Stretch
+  and Loop under Transpose go in their own Sets.
 
 ### What Live's manual says
 
@@ -113,7 +123,7 @@ description of each effect, against LiveChopper's stand-ins:
 | Loop | "repeats a portion of the sample"; Offset "the loop start point relative to the sample start", Length in ms | repeats from Offset, a 1.5 ms dip at each wrap |
 | Pitch Env | -100 to 100 % | matched to Move (48 semitones at 100 %) |
 | Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | matched to Move |
-| 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | sample-and-hold, 8 bits, a low-pass closing to 200 Hz |
+| 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | fitted to Move (Set 49): hold, A-law 8 bits, a two-pole low-pass a Decay closes to 300 Hz |
 | FM, Ring Mod | the modulation decays with the global Decay ("with short decay times, the modulation applies only to the transient") | constant modulation |
 | Sub Osc, Noise | their envelope is "the device's attack and decay settings" (Hold isn't mentioned: they may decay even at Hold Inf) | both go through the voice's whole envelope, Hold included; Noise also follows the sound's level, which Move may not |
 | Stretch, Loop, FM, Ring Mod, Sub Osc, Noise | time and frequency settings follow the global pitch and the note | FM, Ring Mod, Sub Osc and Noise's frequencies follow, as on Move (Set 47); of Stretch and Loop only Loop Length follows |

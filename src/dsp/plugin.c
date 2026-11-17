@@ -88,9 +88,12 @@
  *
  * Crush: set_param("crush_hz"), 0 = off or 1000-30000 Hz, the range of the
  * drum sampler's 8-Bit effect, which the exported preset sets. Playback
- * gets a stand-in for it: each voice is sampled and held at that rate (in
- * output frames, after repitching) and cut to 8 bits, before the envelope.
- * Slice export leaves it out, like the envelope and transpose.
+ * follows Move's (docs/NOTES.md "8-Bit"): each voice is sampled and held
+ * at that rate times the pitch ratio, so the hold follows Transpose, each
+ * held value read between frames where the instant falls; it is cut to 8
+ * bits of A-law (A = 87.6, truncated toward zero) and goes through a
+ * two-pole low-pass (Q 0.5) at 19.75 kHz, before the envelope. Slice
+ * export leaves it out, like the envelope and transpose.
  *
  * Effect: the drum sampler's other playback effects, which the exported
  * preset sets. set_param("effect") 0-8 in Move's order: Stretch, Loop,
@@ -117,7 +120,9 @@
  * following the sound's level, falling 20 dB over the global Decay + 50 ms
  * from the note on (a Gate pad's from the note off);
  * 8-Bit's
- * Decay closes a low-pass on the crushed sound over that time. Stretch
+ * Decay closes the crush's low-pass from 19.75 kHz towards 300 Hz,
+ * exponentially, 1/1000 of the way left at the Decay; it runs in output
+ * time, so it doesn't follow Transpose. Stretch
  * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
  * of Grain Size from it, half a grain apart, at the normal speed (Factor
  * 1.00 is plain playback). Loop starts at Offset (of the slice) and repeats
@@ -274,7 +279,13 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define NOISE_AMOUNT_KNEE 0.3f       /* where its slope changes */
 #define NOISE_AMOUNT_KNEE_DB -30.0f  /* and its gain there */
 #define NOISE_DECAY_K 2.3025851f    /* 20 dB: ln 10 */
-#define CRUSH_DECAY_FLOOR_HZ 200.0f /* where 8-Bit Decay's low-pass ends up */
+/* 8-Bit, measured on Move (docs/NOTES.md "8-Bit", Set 49) */
+#define CRUSH_ALAW_A 87.6f          /* the A-law's A: 8 bits, 128 codes a sign */
+#define CRUSH_ALAW_CODES 128.0f
+#define CRUSH_LP_K 2.0f             /* its low-pass: Q 0.5, two real poles */
+#define CRUSH_LP_OPEN_HZ 19750.0f   /* with Decay Off, and where a Decay starts */
+#define CRUSH_LP_FLOOR_HZ 300.0f    /* where a Decay heads */
+#define CRUSH_LP_DECAY_K 6.9077553f /* 1/1000 of the way left at the Decay: ln 1000 */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
 
 /* Filter, in the drum sampler's ranges */
@@ -326,23 +337,27 @@ typedef struct {
 
 #define UNDO_DEPTH 32
 
-/* Per-voice crush state: phase counts up by crush_hz each output frame and
- * a new held frame is taken each time it reaches MOVE_SAMPLE_RATE. */
+/* Per-voice crush state: phase counts up by crush_hz x the pitch ratio
+ * each output frame and a new value is held from the first frame after it
+ * passes MOVE_SAMPLE_RATE (a negative phase: at once, as at the note-on);
+ * the last frame read, to read between frames; the low-pass's two
+ * integrators per channel. */
 typedef struct {
-    int phase;
-    float l, r;
+    double phase;
+    float l, r;         /* held, cut to 8 bits */
+    float pl, pr;       /* the previous frame read */
+    float ic1[2], ic2[2];
 } crush_state_t;
 
 /* Per-voice effect state (all but the crush): an oscillator for FM and
- * Ring Mod, Noise's generator, filters and level follower, 8-Bit Decay's
- * low-pass, Stretch's two grains and whether Loop has wrapped. */
+ * Ring Mod, Noise's generator, filters and level follower, Stretch's two
+ * grains and whether Loop has wrapped. */
 typedef struct {
     double phase;       /* oscillator, 0..1 */
     uint32_t rng;
     float pre1, pre2;   /* Noise: the last two generator values */
     float bp_z1, bp_z2; /* Noise: its band-pass */
     float follow;
-    float decay_l, decay_r;
     double grain_pos[2]; /* source frames; grain 1 is half a grain behind */
     int grain_age;      /* output frames into grain 0 */
     int loop_wrapped;
@@ -1325,26 +1340,62 @@ static void set_crush(live_chopper_t *inst, int hz) {
     inst->crush_hz = hz;
 }
 
-/* Truncate to 8 bits, as dropping the low byte of a 16-bit sample does. */
-static float quantize8(float v) {
-    return floorf(v / 256.0f) * 256.0f;
+static void svf_stage(filter_coef_t *c, int s, float g, float k, float m0, float m1, float m2);
+static float svf_tick(const filter_coef_t *c, int s, float *ic1, float *ic2, float v0);
+
+/* 8 bits of A-law: the code is 128 (1 + ln A|x|) / (1 + ln A) of full
+ * scale (A|x| / (1 + ln A) below 1/A), truncated toward zero, and the
+ * value is the code's. Bounded: one logf and one expf. */
+static float alaw8(float v) {
+    const float c = 1.0f + logf(CRUSH_ALAW_A);
+    float a = fabsf(v) / 32768.0f, y, x;
+    if (a > 1.0f) a = 1.0f;
+    y = a < 1.0f / CRUSH_ALAW_A ? CRUSH_ALAW_A * a / c : (1.0f + logf(CRUSH_ALAW_A * a)) / c;
+    y = floorf(y * CRUSH_ALAW_CODES) * c / CRUSH_ALAW_CODES;
+    x = y < 1.0f ? y / CRUSH_ALAW_A : expf(y - 1.0f) / CRUSH_ALAW_A;
+    return copysignf(x * 32768.0f, v);
 }
 
-/* Sample-and-hold one voice's frame at hz. Off keeps the phase full, so
- * turning crush on takes a fresh frame at once. */
-static void crush_frame(int hz, crush_state_t *c, float *l, float *r) {
+/* Move's 8-Bit on one voice's frame, t output frames into the voice: the
+ * hold, the cut and the low-pass. An instant that falls exactly on a frame
+ * is held from the next one, as Move's are (Set 49 pad 6: a click on an
+ * instant holds 3 frames at 14.08 kHz, not 4). Off keeps the phase
+ * negative, so turning crush on takes a fresh frame at once, and keeps
+ * the low-pass settled on the input. Bounded: one fmod, the cut, one expf
+ * and one tanf. */
+static void crush_frame(const live_chopper_t *inst, crush_state_t *c, int t, float *l, float *r) {
+    int hz = inst->crush_hz;
     if (hz <= 0) {
-        c->phase = MOVE_SAMPLE_RATE;
+        c->phase = -1.0;
+        c->pl = *l;
+        c->pr = *r;
+        c->ic1[0] = c->ic1[1] = 0.0f;
+        c->ic2[0] = *l;
+        c->ic2[1] = *r;
         return;
     }
-    if (c->phase >= MOVE_SAMPLE_RATE) {
-        c->phase -= MOVE_SAMPLE_RATE;
-        c->l = quantize8(*l);
-        c->r = quantize8(*r);
+    double inc = (double)hz * inst->pitch_ratio;
+    if (c->phase > MOVE_SAMPLE_RATE || c->phase < 0.0) {
+        /* The instant was this many frames ago, between the last frame
+         * read and this one. */
+        c->phase = c->phase < 0.0 ? 0.0 : fmod(c->phase, (double)MOVE_SAMPLE_RATE);
+        float back = (float)(c->phase / inc);
+        c->l = alaw8(*l + back * (c->pl - *l));
+        c->r = alaw8(*r + back * (c->pr - *r));
     }
-    c->phase += hz;
-    *l = c->l;
-    *r = c->r;
+    c->phase += inc;
+    c->pl = *l;
+    c->pr = *r;
+
+    float fc = CRUSH_LP_OPEN_HZ;
+    if (inst->crush_decay < CRUSH_DECAY_OFF) {
+        fc = CRUSH_LP_FLOOR_HZ + (CRUSH_LP_OPEN_HZ - CRUSH_LP_FLOOR_HZ)
+             * expf(-CRUSH_LP_DECAY_K * (float)t / (inst->crush_decay * MOVE_SAMPLE_RATE));
+    }
+    filter_coef_t k;
+    svf_stage(&k, 0, tanf((float)M_PI * fc / MOVE_SAMPLE_RATE), CRUSH_LP_K, 0.0f, 0.0f, 1.0f);
+    *l = svf_tick(&k, 0, &c->ic1[0], &c->ic2[0], c->l);
+    *r = svf_tick(&k, 0, &c->ic1[1], &c->ic2[1], c->r);
 }
 
 static int clamp_int(int v, int lo, int hi) {
@@ -1479,11 +1530,6 @@ static void set_effect(live_chopper_t *inst, int fx) {
     set_fx(inst, FX_DEFAULT[inst->effect][0], FX_DEFAULT[inst->effect][1]);
 }
 
-/* A decay from 1 to ~0 over secs, t output frames in. */
-static float fx_decay(int t, float secs) {
-    return expf(-FX_DECAY_K * (float)t / (secs * MOVE_SAMPLE_RATE));
-}
-
 /* A parabolic sine, -1..1, starting at 0 and rising (Move's FM). */
 static float fx_para(fx_state_t *x, float hz) {
     float p = (float)x->phase;
@@ -1566,16 +1612,7 @@ static void fx_frame(const live_chopper_t *inst, fx_state_t *x, int t, float *l,
         }
         break;
     case FX_8BIT:
-        if (inst->crush_hz > 0 && inst->crush_decay < CRUSH_DECAY_OFF) {
-            float hz = 22000.0f * fx_decay(t, inst->crush_decay);
-            if (hz < CRUSH_DECAY_FLOOR_HZ) hz = CRUSH_DECAY_FLOOR_HZ;
-            float k = 1.0f - expf(-2.0f * (float)M_PI * hz / MOVE_SAMPLE_RATE);
-            x->decay_l += k * (*l - x->decay_l);
-            x->decay_r += k * (*r - x->decay_r);
-            *l = x->decay_l;
-            *r = x->decay_r;
-        }
-        break;
+        break;          /* the crush (crush_frame) is all of it */
     default:
         break;          /* Stretch and Loop act on the read (voice_frame) */
     }
@@ -1760,7 +1797,7 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
             }
         }
     }
-    crush_frame(inst->crush_hz, c, l, r);
+    crush_frame(inst, c, t, l, r);
     fx_frame(inst, x, t, l, r);
     filter_frame(&inst->filter_coef, f, l, r);
 
@@ -1812,7 +1849,8 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     inst->env_clock = 0.0;
     inst->gate_note = note;
     inst->release_pos = -1;
-    inst->crush.phase = MOVE_SAMPLE_RATE;   /* hold the slice's first frame */
+    memset(&inst->crush, 0, sizeof inst->crush);
+    inst->crush.phase = -1.0;               /* hold the slice's first frame */
     uint32_t rng = inst->fx.rng;
     memset(&inst->fx, 0, sizeof inst->fx);
     inst->fx.rng = rng ? rng : 22222u;

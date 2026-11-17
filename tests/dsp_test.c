@@ -278,6 +278,54 @@ static double noise_rms(void *inst, const char *v, int from, int to, double dec_
 
 static int lc_sub_on(void *inst) { return ((live_chopper_t *)inst)->sub.on || ((live_chopper_t *)inst)->sub_tail.on; }
 
+/* Move's 8-Bit as measured (docs/NOTES.md "8-Bit", Set 49), in double:
+ * 8 bits of A-law, A = 87.6, truncated toward zero... */
+static double ref_alaw8(double v) {
+    double c = 1 + log(87.6), a = fmin(fabs(v) / 32768, 1);
+    double y = a < 1 / 87.6 ? 87.6 * a / c : (1 + log(87.6 * a)) / c;
+    y = floor(y * 128) * c / 128;
+    return copysign((y < 1 ? y / 87.6 : exp(y - 1) / 87.6) * 32768, v);
+}
+
+/* ...held at hz x ratio from the first frame after each instant (the
+ * note-on's at once), read between frames at the instant, then a TPT
+ * low-pass with k = 2 at 19.75 kHz, or with a Decay (s, under 5) heading
+ * to 300 Hz, 1/1000 of the way left at it, from the note-on. */
+static void ref_crush(const double *in, int n, double hz, double ratio, double decay_s, double *y) {
+    double phase = -1, prev = 0, held = 0, ic1 = 0, ic2 = 0, inc = hz * ratio;
+    for (int t = 0; t < n; t++) {
+        if (phase > 44100 || phase < 0) {
+            phase = phase < 0 ? 0 : fmod(phase, 44100);
+            held = ref_alaw8(in[t] + phase / inc * (prev - in[t]));
+        }
+        phase += inc;
+        prev = in[t];
+        double fc = decay_s >= 5 ? 19750 : 300 + 19450 * exp(-log(1000) * t / (decay_s * 44100));
+        double g = tan(M_PI * fc / 44100), a1 = 1 / (1 + g * (g + 2)), a2 = g * a1, a3 = g * a2;
+        double v3 = held - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1 = 2 * v1 - ic1;
+        ic2 = 2 * v2 - ic2;
+        y[t] = v2;
+    }
+}
+
+/* The left channel's rms over frames [from, to) of Pad 1, from a silent start. */
+static double note_rms(void *inst, int from, int to) {
+    static int16_t buf[MOVE_FRAMES_PER_BLOCK * 2];
+    param(inst, "stop", "1");
+    until_silent(inst);
+    note(inst, 68);
+    double s = 0;
+    for (int b = 0; b * MOVE_FRAMES_PER_BLOCK < to; b++) {
+        api->render_block(inst, buf, MOVE_FRAMES_PER_BLOCK);
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
+            int t = b * MOVE_FRAMES_PER_BLOCK + i;
+            if (t >= from && t < to) s += (double)buf[i * 2] * buf[i * 2];
+        }
+    }
+    return sqrt(s / (to - from));
+}
+
 int main(void) {
     api = move_plugin_init_v2(NULL);
     mkdir("build", 0755);
@@ -643,11 +691,13 @@ int main(void) {
         api->destroy_instance(inst);
     }
 
-    /* ---- Crush: sample-and-hold at crush_hz, cut to 8 bits ---- */
+    /* ---- Crush: Move's 8-Bit (NOTES "8-Bit", Set 49) ---- */
     {
         inst = load("build/t16.wav");          /* frame i = 3i */
         char set[128];
         int crush = -1;
+        static double rin[1024], rold[1024], rnew[1024];
+        for (int i = 0; i < 1024; i++) rin[i] = ramp(i, 0);
         note(inst, 68);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
         int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
@@ -658,45 +708,74 @@ int main(void) {
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
         CHECK(memcmp(out, ref, sizeof ref) == 0, "crush 0 is off: playback unchanged");
 
-        param(inst, "crush_hz", "4410");       /* a new frame every 10 */
+        /* Move's levels: Set 49's ramp, its plateaus / 0.84649 */
+        CHECK(fabsf(alaw8(-16000.0f) + 15840.0f) <= 2.0f, "8 bits of A-law: -16000 holds at -15841 as on Move (%.1f)", alaw8(-16000.0f));
+        CHECK(fabsf(alaw8(-15500.0f) + 15178.0f) <= 2.0f, "and -15500 at -15178 (%.1f)", alaw8(-15500.0f));
+        CHECK(fabsf(alaw8(-15500.0f) / alaw8(-16000.0f) - 0.958140f) < 1e-4f, "a step is 0.958140 of the one above (%.6f)",
+              alaw8(-15500.0f) / alaw8(-16000.0f));
+        CHECK(alaw8(15.9f) == 0.0f && fabsf(alaw8(16.0f) - 15.99f) < 0.05f && fabsf(alaw8(-48.0f) + 47.97f) < 0.05f,
+              "near 0 the steps are 16 apart, truncated toward 0 (%.2f %.2f %.2f)", alaw8(15.9f), alaw8(16.0f), alaw8(-48.0f));
+        CHECK(fabsf(alaw8(40000.0f) - 32768.0f) < 0.5f, "full scale is the top code (%.1f)", alaw8(40000.0f));
+
+        param(inst, "crush_hz", "4410");       /* a new value every 10 frames */
         get(inst, "settings", set, sizeof set);
         sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
         CHECK(crush == 4410, "crush is settings field 8: %s", set);
         until_silent(inst);
         note(inst, 68);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        ref_crush(rin, 1024, 4410, 1, 5, rold);
         int bad = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
-            if (out[i * 2] != ramp(i / 10 * 10, 0) / 256 * 256) bad++;
-        }
-        CHECK(bad == 0, "4410 Hz holds 10 frames at 8 bits (%d wrong, out[15] = %d)", bad, out[30]);
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) if (fabs(out[i * 2] - rold[i]) > 2) bad++;
+        CHECK(bad == 0, "4410 Hz is Move's 8-Bit frame by frame (%d wrong, out[15] = %d vs %.1f)", bad, out[30], rold[15]);
 
         /* A choke: the new voice holds from its first frame, and the old one
-         * fades out as the tail, still held where it left off (frame 384). */
+         * fades out as the tail, its hold and low-pass going on from frame 384. */
         render(inst, 2);
         note(inst, 68);
         api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        ref_crush(rin, 1024, 4410, 1, 5, rnew);
         bad = 0;
         for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) {
-            float tail = i < DECLICK_FRAMES ? (float)(ramp((384 + i) / 10 * 10, 0) / 256 * 256) *
-                                              (float)(DECLICK_FRAMES - i) / DECLICK_FRAMES : 0.0f;
-            if (abs(out[i * 2] - (int)lrintf(ramp(i / 10 * 10, 0) / 256 * 256 + tail)) > 1) bad++;
+            double tail = i < DECLICK_FRAMES ? rold[384 + i] * (DECLICK_FRAMES - i) / DECLICK_FRAMES : 0;
+            if (fabs(out[i * 2] - (rnew[i] + tail)) > 2) bad++;
         }
         CHECK(bad == 0, "a choke restarts the hold, and the tail is crushed too (%d wrong)", bad);
 
-        until_silent(inst);
-        param(inst, "crush_hz", "1000");        /* 44.1 frames a hold: no drift */
-        note(inst, 68);
-        render(inst, 1);
-        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-        bad = 0;
-        for (int f = 0, phase = MOVE_SAMPLE_RATE, held = 0; f < 2 * MOVE_FRAMES_PER_BLOCK; f++) {
-            if (phase >= MOVE_SAMPLE_RATE) { phase -= MOVE_SAMPLE_RATE; held = f; }
-            phase += 1000;
-            int i = f - MOVE_FRAMES_PER_BLOCK;
-            if (i >= 0 && out[i * 2] != ramp(held, 0) / 256 * 256) bad++;
+        /* 1 kHz: a new value from the first frame after each 44.1 (Set 49
+         * pad 5), at +12 after each 22.05 (pad 14: the hold follows the pitch) */
+        for (int tr = 0; tr <= 12; tr += 12) {
+            char v[8];
+            snprintf(v, sizeof v, "%d", tr);
+            param(inst, "transpose", v);
+            param(inst, "crush_hz", "1000");
+            param(inst, "stop", "1");
+            until_silent(inst);
+            note(inst, 68);
+            int16_t buf[4 * MOVE_FRAMES_PER_BLOCK];
+            for (int b = 0; b < 4; b++) {
+                api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) buf[b * MOVE_FRAMES_PER_BLOCK + i] = out[i * 2];
+            }
+            int jumps = 0, wrong = 0, last = -10, k = 1, r = tr ? 2 : 1;
+            for (int f = 1; f < 4 * MOVE_FRAMES_PER_BLOCK; f++) {
+                if (abs(buf[f] - buf[f - 1]) > 20 && f - last > 5) {
+                    if (f != k * 44100 / (1000 * r) + 1) wrong++;
+                    jumps++;
+                    k++;
+                    last = f;
+                }
+            }
+            for (int i = 0; i < 1024; i++) rin[i] = ramp(i * r, 0);
+            ref_crush(rin, 512, 1000, r, 5, rnew);
+            int off = 0;
+            for (int f = 0; f < 4 * MOVE_FRAMES_PER_BLOCK; f++) if (fabs(buf[f] - rnew[f]) > 2) off++;
+            CHECK(wrong == 0 && jumps == (4 * MOVE_FRAMES_PER_BLOCK - 1) * r / 44 && off == 0,
+                  "1 kHz at %+d st holds from the frame after each %.2f (%d of %d wrong, %d off the model)",
+                  tr, 44.1 / r, wrong, jumps, off);
         }
-        CHECK(bad == 0, "1 kHz takes a frame each time 44100 is passed (%d wrong)", bad);
+        param(inst, "transpose", "0");
+        for (int i = 0; i < 1024; i++) rin[i] = ramp(i, 0);
 
         param(inst, "crush_hz", "5");
         get(inst, "settings", set, sizeof set);
@@ -710,6 +789,36 @@ int main(void) {
         get(inst, "settings", set, sizeof set);
         sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
         CHECK(crush == 0, "a negative crush is off: %s", set);
+        api->destroy_instance(inst);
+
+        /* The Decay's low-pass on a 1 kHz tone at 30 kHz (Set 49 pads 10-15) */
+        write_tone("build/c1k.wav", 44100, 1000, 0.5);
+        write_tone("build/c500.wav", 44100, 500, 0.5);
+        inst = load("build/c1k.wav");
+        double dry = note_rms(inst, 4410, 8820);
+        param(inst, "effect", "4");
+        param(inst, "crush_hz", "30000");
+        param(inst, "crush_decay", "5");
+        double off = note_rms(inst, 4410, 8820);
+        CHECK(20 * log10(off / dry) < -0.1 && 20 * log10(off / dry) > -0.35,
+              "8-Bit with Decay Off: 1 kHz about 0.2 dB down, the cut's truncation (%.2f dB)", 20 * log10(off / dry));
+        param(inst, "crush_decay", "0.01");
+        double shut = note_rms(inst, 4410, 8820);
+        CHECK(fabs(20 * log10(shut / off) + 21.7) < 1, "Decay 10 ms: 1 kHz down 21.7 dB from 0.1 s, as on Move (%.1f dB)",
+              20 * log10(shut / off));
+        param(inst, "crush_decay", "1");
+        double at03 = note_rms(inst, 13230, 13671);
+        CHECK(20 * log10(at03 / off) < -0.3 && 20 * log10(at03 / off) > -3,
+              "Decay 1 s: 1 kHz about 1 dB down at 0.3 s (cutoff ~2.7 kHz on Move; %.2f dB)", 20 * log10(at03 / off));
+        api->destroy_instance(inst);
+        inst = load("build/c500.wav");          /* +12: 1 kHz again, at the same time */
+        param(inst, "transpose", "12");
+        param(inst, "effect", "4");
+        param(inst, "crush_hz", "30000");
+        param(inst, "crush_decay", "1");
+        double tr12 = note_rms(inst, 13230, 13671);
+        CHECK(fabs(20 * log10(tr12 / at03)) < 0.3, "the Decay doesn't follow Transpose (Set 49 pad 15; %.2f dB apart)",
+              20 * log10(tr12 / at03));
         api->destroy_instance(inst);
     }
 
