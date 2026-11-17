@@ -14,8 +14,19 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
    (8-Bit done 2026-11-17, following Transpose 2026-11-16).
 2. **Decide what 1.0 needs of Stretch and Loop** (next): matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
-   SPEC as such. Move's grain algorithm is unknown, so they are the
-   costliest.
+   SPEC as such. Neither has been measured on Move, and they differ in
+   cost (Loop is a read position, which position_ramp shows; Stretch's
+   grain algorithm is unknown), so each is decided on its own:
+   - 2a. One scouting Set for both (Set 52,
+     `tools/fxlab/sets/set52_stretch_loop_scout.json`), as Sets 40-42
+     served Sub Osc and Noise: what each does, priced before committing.
+   - 2b. Make the position metric work under a non-flat envelope ("Open"),
+     since Loop's pads need a finite Hold; re-score the position refs.
+   - 2c. Loop: the per-effect workflow to "matched" (PLAN "Method"). If
+     its wrap turns out to be Move's end fade, model that with it (step 3).
+   - 2d. Stretch: from Set 52, match it if its grains are deterministic and
+     fit a model; otherwise keep the stand-in, document it in SPEC as
+     LiveChopper's own, and A/B it for information only.
 3. **Settle the "Open" items that change the sound:** the preview level
    (unity, 1.45 dB above Move), Move's dry onset (its 4-frame attack ramp
    and end fade, the onset heard in Pitch Env's A/B), and fast turns. The
@@ -339,7 +350,11 @@ reference.
 - **Preview level:** LiveChopper's chop mode plays at unity, 1.45 dB above
   Move's dry level (0.8465, NOTES "Move's dry path"), so a chop sounds
   louder before export than after. `check` compares each take at its own
-  level, so it doesn't fail on it. To decide: match Move or keep unity.
+  level, so it doesn't fail on it. Decided 2026-11-17: match Move, in two
+  stages. First the constant 0.8465 (Move's level at the minimum Attack
+  under Hold Inf, the default). Then the level's dependence on Attack
+  (0.9311 at 1 ms; points between to be measured) and its climb over a
+  finite Hold ("The level under a finite Hold"), with Move's dry onset.
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
   an obvious cause; log the values the preview actually used and render
