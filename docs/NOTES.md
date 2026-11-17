@@ -371,6 +371,16 @@ Loop:
     the level fit following Move's climb over a finite Hold (one level to
     the Attack's end, a line over the Hold, a second after) and no reads
     within 2 frames of an envelope step.
+- Accepted on Set 53 (2026-11-17, `fxlab.py accept-set Loop --seed 1123`,
+  `tools/fxlab/sets/set53_loop_accept.json`): Attack 1 ms on every pad, a
+  Hold of 0.3-2.5 s or a gate (pads 7, 13), pads 4, 8, 11, 14 at +6, -12,
+  +12, -7 st, Offsets 1-80 %, Lengths 11.8-409 ms, on position_ramp,
+  sine_441, click_train and drum_synth (whose loops run past its end).
+  `check`: 16 of 16, position worst 0.07/1.11 ms (pad 14, -7 st), bands
+  worst 0.07/0.32 dB (pad 4, click_train). Pad 8 (click_train at -12)
+  first split 0.2 s late: its first click sits inside the Attack, so the
+  first onset was the next click; `split` now places a generated Set's
+  pads by the clip whenever a detected onset is over 50 ms off it.
 
 ### Move's dry path (Set 28)
 

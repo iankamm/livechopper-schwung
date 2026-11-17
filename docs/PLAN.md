@@ -34,8 +34,10 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      Attack 1 ms, a finite Hold of 0.3-2.5 s or a gate on pads 7 and 13,
      4 pads transposed within 12 st, on position_ramp, sine_441,
      click_train and drum_synth), seed 1123,
-     `tools/fxlab/sets/set53_loop_accept.json`. Next: record it, `check`,
-     refs, then preview, `device-check`, A/B. Open: how Move's Loop treats a Drum
+     `tools/fxlab/sets/set53_loop_accept.json`. Accepted on it 2026-11-17:
+     16 of 16, no waivers (position worst 0.07/1.11 ms, bands 0.07/0.32
+     dB), refs in `tests/move_refs/loop/`. Next: build and install
+     dsp.so, the Skipback preview, `device-check`, A/B. Open: how Move's Loop treats a Drum
      Preset pad's region (Voice_PlaybackStart/Length): Set 52 measured
      whole files, as the Slices export makes; the region may count as the
      sample (as built) or the loop may read on past it.

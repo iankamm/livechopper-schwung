@@ -298,6 +298,27 @@ check(lrun.returncode == 0 and len(lpads) == 16 and lpads[15] == lpads[1]
       and sum(bool(p["params"].get("Voice_Transpose")) for p in lpads[1:15]) == len(fxlab.LOOP_TRANSPOSE_PADS),
       "accept-set Loop: finite Holds or gates, ending in time, Attack 1 ms, the gates and transposed pads:\n"
       + lrun.stdout[-500:])
+# split on a generated Set places every pad by the clip, even when the
+# onset count matches: pad 2 starts under the onset level and turns loud
+# 0.2 s in (Set 53 pad 8), and is placed at its clip time, not there.
+sv = np.zeros(int(3.5 * fxlab.RATE))
+soff = 1000
+for at, quiet_s in ((0.0, 0.0), (1.0, 0.2), (2.0, 0.0)):
+    a = soff + int(at * fxlab.RATE)
+    q = int(quiet_s * fxlab.RATE)
+    sv[a:a + q] = 100.0
+    sv[a + q:a + q + 4410] = 5000.0 * np.sin(np.arange(4410) / 10.0) + 6000.0
+sons = fxlab.onsets(sv)
+spads = [(36, "a.wav", {}), (37, "b.wav", {}), (38, "c.wav", {})]
+with open(os.devnull, "w") as quiet_out:
+    stdout, sys.stdout = sys.stdout, quiet_out
+    try:
+        splaced = fxlab.onsets_from_clip(sv, sons, spads, {36: 0.0, 37: 1.0, 38: 2.0})
+    finally:
+        sys.stdout = stdout
+check(len(sons) == 3 and abs(sons[1] - (soff + 1.2 * fxlab.RATE)) < 64 and splaced is not None
+      and abs(splaced[1] - (soff + fxlab.RATE)) < 64 and splaced[0] == sons[0] and splaced[2] == sons[2],
+      "split: a pad whose start is under the onset level is placed by the clip: %s -> %s" % (sons, splaced))
 rel = fxlab.clip_releases(song)
 check(abs(rel[pads[3][0]] - 0.5) < 1e-9, "split: a Gate pad's release time comes from the clip: %s" % rel.get(pads[3][0]))
 pc = {"params": pads[3][2], "release_s": rel[pads[3][0]]}

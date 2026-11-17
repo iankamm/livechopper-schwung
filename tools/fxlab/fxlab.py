@@ -171,10 +171,11 @@ def clip_offset(ons, pads, starts):
 
 
 def onsets_from_clip(v, ons, pads, starts):
-    """A generated Set's onsets when a pad is too quiet for onsets() (Set 48
-    pad 14: a slow Attack over a click, a -50 dB Sub Osc): each pad's clip
-    time, put on the take by the onsets that do line up with the clip, then
-    the detected onset within 50 ms of it, else the first frame above
+    """A generated Set's onsets, for a pad too quiet for onsets() (Set 48
+    pad 14: a slow Attack over a click, a -50 dB Sub Osc) or whose sound
+    starts under the onset level (Set 53 pad 8): each pad's clip time, put
+    on the take by the onsets that do line up with the clip, then the
+    detected onset within 50 ms of it, else the first frame above
     ONSET_QUIET from 50 ms before it. None if the clip can't place them."""
     off = clip_offset(ons, pads, starts)
     if off is None:
@@ -191,7 +192,7 @@ def onsets_from_clip(v, ons, pads, starts):
         lo = max(0, int(at - tol))
         quiet = np.flatnonzero(np.abs(v[lo:int(at + tol)]) > ONSET_QUIET)
         out.append(lo + int(quiet[0]) if len(quiet) else int(round(at)))
-        print("  pad at %.2f s: under the onset level, placed by the clip at %.3f s" % (w / RATE, out[-1] / RATE))
+        print("  pad at %.2f s: no onset within 50 ms, placed by the clip at %.3f s" % (w / RATE, out[-1] / RATE))
     return out
 
 
@@ -253,7 +254,11 @@ def cmd_split(take, song_path, outdir, like=None):
             print("  skipping pad %d: %s isn't a test sound" % (note, name))
     pads = [pd for pd in pads if os.path.exists(os.path.join(WAVS, pd[1]))]
     ons = onsets(v)
-    if len(ons) != len(pads) and song_path and not like:
+    if song_path and not like:
+        # A generated Set's clip places every pad, even when the count
+        # matches: a sound whose start is under the onset level shows only
+        # later (Set 53 pad 8: a click inside the Attack at -12 st, then the
+        # next 0.2 s on).
         ons = onsets_from_clip(v, ons, pads, clip_starts(song)) or ons
     ons = [sound_start(v, o) for o in ons]
     if len(ons) != len(pads):
