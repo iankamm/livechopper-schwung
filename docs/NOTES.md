@@ -381,6 +381,23 @@ Loop:
   first split 0.2 s late: its first click sits inside the Attack, so the
   first onset was the next click; `split` now places a generated Set's
   pads by the clip whenever a detected onset is over 50 ms off it.
+- Done 2026-11-17 (preview9, `.claude/recordings/preview9/`): every
+  preview hit equals the render at the values played, sample for sample
+  (Attack 1.03 ms, as 1.00 ms can't be dialled; the two gates' releases
+  fitted from the take, 0.920 s and 0.955 s against the clip's 0.93 and
+  1.13 s). Against Move 12 of 16: position_ramp pads 2, 6, 10, 16 fail
+  the position max (~11 ms, rms 0.24-0.52 ms) at the onset, and Move
+  against renders at Attack 1.03 ms fails the same pads by the same
+  amount, so that is the Attack, which the metric magnifies on the
+  ramp's full-scale start. `device-check` on Sets 52 and 53: 32 pads, 0
+  LSB. A/B: no difference heard on any of 16 pairs.
+- Preview pitfalls seen: (1) a preview split misplaces click_train hits
+  as Set 53 pad 8 did (the first click sits inside the Attack, so the
+  onset found is the next click, 4410/r frames late; `--like` has no
+  clip to fall back on): the hits were re-cut at onsets fitted to the
+  render. (2) `check` against the render passed a take played at Attack
+  0 (sine_441 starts at its peak): bands don't see the attack, so a
+  preview's onset frames are compared to the render by hand too.
 
 ### Move's dry path (Set 28)
 

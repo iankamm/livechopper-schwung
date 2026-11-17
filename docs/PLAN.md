@@ -10,8 +10,8 @@ comes off this list. What was measured along the way goes to
 Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
-1. **Match the remaining effects** (below, "Status"): Stretch and Loop
-   (8-Bit done 2026-11-17, following Transpose 2026-11-16).
+1. **Match the remaining effects** (below, "Status"): Stretch (Loop
+   and 8-Bit done 2026-11-17, following Transpose 2026-11-16).
 2. **Decide what 1.0 needs of Stretch and Loop** (next): matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Neither has been measured on Move, and they differ in
@@ -36,8 +36,9 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      click_train and drum_synth), seed 1123,
      `tools/fxlab/sets/set53_loop_accept.json`. Accepted on it 2026-11-17:
      16 of 16, no waivers (position worst 0.07/1.11 ms, bands 0.07/0.32
-     dB), refs in `tests/move_refs/loop/`. Next: build and install
-     dsp.so, the Skipback preview, `device-check`, A/B. Open: how Move's Loop treats a Drum
+     dB), refs in `tests/move_refs/loop/`. Done 2026-11-17: preview
+     checks, `device-check` and listening A/B passed ("Status"). Open:
+     how Move's Loop treats a Drum
      Preset pad's region (Voice_PlaybackStart/Length): Set 52 measured
      whole files, as the Slices export makes; the region may count as the
      sample (as built) or the loop may read on past it.
@@ -125,7 +126,19 @@ LiveChopper's own designs, not Move's algorithms.
   48 pads, worst 1 LSB) and listening A/B passed (2026-11-17: no
   difference heard on any of 16 pairs, the 4 waived ones included).
   Open: the hold's drift.
-- Then Stretch, Loop. Sets are written with `fxlab.py make-set` from a
+- Done: Loop (2026-11-17). Measured on Set 52 (NOTES "Stretch and Loop
+  on Move"): plays from the slice's start, wraps at Offset + Length (in
+  the sample's time) back to Offset with a 397-frame linear crossfade,
+  silent past the end. Accepted on Set 53, seed 1123
+  (`tools/fxlab/sets/set53_loop_accept.json`), 16 of 16, no waivers;
+  refs in `tests/move_refs/loop/`. Preview (4 takes and a gate retake,
+  16 of 16 against the render at the values played; against Move 12 of
+  16, pads 2, 6, 10, 16's position max ~11 ms from the undialable Attack
+  1.03 ms, which Move against renders at 1.03 ms shows too),
+  `device-check` (Sets 52 and 53, 32 pads, 0 LSB) and listening A/B
+  passed (no difference heard on any of 16 pairs). Open: a Drum Preset
+  pad's region under Loop.
+- Then Stretch. Sets are written with `fxlab.py make-set` from a
   spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio
