@@ -96,8 +96,13 @@ LiveChopper's own designs, not Move's algorithms.
   Rate is no longer rounded and the low-pass is k = 2.18 at 20 kHz, fitted
   on it and Set 49; then 13 of 15 8-Bit pads pass, pads 2/16 (8 kHz
   sweep under a short Decay) fail in the beats under 300 Hz (NOTES
-  "8-Bit"). Its dry pad has a capture glitch (`--gain 0.84649`). Next: a
-  fresh acceptance Set with a new seed.
+  "8-Bit"). Its dry pad has a capture glitch (`--gain 0.84649`).
+  Accepted on Set 51 (2026-11-17, seed 1122,
+  `tools/fxlab/sets/set51_8bit_accept.json`): 12 of 16, the bands of
+  pads 2, 12, 16 (sweeps' sub-140 Hz beats under the closed low-pass) and
+  8 (noise, one cell 3.32) waived on the evidence in NOTES, the A/B to
+  decide whether any of it is heard; refs in `tests/move_refs/8_bit/`.
+  Next: preview checks, `device-check`, listening A/B.
 - Then Stretch, Loop. Sets are written with `fxlab.py make-set` from a
   spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following

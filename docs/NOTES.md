@@ -1169,3 +1169,30 @@ floor late in the sweep, where only the beats at multiples of the Rate
 are left. Linear reading fits them best (474 LSB rms; Hermite 505, sinc
 576, nearest 596); scaling the Rate by up to +-9e-6 doesn't help the
 residual. Untraced; the hold's drift is the likeliest.
+
+Accepted on Set 51 (`fxlab.py accept-set 8-bit --seed 1122`,
+`tools/fxlab/sets/set51_8bit_accept.json`), recorded 2026-11-17, decided
+the same day: 12 of 16 pass (the sines, ramps and drum_synth at
+0.01-0.02 dB rms, the noise at 26.5 and 20.4 kHz ~0.3, the 1.87 kHz sweep
+0.55), and 4 bands are waived (`refs --waive`), pending the listening A/B:
+
+- **Pads 2 and 16** (sweep, 4.76 kHz, Decay 427 ms; Move's two takes
+  identical) 1.91/10.63, and **pad 12** (sweep, 3.97 kHz, Decay 253 ms)
+  1.38/6.73. Every failing cell is under 140 Hz and from 2.97 s on, with
+  the low-pass at its 300 Hz floor and the sweep at 3-12 kHz: what's
+  left there is the beat where the sweep passes a multiple of the Rate
+  (pad 2's worst block, 3.34-3.72 s, holds its crossing of 2 x 4760 Hz),
+  whose level in a narrow band depends on its phase as it turns at 0 Hz,
+  so on the instants to a few microseconds (Move's drift: ~20 us by
+  3.4 s, ~70 degrees at 9.5 kHz). Its errors change sign from band to
+  band in one block (+10.6 dB at 22 Hz, -4.9 at 110), and plugin.c
+  against itself with the Rate moved by 3e-6 to 7e-6 fails them as
+  much: pad 2 1.20-2.47 / 5.9-13.6, pad 12 0.87-1.69 / 3.6-8.1 (pad 7
+  0.31-0.93 / 1.7-4.1, pad 4's sine 0.00-0.02).
+- **Pad 8** (noise_white, 14.9 kHz, Decay 516 ms) 0.65/3.32, its max in
+  the 55 Hz band (about one FFT bin), where the noise held at 14.9 kHz
+  folds its top half down; against itself at +-7e-6, 0.60-0.69 / up to
+  3.12.
+
+The take has one 128-frame jump, between pads 4 and 5, in the silence.
+Refs in `tests/move_refs/8_bit/`.
