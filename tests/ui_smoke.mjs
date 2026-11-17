@@ -290,6 +290,8 @@ touch(1, false); tick(70);
 // Knob 6 is the effect: the drum sampler's nine, in Move's order, no Off.
 // Knobs 7 and 8 are the selected effect's two settings, each kept.
 const crushSets = () => sets.filter(x => x.startsWith('crush_hz='));
+/* The last rate sent, rounded: it goes out unrounded, as Move's knob values aren't whole. */
+const crushHz = () => Math.round(parseFloat(crushSets().at(-1).split('=')[1]));
 const fxSets = () => sets.filter(x => x.startsWith('fx='));
 mark = sets.length;
 touch(6, true); tick(1);
@@ -365,22 +367,23 @@ check(printed.includes('Factor: 1.01'), 'Stretch kept its factor: ' + JSON.strin
 // 8-Bit: Knob 7 is the rate, Knob 8 the Decay (Off at the top, Move's default)
 mark = sets.length;
 turnList(6, 4); tick(1);
-check(crushSets().at(-1) === 'crush_hz=14080' && sets.slice(mark).includes('crush_decay=5'), '8-Bit sends its rate and decay: ' + JSON.stringify(sets.slice(mark)));
+check(crushHz() === 14080 && sets.slice(mark).includes('crush_decay=5'), '8-Bit sends its rate and decay: ' + JSON.stringify(sets.slice(mark)));
 touch(7, true); tick(1);
 check(printed.includes('Rate: 14.1 kHz'), 'Knob 7 shows the rate: ' + JSON.stringify(printed));
 turn(7, 63); tick(1);
-check(printed.includes('Rate: 30.0 kHz') && crushSets().at(-1) === 'crush_hz=30000', 'tops out at 30.0 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 30.0 kHz') && crushHz() === 30000, 'tops out at 30.0 kHz: ' + JSON.stringify(printed));
 check(knobLed(7) === AMBER_LEVELS.at(-1), 'Knob 7 LED full amber at the top: ' + knobLed(7));
 turn(7, 127); tick(1);
-check(printed.includes('Rate: 29.2 kHz') && crushSets().at(-1) === 'crush_hz=29230', 'one click down is Move\'s step: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 29.2 kHz') && crushHz() === 29230, 'one click down is Move\'s step: ' + JSON.stringify(printed));
 turn(7, 65); turn(7, 65); turn(7, 123); tick(1);   // 131 clicks down
-check(printed.includes('Rate: 1.00 kHz') && crushSets().at(-1) === 'crush_hz=1000', 'bottoms out at 1.00 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.00 kHz') && crushHz() === 1000, 'bottoms out at 1.00 kHz: ' + JSON.stringify(printed));
 turn(7, 1); tick(1);
-check(printed.includes('Rate: 1.03 kHz') && crushSets().at(-1) === 'crush_hz=1026', 'a click up: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.03 kHz') && crushHz() === 1026, 'a click up: ' + JSON.stringify(printed));
 shift(true); turn(7, 1); shift(false); tick(1);
-check(printed.includes('Rate: 1.04 kHz') && crushSets().at(-1) === 'crush_hz=1037', 'Shift: fine steps until the readout changes: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 1.04 kHz') && crushHz() === 1037, 'Shift: fine steps until the readout changes: ' + JSON.stringify(printed));
 turn(7, 63); turn(7, 8); tick(1);    // 71 clicks
-check(printed.includes('Rate: 6.57 kHz') && crushSets().at(-1) === 'crush_hz=6571', 'rate at 6.57 kHz: ' + JSON.stringify(printed));
+check(printed.includes('Rate: 6.57 kHz') && crushHz() === 6571, 'rate at 6.57 kHz: ' + JSON.stringify(printed));
+check(!/^crush_hz=\d+$/.test(crushSets().at(-1)), 'the rate goes out unrounded: ' + crushSets().at(-1));
 touch(7, false); tick(70);
 check(log.includes('SAY: 8-Bit rate 6.57 kilohertz'), 'rate announced: ' + log.slice(-3));
 touch(8, true); tick(1);
@@ -394,9 +397,9 @@ touch(8, false); tick(70);
 // Leaving 8-Bit turns the crush off; coming back restores its rate
 mark = sets.length;
 turnList(6, 1); tick(1);
-check(crushSets().at(-1) === 'crush_hz=0', 'another effect: crush off');
+check(crushHz() === 0, 'another effect: crush off');
 turnList(6, -1); tick(70);
-check(crushSets().at(-1) === 'crush_hz=6571', 'back on 8-Bit at its rate');
+check(crushHz() === 6571, 'back on 8-Bit at its rate');
 
 // Top bar is just the pad; zoom, transpose and Start/End stay off it
 tick(1);

@@ -92,8 +92,12 @@ LiveChopper's own designs, not Move's algorithms.
   by-products. Decided 2026-11-16: an 8-Bit pad's bands are averaged
   over 16 windows, as a Noise pad's (`crush_pad` in fxlab.py; Set 49 then
   12 of 16, pad 7 at 3.22 max, pad 15 the +12 read), and click_train
-  leaves 8-Bit's acceptance sounds. Acceptance Set 50 drawn, seed 1121
-  (`tools/fxlab/sets/set50_8bit_accept.json`, 5 s apart for the sweep).
+  leaves 8-Bit's acceptance sounds. Set 50 (seed 1121) not accepted: the
+  Rate is no longer rounded and the low-pass is k = 2.18 at 20 kHz, fitted
+  on it and Set 49; then 13 of 15 8-Bit pads pass, pads 2/16 (8 kHz
+  sweep under a short Decay) fail in the beats under 300 Hz (NOTES
+  "8-Bit"). Its dry pad has a capture glitch (`--gain 0.84649`). Next: a
+  fresh acceptance Set with a new seed.
 - Then Stretch, Loop. Sets are written with `fxlab.py make-set` from a
   spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following

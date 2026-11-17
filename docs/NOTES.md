@@ -1098,7 +1098,10 @@ repeats pad 2. Take and split in `.claude/recordings/set49/`. Move's 8-Bit
 is three stages, in this order:
 
 - **The hold.** The sound is sampled at instants k x 44100 / (Rate x the
-  pitch ratio) frames from the note-on, so the hold follows Transpose (a
+  pitch ratio) frames from the note-on, at the Rate as stored, not
+  rounded to a whole Hz (Set 50: rounding, an error of 1e-5 to 1e-4,
+  failed its sweeps at 1.5 and 2.6 kHz by 1.8-2.9 dB; exact, 0.04-0.06),
+  so the hold follows Transpose (a
   1 kHz hold is 45 frames, 23 at +12), and held from the frame after each
   instant (Set 49 pad 6: a click on an instant at 14.08 kHz holds 3
   frames, not 4), the note-on's at once. The value held is the sound read
@@ -1116,14 +1119,16 @@ is three stages, in this order:
   envelope (pad 4 over pad 3 is a smooth decay, 5e-5 a frame) and before
   Move's 0.8465. Truncation costs about 0.2 dB of level. Pads 2 and 16
   score the same against the render: no dither.
-- **A low-pass**: a two-pole TPT low-pass with k = 2 (Q 0.5, two real
-  poles, a zero pair at Nyquist), fitted on the click edges of pad 5 (the
-  same edge on every click, whatever the instant's fraction): 19.75 kHz
-  with Decay Off (39 LSB rms against a free 48-tap fit's 29; flat to
-  10 kHz, -0.8 dB at 15 kHz, -6.8 dB at 20 kHz). A Decay closes it:
-  cutoff = 300 Hz + (19750 - 300) e^(-ln 1000 t / Decay), from the
-  note-on in output time, so it doesn't follow Transpose (pad 15 traces
-  pad 12's cutoffs). Spectral fits per window, pad 11 (1 s): 17.8 kHz at
+- **A low-pass**: a two-pole TPT low-pass with k = 2.18 (two real poles,
+  a little past Q 0.5; a zero pair at Nyquist) at 20 kHz with Decay Off:
+  on pad 6's clicks (no drift at 14.08 kHz) 3.1 LSB rms, against 7.9 at
+  k = 2 and 19.75 kHz, the first fit (on pad 5, where the drift blurs
+  it). A Decay closes it: cutoff = 300 Hz + (20000 - 300) e^(-ln 1000 t /
+  Decay), from the note-on in output time, so it doesn't follow
+  Transpose (pad 15 traces pad 12's cutoffs). At the 300 Hz floor, pad
+  13 over pad 10 fits k = 2.15-2.2 to 0.045 dB rms from 80 Hz to 2.5 kHz
+  (k = 2 is 0.3-0.7 dB light near the cutoff: -10.0 dB at 441 Hz against
+  Move's -10.7, which Set 50's quiet sines showed as 0.6 dB). Spectral fits per window, pad 11 (1 s): 17.8 kHz at
   12 ms, 9.9 kHz at 0.1 s, 2.7 kHz at 0.3 s, 915 Hz at 0.5 s, 317 Hz at
   1 s; pad 12 (100 ms) the same over a tenth of the time; pad 13 (10 ms)
   at 300 Hz within 17 ms. A hard floor (an exponential to 30 Hz held at
@@ -1149,3 +1154,18 @@ over 16 windows they are 0.47-0.77 dB rms (max 2.6 dB, in the narrow
 bands under 130 Hz), the sweep at 14.08 kHz 0.23. Pad 15's 7.5 dB at
 20 kHz in its first second is the read at +12 on white noise (Move's
 resampler, not 8-Bit).
+
+Acceptance Set 50 (`fxlab.py accept-set 8-bit --seed 1121`,
+`tools/fxlab/sets/set50_8bit_accept.json`), recorded 2026-11-17: not
+accepted, and two fixes came from it (the Rate unrounded, k = 2.18 at
+20 kHz, above), so it is a fit Set now. Its take has a capture glitch in
+pad 1 (the dry pad): the stream jumps 128 frames at 0.14 s and the pad
+sits 1413 frames off the clip's grid (pads 2-16 land on it as Set 49's
+do), so `check` needs `--gain 0.84649` (Move's dry level at Attack's
+minimum). With the fixes, 13 of its 15 8-Bit pads pass, most at
+0.01-0.06 dB rms; pads 2 and 16 (sweep, 8.01 kHz, Decay 43.6 ms; Move's
+two takes identical) fail at 1.19/5.24 in the bands under the 300 Hz
+floor late in the sweep, where only the beats at multiples of the Rate
+are left. Linear reading fits them best (474 LSB rms; Hermite 505, sinc
+576, nearest 596); scaling the Rate by up to +-9e-6 doesn't help the
+residual. Untraced; the hold's drift is the likeliest.

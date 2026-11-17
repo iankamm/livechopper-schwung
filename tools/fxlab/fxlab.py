@@ -334,7 +334,7 @@ def dsp_settings(p):
     s.append("effect=%d" % i)
     s.append("fx=%.9g %.9g" % (p.get(fa, 0.0), p.get(fb, 0.0)))
     if name == "8-bit":
-        s.append("crush_hz=%d" % round(p.get(fa, 14080.0)))
+        s.append("crush_hz=%.9g" % p.get(fa, 14080.0))
         s.append("crush_decay=%.9g" % p.get(fb, 5.0))
     else:
         s.append("crush_hz=0")

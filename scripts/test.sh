@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Host-side tests: the DSP (native gcc + sanitizers) and the UI (node).
-set -e
+set -eo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 mkdir -p build

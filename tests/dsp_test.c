@@ -289,7 +289,7 @@ static double ref_alaw8(double v) {
 
 /* ...held at hz x ratio from the first frame after each instant (the
  * note-on's at once), read between frames at the instant, then a TPT
- * low-pass with k = 2 at 19.75 kHz, or with a Decay (s, under 5) heading
+ * low-pass with k = 2.18 at 20 kHz, or with a Decay (s, under 5) heading
  * to 300 Hz, 1/1000 of the way left at it, from the note-on. */
 static void ref_crush(const double *in, int n, double hz, double ratio, double decay_s, double *y) {
     double phase = -1, prev = 0, held = 0, ic1 = 0, ic2 = 0, inc = hz * ratio;
@@ -300,8 +300,8 @@ static void ref_crush(const double *in, int n, double hz, double ratio, double d
         }
         phase += inc;
         prev = in[t];
-        double fc = decay_s >= 5 ? 19750 : 300 + 19450 * exp(-log(1000) * t / (decay_s * 44100));
-        double g = tan(M_PI * fc / 44100), a1 = 1 / (1 + g * (g + 2)), a2 = g * a1, a3 = g * a2;
+        double fc = decay_s >= 5 ? 20000 : 300 + 19700 * exp(-log(1000) * t / (decay_s * 44100));
+        double g = tan(M_PI * fc / 44100), a1 = 1 / (1 + g * (g + 2.18)), a2 = g * a1, a3 = g * a2;
         double v3 = held - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
         ic1 = 2 * v1 - ic1;
         ic2 = 2 * v2 - ic2;
@@ -776,6 +776,21 @@ int main(void) {
         }
         param(inst, "transpose", "0");
         for (int i = 0; i < 1024; i++) rin[i] = ramp(i, 0);
+
+        /* The rate isn't rounded (Move's knob values aren't whole): 1000.6 Hz
+         * holds 44.074 frames, so its 10th value comes a frame before 1 kHz's. */
+        param(inst, "crush_hz", "1000.6");
+        get(inst, "settings", set, sizeof set);
+        sscanf(set, "%*d %*d %*d %*d %*d %*d %*d %d", &crush);
+        param(inst, "stop", "1");
+        until_silent(inst);
+        note(inst, 68);
+        render(inst, 3);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        ref_crush(rin, 512, 1000.6, 1, 5, rnew);
+        bad = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) if (fabs(out[i * 2] - rnew[384 + i]) > 2) bad++;
+        CHECK(bad == 0 && crush == 1001, "a fractional rate plays as given, shown rounded (%d wrong, %s)", bad, set);
 
         param(inst, "crush_hz", "5");
         get(inst, "settings", set, sizeof set);

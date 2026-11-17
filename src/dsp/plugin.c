@@ -92,7 +92,8 @@
  * at that rate times the pitch ratio, so the hold follows Transpose, each
  * held value read between frames where the instant falls; it is cut to 8
  * bits of A-law (A = 87.6, truncated toward zero) and goes through a
- * two-pole low-pass (Q 0.5) at 19.75 kHz, before the envelope. Slice
+ * two-pole low-pass (k = 2.18, a little past Q 0.5) at 20 kHz, before the
+ * envelope. The rate isn't rounded: Move's knob values aren't whole. Slice
  * export leaves it out, like the envelope and transpose.
  *
  * Effect: the drum sampler's other playback effects, which the exported
@@ -120,7 +121,7 @@
  * following the sound's level, falling 20 dB over the global Decay + 50 ms
  * from the note on (a Gate pad's from the note off);
  * 8-Bit's
- * Decay closes the crush's low-pass from 19.75 kHz towards 300 Hz,
+ * Decay closes the crush's low-pass from 20 kHz towards 300 Hz,
  * exponentially, 1/1000 of the way left at the Decay; it runs in output
  * time, so it doesn't follow Transpose. Stretch
  * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
@@ -282,8 +283,8 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 /* 8-Bit, measured on Move (docs/NOTES.md "8-Bit", Set 49) */
 #define CRUSH_ALAW_A 87.6f          /* the A-law's A: 8 bits, 128 codes a sign */
 #define CRUSH_ALAW_CODES 128.0f
-#define CRUSH_LP_K 2.0f             /* its low-pass: Q 0.5, two real poles */
-#define CRUSH_LP_OPEN_HZ 19750.0f   /* with Decay Off, and where a Decay starts */
+#define CRUSH_LP_K 2.18f            /* its low-pass: two real poles (Sets 49, 50) */
+#define CRUSH_LP_OPEN_HZ 20000.0f   /* with Decay Off, and where a Decay starts */
 #define CRUSH_LP_FLOOR_HZ 300.0f    /* where a Decay heads */
 #define CRUSH_LP_DECAY_K 6.9077553f /* 1/1000 of the way left at the Decay: ln 1000 */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
@@ -438,7 +439,8 @@ typedef struct {
     int gain_db10;                              /* tenths of a dB, -700 to 240 */
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
-    int crush_hz;                               /* 0 = off, else CRUSH_HZ_MIN-MAX */
+    float crush_hz;                             /* 0 = off, else CRUSH_HZ_MIN-MAX; not
+                                                 * rounded: Move's knob values aren't whole */
     float crush_decay;                          /* 8-Bit Decay, s; CRUSH_DECAY_OFF = off */
     int effect;                                 /* FX_STRETCH .. FX_NOISE */
     float fx_a, fx_b;                           /* its two settings, clamped */
@@ -1333,8 +1335,8 @@ static void set_detune(live_chopper_t *inst, int cents) {
 }
 
 /* 0 is off; anything else is clamped to the 8-Bit effect's range. */
-static void set_crush(live_chopper_t *inst, int hz) {
-    if (hz <= 0) hz = 0;
+static void set_crush(live_chopper_t *inst, float hz) {
+    if (!(hz > 0.0f)) hz = 0.0f;
     else if (hz < CRUSH_HZ_MIN) hz = CRUSH_HZ_MIN;
     else if (hz > CRUSH_HZ_MAX) hz = CRUSH_HZ_MAX;
     inst->crush_hz = hz;
@@ -1364,8 +1366,8 @@ static float alaw8(float v) {
  * the low-pass settled on the input. Bounded: one fmod, the cut, one expf
  * and one tanf. */
 static void crush_frame(const live_chopper_t *inst, crush_state_t *c, int t, float *l, float *r) {
-    int hz = inst->crush_hz;
-    if (hz <= 0) {
+    float hz = inst->crush_hz;
+    if (hz <= 0.0f) {
         c->phase = -1.0;
         c->pl = *l;
         c->pr = *r;
@@ -2271,8 +2273,7 @@ static void set_param(void *instance, const char *key, const char *val) {
         return;
     }
     if (strcmp(key, "crush_hz") == 0) {
-        const char *p = val;
-        set_crush(inst, parse_int(&p));
+        set_crush(inst, strtof(val, NULL));
         return;
     }
     if (strcmp(key, "crush_decay") == 0) {
@@ -2376,7 +2377,7 @@ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
          *  <filter_peak_db10> <effect> <fx_a> <fx_b> <crush_decay>" */
         return snprintf(buf, (size_t)buf_len, "%d %d %d %d %d %d %d %d %d %d %d %d %d %.9g %.9g %.9g",
                         inst->attack_us, inst->hold_us, inst->decay_us, inst->transpose, inst->gated,
-                        inst->detune, inst->gain_db10, inst->crush_hz, inst->filter_type,
+                        inst->detune, inst->gain_db10, (int)lrintf(inst->crush_hz), inst->filter_type,
                         inst->filter_hz10, inst->filter_res, inst->filter_peak_db10,
                         inst->effect, inst->fx_a, inst->fx_b, inst->crush_decay);
     }

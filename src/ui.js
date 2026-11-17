@@ -540,7 +540,7 @@ function dspSetting(name) {
     case "attack":    return ["attack_us", Math.round(v * 1e6)];
     case "hold":      return ["hold_us", holdIsInf() ? HOLD_FULL : Math.round(v * 1e6)];
     case "decay":     return ["decay_us", Math.round(v * 1e6)];
-    case "rate":      return ["crush_hz", effect === EFFECT_8BIT ? Math.round(v) : 0];
+    case "rate":      return ["crush_hz", effect === EFFECT_8BIT ? v : 0];   /* not rounded, as on Move */
     case "crush_decay": return ["crush_decay", v];
     case "frequency": return ["filter_hz10", Math.round(v * 10)];
     case "resonance": return ["filter_res", Math.round(v * 1000)];

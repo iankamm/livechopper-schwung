@@ -168,8 +168,8 @@ a Move drum rack preset or one WAV per slice.
   - 8-Bit: Move's (NOTES.md "8-Bit"): each voice is held at the Rate
     times the pitch ratio (so the hold follows Transpose), the value read
     between frames at each instant, cut to 8 bits of A-law (A = 87.6,
-    truncated toward zero), then through a two-pole low-pass (Q 0.5) at
-    19.75 kHz. A Decay closes that low-pass towards 300 Hz, exponentially,
+    truncated toward zero), then through a two-pole low-pass (k = 2.18) at
+    20 kHz. A Decay closes that low-pass towards 300 Hz, exponentially,
     1/1000 of the way left at the Decay; it doesn't follow Transpose.
   - FM: Move's modulation (NOTES.md "FM"): the read rate is the pitch's
     + Amount x 10 x a parabolic sine at its Freq, rising from 0 at the
