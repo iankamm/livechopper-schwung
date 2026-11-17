@@ -1108,17 +1108,31 @@ on every pad. `check`: 13 of 16, the 3 others waived in `refs --waive`:
   position 1.70/3.99 ms: the waveform is within -44 to -49 dB of Move's,
   Move 0.031 dB louder (its level under a finite Hold, "Volume
   envelope"), and after that one gain the read matches to 0.21/0.63 ms.
-  The position metric reads the ramp's value as the read position, so it
-  takes level for position.
+  The position metric read the ramp's value as the read position, so it
+  took level for position (since fixed, below: 0.33/0.83 ms).
 - **Pad 9** (Pitch Env 82 %, +7 st, Attack 1.24 ms, Decay 650 ms)
   position 0.91/8.41 ms: values within ~0.5 % of Move's for the whole
   sound; the error sits in the 0.8 ms Attack and the decay, where the
-  falling level reads as a move toward the ramp's middle. The metric
-  needs a flat envelope (PLAN "Open").
+  falling level reads as a move toward the ramp's middle (since fixed,
+  below: 0.14/0.30 ms).
 - **Pad 15** (Noise 95 %, 326 Hz, on drum_synth, +12 st 20 ct) bands
   1.16/3.60 with the noise metric passing (0.46/0.80): plugin.c against
   itself over 10 seeds gives bands 0.69-1.22 / 1.48-3.93, 4 of 10
   failing, so one take can't resolve this pad's bands (as Set 46 pad 3).
+
+The position metric under an envelope (2026-11-17, PLAN step 2b): on a
+position_ramp near -16000, 0.3 % of level reads as 3 ms, and Move's level
+on these pads sat 0.2-0.3 % off the take's dry level. `check` now (a) fits
+each pad's level against ours for this metric alone (`position_level`),
+(b) divides both by the pad's envelope, plugin.c's render of a constant
+through the same settings (`env_*` pieces), so a read error under a decay
+counts at full size, reading only where the envelope is over 0.25, and
+(c) leaves out a finite Hold after an Attack under 1 ms in output time,
+where Move's level climbs and ours doesn't (pad 9's 0.8 ms Hold at +7: 2 %
+over 35 frames). Pads 3 and 9 then pass (0.33/0.83 and 0.14/0.30 ms), so
+their waivers were dropped and the transpose, pitch_env and fm position
+refs re-scored. Every other Set's position pads score the same or better
+(Set 47 pads 8-10, finite Holds: 0.58/1.02 to 0.02/0.10).
 
 Two `split` fixes came from this Set: a pad under the onset level is
 placed by the clip's note time (pad 14: Attack 24.6 ms over the click, a

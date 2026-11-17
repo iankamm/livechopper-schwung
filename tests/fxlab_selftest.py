@@ -332,5 +332,35 @@ def bands_err(p, ours_gain_db=0.0):
 got = (bands_err(crush), bands_err(params()), bands_err(crush, 1.5))
 check(got == ("PASS", "FAIL", "FAIL"), "8-Bit bands: averaged noise passes, per window fails, 1.5 dB louder fails: %s" % (got,))
 
+# The position metric fits each pad's level and divides out its envelope
+# (Set 48 pads 3 and 9): position_ramp read at rate 1 under a 20 ms
+# Attack, 10 ms Hold and a decay, "Move" 0.3 % louder, passes. Move's read
+# slipping 3 ms from 150 ms on, under the decay at 0.33, fails, and would
+# pass (~1 ms) with the envelope left in; Move reading 2 % fast fails. A
+# Hold after an Attack under 1 ms is left out (Move's level climbs there).
+pn = int(0.4 * fxlab.RATE)
+pt = np.arange(pn) / fxlab.RATE
+penv = np.where(pt < 0.02, pt / 0.02, np.where(pt < 0.03, 1.0, 10 ** (-4 * (pt - 0.03))))
+pramp = lambda rate, slip=0: -16000 + 32000 * (rate * np.arange(pn) - slip * (pt >= 0.15)) / 88199
+pp = params()
+pp.update({"Voice_Envelope_Attack": 0.02, "Voice_Envelope_Hold": 0.01})
+
+
+def position_verdict(move, env):
+    m = fxlab.measure("position_ramp.wav", pp, move, penv * pramp(1.0), None, 380.0,
+                      None if env is None else env * fxlab.ENV_DC)
+    return fxlab.judge("position", m["position"][3], 1.0, 2.0)[1]
+
+
+got = (position_verdict(1.003 * penv * pramp(1.0), penv), position_verdict(penv * pramp(1.0, 132), penv),
+       position_verdict(penv * pramp(1.0, 132), None), position_verdict(penv * pramp(1.02), penv))
+check(got == ("PASS", "FAIL", "PASS", "FAIL"),
+      "position: 0.3 %% louder passes, a 3 ms slip under the decay fails (passes with the envelope left in), "
+      "2 %% fast fails: %s" % (got,))
+climb = dict(pp, Voice_Envelope_Attack=0.0001, Voice_Envelope_Hold=0.002, Voice_Transpose=12)
+check(fxlab.climb_span_ms(pp) is None and abs(fxlab.climb_span_ms(climb)[1] - 1.05) < 1e-9
+      and fxlab.climb_span_ms(dict(climb, Voice_Envelope_Hold=60.0)) is None,
+      "climb_span_ms: none at Attack 20 ms or Hold Inf; 0.1 ms + 2 ms at +12 is 1.05 ms: %s" % (fxlab.climb_span_ms(climb),))
+
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)

@@ -368,6 +368,28 @@ def render_pad(sample, settings, frames, out, quiet=False):
                           stdout=subprocess.DEVNULL if quiet else None)
 
 
+ENV_DC = 16384.0            # the constant a pad's envelope is rendered from
+
+
+def env_source(sample):
+    """A constant as long as sample (build/fxlab_env/): plugin.c plays it
+    through a pad's settings to give that pad's envelope, with whatever
+    the effect does to the level (Loop's crossfades, the silence past the
+    sample's end)."""
+    folder = os.path.join(REPO, "build", "fxlab_env")
+    os.makedirs(folder, exist_ok=True)
+    n = len(read_mono(os.path.join(WAVS, sample)))
+    path = os.path.join(folder, "dc_%d.wav" % n)
+    if not os.path.exists(path):
+        write_mono(path, np.full(n, ENV_DC))
+    return path
+
+
+def render_env(sample, settings, frames, out, quiet=False):
+    """The pad's envelope, 1.0 at full level, rendered as out."""
+    render_pad(env_source(sample), settings, frames, out, quiet)
+
+
 def cmd_render(outdir, quiet=False):
     build_render()
     meta = json.load(open(os.path.join(outdir, "pads.json")))
@@ -381,6 +403,9 @@ def cmd_render(outdir, quiet=False):
             # The same pad with no effect: what the gain curve divides by,
             # and what a Noise pad's noise is measured against.
             render_pad(pc["sample"], dry_settings(settings), pc["frames"], os.path.join(outdir, "dry_" + pc["piece"]))
+        if uses_position(p, pc["sample"]):
+            # Its envelope, which the read position is divided by.
+            render_env(pc["sample"], settings, pc["frames"], os.path.join(outdir, "env_" + pc["piece"]), quiet=True)
         pc["settings"] = settings
         if not quiet:
             print("%-22s %s" % (pc["piece"], " ".join(settings[-3:])))
@@ -687,9 +712,68 @@ def curve_pitch(x, c):
     return s * 1000, st * 100
 
 
+ENV_MIN = 0.25              # no read position where the envelope is under this (-12 dB): low on an
+                            # Attack, a frame of the ramp's timing reads as ms (Set 48 pad 3: 2.8 ms at 0.1)
+CLIMB_ATTACK_S = 0.001      # ... nor over a finite Hold after an Attack shorter than this (output time)
+
+
+def climb_span_ms(params):
+    """(start, end) in ms of a finite Hold that Move's level climbs over
+    and ours doesn't (NOTES "Volume envelope": from the Attack's level,
+    0.8465 at 0.1 ms, to ~0.933; from 1 ms it starts at ~0.931, and Set
+    52's Loop pads under a 2 s Hold show no climb), else None. Times
+    divide by the pitch ratio, as Move's envelope does (Set 47)."""
+    hold = params.get("Voice_Envelope_Hold", 60.0)
+    if hold >= 60.0 or params.get("Voice_Envelope_Mode", "A-H-D") != "A-H-D":
+        return None
+    r = 1.0
+    if params.get("Voice_PitchToEnvelopeModulation", True):
+        r = 2 ** ((params.get("Voice_Transpose", 0) * 100 + params.get("Voice_Detune", 0.0)) / 1200)
+    attack = params.get("Voice_Envelope_Attack", 0.0001) / r
+    if attack >= CLIMB_ATTACK_S:
+        return None
+    return 0.0, (attack + hold / r) * 1000
+
+
+def position_level(x, ours, env, end_ms, params=None):
+    """Move's level against ours on a position_ramp pad, fitted over the
+    pad (START_MS to end_ms, where the envelope is over ENV_MIN). The ramp
+    is near -16000 at its start, so 0.3 % of level reads as 3 ms there
+    (Set 48 pads 3 and 9 against the take's dry level, 0.2-0.3 %): the
+    gain and bands metrics judge the level, this one the read. Not over
+    climb_span_ms."""
+    n = min(len(x), len(ours), int(end_ms * RATE / 1000))
+    s = slice(int(START_MS * RATE / 1000), max(int(START_MS * RATE / 1000), n))
+    w = np.ones(n, bool) if env is None else env[:n] / ENV_DC >= ENV_MIN
+    w[:s.start] = False
+    span = climb_span_ms(params) if params else None
+    if span:
+        w[:int(np.ceil(span[1] * RATE / 1000))] = False
+    den = float(np.dot(ours[:n][w], ours[:n][w]))
+    return float(np.dot(x[:n][w], ours[:n][w])) / den if den > 0 else 1.0
+
+
 def curve_position(x, c):
-    v = ramp_position_ms(x, 1.0, c["n_src"])
-    return np.arange(len(v)) / RATE * 1000, v
+    """The frame read, in ms, with the pad's envelope (plugin.c's, c["env"])
+    divided out where it's at least ENV_MIN, so a read error under an
+    Attack ramp or a Decay counts at its size, not scaled down by the
+    level. Move's envelope is taken to be ours (measure fits the level
+    first, position_level); where it isn't, the difference reads as
+    position, so the climb over a finite Hold after a short Attack (NOTES
+    "Volume envelope") is left out (climb_span_ms)."""
+    env = c.get("env")
+    if env is None:
+        v = ramp_position_ms(x, 1.0, c["n_src"])
+        return np.arange(len(v)) / RATE * 1000, v
+    n = min(len(x), len(env))
+    e = np.convolve(env[:n] / ENV_DC, [0.5, 0.5], mode="same")
+    keep = e >= ENV_MIN
+    span = climb_span_ms(c["params"]) if c.get("params") else None
+    if span:
+        keep[:int(np.ceil(span[1] * RATE / 1000))] = False
+    keep = np.flatnonzero(keep)
+    v = ramp_position_ms(x[:n], np.maximum(e, ENV_MIN), c["n_src"])
+    return keep / RATE * 1000, v[keep]
 
 
 def curve_bands(x, c):
@@ -787,16 +871,17 @@ def judge(name, err, rms_limit, max_limit):
     return st, "PASS" if st["rms"] <= rms_limit and st["max"] <= max_limit else "FAIL"
 
 
-def measure(sample, params, x, ours, dry, end_ms):
+def measure(sample, params, x, ours, dry, end_ms, env=None):
     """Every metric that applies to a pad: {name: (Move's curve stored,
     Move's full curve, ours full curve, error)}. x is Move's piece at
-    ours' level from note-on; ours and dry are plugin.c's renders."""
-    c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, sample))), "params": params, "end_ms": end_ms}
+    ours' level from note-on; ours, dry and env are plugin.c's renders."""
+    c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, sample))), "params": params, "end_ms": end_ms,
+         "env": env}
     out = {}
     for name, _, _, _, applies, curve in METRICS:
         if not applies(params, sample) or (name in ("gain", "noise") and dry is None):
             continue
-        mt, mv = curve(x, c)
+        mt, mv = curve(x / position_level(x, ours, env, end_ms, params) if name == "position" else x, c)
         ot, ov = curve(ours, c)
         ref = store_curve(name, mt, mv, end_ms)
         out[name] = (ref, (mt, mv), (ot, ov), curve_error(name, ref, ot, ov))
@@ -866,7 +951,9 @@ def load_pieces(outdir, gain_arg, ours_take=None):
         # A Noise pad lines up on its dry render: loud noise throws the
         # match against ours, which has noise of its own (Set 44 pad 8).
         ref = dry if dry is not None and noise_pad(pc["params"]) else ours
-        d = {"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "move_lag": align(move, ref)}
+        env_path = os.path.join(outdir, "env_" + pc["piece"])
+        env = read_mono(env_path) if os.path.exists(env_path) else None
+        d = {"pc": pc, "move": move, "ours_raw": ours, "dry_raw": dry, "env_raw": env, "move_lag": align(move, ref)}
         if takes:
             d["take"] = read_mono(os.path.join(ours_take, takes[k]["piece"]))
             d["take_lag"] = align(d["take"], ref)
@@ -895,7 +982,8 @@ def load_pieces(outdir, gain_arg, ours_take=None):
             d["ours"] = shift(d["ours_raw"], 0, n)
         d["dry"] = shift(d["dry_raw"], 0, n) if d["dry_raw"] is not None else None
         d["end_ms"] = sound_end_ms(d["x"], d["ours"])
-        d["m"] = measure(d["pc"]["sample"], d["pc"]["params"], d["x"], d["ours"], d["dry"], d["end_ms"])
+        d["env"] = shift(d["env_raw"], 0, n) if d["env_raw"] is not None else None
+        d["m"] = measure(d["pc"]["sample"], d["pc"]["params"], d["x"], d["ours"], d["dry"], d["end_ms"], d["env"])
     return meta, data, gain, source
 
 
@@ -1249,8 +1337,13 @@ def cmd_refs_check(folder):
             render_pad(ref["sample"], dry_settings(ref["settings"]), ref["frames"], dry_path, quiet=True)
             dry = read_mono(dry_path)
         ours = read_mono(ours_path)
+        env = None
+        if "position" in ref["metrics"]:
+            env_path = os.path.join(tmp, "env.wav")
+            render_env(ref["sample"], ref["settings"], ref["frames"], env_path, quiet=True)
+            env = read_mono(env_path)
         c = {"dry": dry, "n_src": len(read_mono(os.path.join(WAVS, ref["sample"]))),
-             "params": ref["params"], "end_ms": ref["end_ms"]}
+             "params": ref["params"], "end_ms": ref["end_ms"], "env": env}
         cells = []
         for name, _, _, _, _, curve in METRICS:
             if name not in ref["metrics"]:

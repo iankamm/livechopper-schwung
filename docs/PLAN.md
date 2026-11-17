@@ -23,8 +23,9 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      Done 2026-11-17 (NOTES "Stretch and Loop on Move"): both are simple
      and deterministic, and a numpy model of each fits Move, so 2d is
      "match" too.
-   - 2b. Make the position metric work under a non-flat envelope ("Open"),
+   - 2b. Make the position metric work under a non-flat envelope,
      since Loop's pads need a finite Hold; re-score the position refs.
+     Done 2026-11-17 (NOTES "The position metric under an envelope").
    - 2c. Loop: the per-effect workflow to "matched" (PLAN "Method"). If
      its wrap turns out to be Move's end fade, model that with it (step 3).
    - 2d. Stretch: from Set 52, match it if its grains are deterministic and
@@ -123,7 +124,8 @@ LiveChopper's own designs, not Move's algorithms.
   31 and 32 pass whole. Accepted on Set 48 (2026-11-16, seed 1120,
   `fxlab.py accept-set Transpose`, `tools/fxlab/sets/set48_transpose_accept.json`):
   13 of 16, pads 3 and 9's position and pad 15's bands waived (NOTES
-  "Following Transpose"), refs in `tests/move_refs/transpose/`. Done
+  "Following Transpose"; the position waivers dropped 2026-11-17, when
+  the metric learned to fit the level, and both pass), refs in `tests/move_refs/transpose/`. Done
   2026-11-16: preview checks (16 of 16 against the render at the values
   played; against Move the 3 waived pads and pad 4, held 0.345 s by hand
   against the clip's 0.40 s), `device-check` (Sets 47 and 48, 38 pads bit
@@ -341,11 +343,6 @@ reference.
 
 ### Open
 
-- **The position metric needs a flat envelope:** it reads position_ramp's
-  value as the read position, so under an Attack ramp, a finite Hold's
-  level or a Decay it reports level as position (Set 48 pads 3 and 9,
-  waived). To fix: divide out the envelope and fit the level per pad, then
-  re-score the position refs.
 - **`check --ours-take` on a Gate pad:** it compares only while both
   pieces sound, so a preview let go early passes (Set 48 pad 4 held
   0.119 s against 0.40 s, bands 0.04). Compare to the longer piece's end.
