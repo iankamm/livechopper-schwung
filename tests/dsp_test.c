@@ -1182,6 +1182,78 @@ int main(void) {
               "Sub Osc follows +12 in Freq, not in its decay (peak %d)", peak);
     }
 
+    /* ---- Stretch, frame by frame: Move's grains (Set 52) ---- */
+    {
+        /* A 1 s ramp: each output frame shows the frame read, times the
+         * grain's fade and the end fade. */
+        write_wav("build/sramp.wav", 44100, 1, 44100, 16);
+        inst = load("build/sramp.wav");
+        static int16_t got[90000];
+        struct { const char *fx; double factor, grain; } cases[] = {
+            { "2 0.1", 2.0, 0.1 },          /* 4410-frame grains, playhead 2205 a grain */
+            { "20 0.005", 20.0, 0.005 },    /* 220 frames, the fade out from 220.5 */
+        };
+        for (int c = 0; c < 2; c++) {
+            param(inst, "stop", "1"); until_silent(inst);
+            param(inst, "effect", "0"); param(inst, "fx", cases[c].fx);
+            note(inst, 68);
+            int n = 0;
+            while (n + MOVE_FRAMES_PER_BLOCK <= (int)(sizeof got / sizeof got[0])) {
+                api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+                for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) got[n + i] = out[i * 2];
+                n += MOVE_FRAMES_PER_BLOCK;
+                if (field(inst, F_PLAYING) < 0) break;
+            }
+            float gf = (float)cases[c].grain * 44100.0f;
+            int H = (int)gf, worst = 0, at = -1;
+            int check_n = c == 0 ? 88200 : 3 * H + 10;
+            for (int t = 0; t < check_n && t < n; t++) {
+                int k = t / H, j = t % H;
+                double pos = (double)k * H / cases[c].factor + j;
+                double w = (gf - 1.0 - j) / 44.1;
+                if (k > 0 && j / 44.1 < w) w = j / 44.1;
+                w = w > 1.0 ? 1.0 : w < 0.0 ? 0.0 : w;
+                double u = (44099.0 - pos) / 441.0;
+                double e = u <= 0.0 ? 0.0 : u >= 1.0 ? 1.0 : u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
+                double i0 = floor(pos), fr = pos - i0;
+                double v = ramp((int)i0, 0) + (ramp((int)i0 + 1, 0) - ramp((int)i0, 0)) * fr;
+                int want = (int)lrint(v * w * e);
+                if (abs(got[t] - want) > worst) { worst = abs(got[t] - want); at = t; }
+            }
+            CHECK(worst <= 1, "Stretch %s: Move's grains frame by frame (worst %d at %d)", cases[c].fx, worst, at);
+        }
+        /* Factor 2, 100 ms: grain 1 reaches 0 at both ends; the voice's
+         * first grain starts at full level; 20 grains, then the end. */
+        param(inst, "stop", "1"); until_silent(inst);
+        param(inst, "fx", "2 0.1");
+        note(inst, 68);
+        int n = 0;
+        while (field(inst, F_PLAYING) >= 0 && n < 90000) {
+            api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+            for (int i = 0; i < MOVE_FRAMES_PER_BLOCK && n + i < 90000; i++) got[n + i] = out[i * 2];
+            n += MOVE_FRAMES_PER_BLOCK;
+        }
+        CHECK(got[0] == ramp(0, 0) && got[1] == ramp(1, 0) && got[4409] == 0 && got[4410] == 0
+              && got[4410 + 22] == (int)lrint(ramp(2205 + 22, 0) * 22 / 44.1),
+              "Stretch grains: full start, 0 at a boundary (%d %d %d %d)", got[1], got[4409], got[4410], got[4432]);
+        CHECK(n >= 88200 && n < 88200 + 2 * MOVE_FRAMES_PER_BLOCK,
+              "Stretch 2.00 ends when the playhead reaches the slice's end: %d frames", n);
+        /* Move's end fade (Set 52 pad 7): 0.4073 of the read 200 frames from the end. */
+        int t200 = 19 * 4410 + (44100 - 200 - 19 * 2205);
+        CHECK(abs(got[t200] - (int)lrint(ramp(44100 - 200, 0) * 0.40733)) <= 2,
+              "Stretch's end fade: %d at 200 frames from the end, want %d", got[t200],
+              (int)lrint(ramp(44100 - 200, 0) * 0.40733));
+        /* A stretch turned off mid-voice plays on from the grain's read. */
+        param(inst, "stop", "1"); until_silent(inst);
+        note(inst, 68); render(inst, 50);                    /* 6400 frames: grain 1, read 2205 + 1990 */
+        param(inst, "fx", "1 0.1");
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        CHECK(out[0] == ramp(2205 + 1990, 0) && out[2] == ramp(2205 + 1991, 0),
+              "Stretch off mid-voice plays on from the grain's read (%d, want %d)", out[0], ramp(4195, 0));
+        param(inst, "stop", "1"); until_silent(inst);
+        api->destroy_instance(inst);
+    }
+
     /* ---- Stretch and Loop: they change how the slice is read ---- */
     {
         write_tone("build/t441.wav", 44100, 441.0, 0.5);   /* 1 s, 100 frames a cycle */
@@ -1201,12 +1273,20 @@ int main(void) {
         CHECK(abs(n - 20 * dry) <= 20, "Stretch 20.00, 5 ms grains: %d blocks", n);
         param(inst, "fx", "20 0.3");
         n = play_count(inst, 8000, &x);
-        CHECK(abs(n - 20 * dry) <= 20, "Stretch 20.00, 300 ms grains: %d blocks", n);
-        CHECK(fabs((double)x / n - (double)dry_x / dry) < 0.05 * dry_x / dry,
-              "Stretch 20.00 keeps the pitch: %d cycles in %d blocks", x, n);
+        /* On Move the voice ends when the playhead (661.5 frames a grain)
+         * reaches the end: 67 grains of 13230, the last 20 reading partly
+         * past the end, into silence. */
+        int sounded = 0;
+        for (int k = 0; k < 67; k++) {
+            double p = k * 661.5;
+            sounded += (int)(44100 - p < 13230 ? 44100 - p : 13230);
+        }
+        CHECK(abs(n - 67 * 13230 / MOVE_FRAMES_PER_BLOCK) <= 3, "Stretch 20.00, 300 ms grains: %d blocks", n);
+        CHECK(fabs(x - sounded * 441.0 / 44100) < 0.02 * x,
+              "Stretch 20.00 keeps the pitch: %d cycles over %d frames read", x, sounded);
         param(inst, "fx", "3 0.05");            /* a choke hands the grains to the tail */
         note(inst, 68); render(inst, 50); note(inst, 68);
-        CHECK(lc->tail_active && lc->tail_fx.grain_pos[0] > 0.0, "a choked stretch fades out as a tail");
+        CHECK(lc->tail_active && lc->tail_fx.grain_pos > 0.0, "a choked stretch fades out as a tail");
         param(inst, "stop", "1"); render(inst, 2);
 
         /* Loop: hold is Inf by default, so it repeats until stopped */

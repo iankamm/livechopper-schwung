@@ -44,7 +44,8 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      sample (as built) or the loop may read on past it.
    - 2d. Stretch: from Set 52, match it if its grains are deterministic and
      fit a model; otherwise keep the stand-in, document it in SPEC as
-     LiveChopper's own, and A/B it for information only.
+     LiveChopper's own, and A/B it for information only. They are: built
+     2026-11-17 to Move's model ("Status"); acceptance next.
 3. **Settle the "Open" items that change the sound:** the preview level
    (unity, 1.45 dB above Move), Move's dry onset (its 4-frame attack ramp
    and end fade, the onset heard in Pitch Env's A/B), and fast turns. The
@@ -66,8 +67,9 @@ Steps 1-3 are done: one knob model for every knob that mirrors Move (SPEC
 stand-in in chop mode (SPEC "Effect"). What they were built from is in
 NOTES "Move's Drum Sampler, measured".
 
-Step 4, still open: tune each stand-in to Move. Apart from Punch they are
-LiveChopper's own designs, not Move's algorithms.
+Step 4: tune each stand-in to Move. All nine are now built to Move's
+measurements; Stretch (built 2026-11-17) still needs its acceptance
+("Status").
 
 ### Status
 
@@ -138,8 +140,13 @@ LiveChopper's own designs, not Move's algorithms.
   `device-check` (Sets 52 and 53, 32 pads, 0 LSB) and listening A/B
   passed (no difference heard on any of 16 pairs). Open: a Drum Preset
   pad's region under Loop.
-- Then Stretch. Sets are written with `fxlab.py make-set` from a
-  spec in `tools/fxlab/sets/`.
+- Stretch: built 2026-11-17 from Set 52 (NOTES "Stretch and Loop on
+  Move", "Built"): back-to-back grains of floor(Grain x 44100) frames
+  with 1 ms linear fades to 0 at both ends (none in on the voice's first),
+  the playhead a grain's read / Factor a grain, and Move's 10 ms end fade
+  on each grain's read. `check` on Set 52: 16 of 16. Next: `accept-set
+  Stretch`, record, refs, preview, `device-check`, A/B. Sets are written
+  with `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio
   (Detune included), Gate's release doesn't; FM, Ring Mod and Sub Osc's

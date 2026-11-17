@@ -143,15 +143,20 @@ a Move drum rack preset or one WAV per slice.
   | Noise | Amount, 0-100 % | Color, 180 Hz-15.0 kHz |
 
   In chop mode each effect runs before the filter (sample -> effect ->
-  filter -> envelope, drumCell's order). Every effect but Stretch matches
-  Move's own output (NOTES.md); Stretch is a stand-in. The waveform is drawn without
-  the effect.
+  filter -> envelope, drumCell's order). Every effect follows
+  Move's own output (NOTES.md). The waveform is drawn without the effect.
 
-  - Stretch: the playhead moves at 1/Factor of the normal speed, and two
-    grains of Grain size play from it, half a grain apart under Hann
-    windows, at the normal speed, so the pitch holds while the slice lasts
-    about Factor times as long (Factor 1.00 is plain playback). A grain
-    that would run past the slice's end starts early enough to fit.
+  - Stretch: Move's (NOTES.md "Stretch and Loop on Move"). Grains of
+    Grain size (floor(Grain x 44100) frames of output) play back to back;
+    each reads at the normal speed (Transpose's pitch) from a playhead that
+    moves one grain's read at 1/Factor per grain, so the pitch holds while
+    the slice lasts Factor times as long. Each grain fades in and out
+    linearly over 1 ms, reaching 0 at both ends, except that the voice's
+    first grain starts at full level. A grain reading near the slice's
+    end fades out with it (Move's 10 ms S-shaped end fade) and reads
+    silence past it; the voice ends when the playhead reaches the end.
+    Factor 1.00 is plain playback. Turned off mid-voice, the read plays on
+    from where the grain was.
   - Loop: Move's (NOTES.md "Stretch and Loop on Move"). It plays from the
     slice's start; the loop runs from Offset of the way into the slice to
     Loop Len past that, in the sample's own time (so it follows Transpose),

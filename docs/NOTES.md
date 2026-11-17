@@ -311,8 +311,11 @@ Set 52, 2026-11-17 (`tools/fxlab/sets/set52_stretch_loop_scout.json`,
 take and saved Song.abl in `.claude/recordings/set52/`; the take is cut at
 96 s as `take_cut96.wav` because pad 16 loops on, split in `set52/sl/`).
 Both are simple, deterministic and unlike LiveChopper's stand-ins. A
-numpy model of each (session scratchpad `s52/model.py`) fits Move as
-below; the dry Low-Pass 24 and the Attack were left out of it.
+numpy model of each (session scratchpad `s52/model.py`, since lost) fits
+Move as below; the dry Low-Pass 24 and the Attack were left out of it.
+Stretch's was rebuilt and finished on 2026-11-17 (below, "Built"; local
+`.claude/tools/stretch/model.py`, which plays the grains through
+plugin.c's dry path).
 
 Stretch:
 - Grains don't overlap. Grain k starts at output frame k·H, where H is
@@ -333,6 +336,36 @@ Stretch:
 - Open: at Factor 2 (pads 3, 9) the click copies fall ~12.5 LSB for each
   100 ms of the sample read (24321 to 24098 over the sample; every source
   click is 29204), not seen at Factor 20. Untraced, 0.08 dB.
+- Built in plugin.c (2026-11-17), which pinned the frame-level details
+  the first model left out:
+  - The fades reach 0 at both ends of a grain: weight j / 44.1 in and
+    (G - 1 - j) / 44.1 out at frame j, G the grain unfloored in float
+    (0.005 x 44100 is 220.5, 100 ms 4410), so two frames at a boundary
+    are 0. With (H - j) / 44.1 out the boundaries sat a frame early (pad
+    7, ~230 LSB at each); counting the fade out from H, not G, left pad
+    8's 5 ms grains 0.5 frame short (54 LSB rms, now 5.5).
+  - The voice's first grain has no fade in: it starts as the dry read
+    does, with the Attack (pad 8: 2261 LSB at the onset with a fade in).
+  - The end fade is the dry path's ("Move's dry path", ~9.5 ms there),
+    now measured: by source distance from the sample's last frame,
+    u = (n - 1 - pos) / 441, the weight is 2u^2 under u = 0.5 and
+    1 - 2(1 - u)^2 above (pad 7's grains 38 and 39, both through it:
+    3e-5 rms). Each grain reading the end gets it, so at Factor 20,
+    300 ms the last 20 grains (6 s) each fade there instead of
+    clicking. Taken as source time (it can't be told at Transpose 0;
+    Loop's crossfade is source time too). LiveChopper applies it only to
+    Stretch's grains: its dry read still stops dead (PLAN "Open").
+  - The voice ends when the playhead reaches the end, at a grain
+    boundary (pad 7: grain 39 starts at 85995 and reads 2205 frames, then
+    silence). Factor 1.00 is plain playback on Move too (pad 2: a flat
+    sine, no dips every 100 ms).
+  - Fit through plugin.c (fx_render, the pads' own settings): pad 7
+    0.35 LSB rms past the first grain (2.3 over the whole piece, the
+    onset's ripple), gain 0.84649, the 0.1 ms dry level exactly; pad 8
+    5.5 LSB, gain 0.93114, the 1 ms dry level; click pads 25-44 LSB,
+    the Low-Pass 24's ring at each click, which LiveChopper bypasses.
+    `check` on Set 52: 16 of 16 (Stretch bands at most 0.39/2.17 dB,
+    pads 4 and 10, the ring again).
 
 Loop:
 - Plays from the sample's start, not from Offset (pads 12, 13, 15, 16 all

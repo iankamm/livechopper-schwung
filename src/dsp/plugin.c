@@ -102,8 +102,7 @@
  * selected effect's two settings (Knobs 7 and 8) in the preset's units,
  * clamped to the effect's ranges. 8-Bit keeps "crush_hz" (above) for its
  * rate, and "crush_decay" in seconds is its Decay (5.0, the top, is Off).
- * Each voice plays a stand-in, not an emulation, before the filter, except
- * Punch, Pitch Env, FM, Ring Mod, Sub Osc and Noise, which follow Move's
+ * Each voice plays the effect before the filter, following Move's
  * measured curves (docs/NOTES.md, under their names). Punch:
  * a makeup of 1 + Amount^3 with a duck under it, the duck's target
  * 1 - Amount x (1 - (t/L)^n) floored at 0.15 and smoothed in dB by two
@@ -123,10 +122,12 @@
  * 8-Bit's
  * Decay closes the crush's low-pass from 20 kHz towards 300 Hz,
  * exponentially, 1/1000 of the way left at the Decay; it runs in output
- * time, so it doesn't follow Transpose. Stretch
- * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
- * of Grain Size from it, half a grain apart, at the normal speed (Factor
- * 1.00 is plain playback). Loop is Move's (Set 52): it plays from the
+ * time, so it doesn't follow Transpose. Stretch is Move's (Set 52):
+ * grains of floor(Grain Size x 44100) output frames, back to back, grain
+ * k read at the pitch from the playhead k x grain x pitch / Factor, each
+ * with linear 1 ms fades that reach 0 at both ends (the voice's first
+ * grain starts at full level), under a 10 ms S-shaped fade at the slice's
+ * end; Factor 1.00 is plain playback. Loop is Move's (Set 52): it plays from the
  * slice's start, and when the read reaches Offset (of the slice) + Length
  * (in source time) a new read starts at Offset while the old one plays on
  * past the loop's end, the two crossfading linearly over 9 ms of source
@@ -292,6 +293,8 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define CRUSH_LP_DECAY_K 6.9077553f /* 1/1000 of the way left at the Decay: ln 1000 */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
 #define LOOP_XF_S 0.009             /* Loop's crossfade at a wrap, in source time (Set 52: 396.9 frames) */
+#define GRAIN_FADE_S 0.001f         /* Stretch: each grain's linear fades, in output time (44.1 frames) */
+#define END_FADE_S 0.01             /* Stretch: Move's fade at the slice's end, in source time (441 frames) */
 
 /* Filter, in the drum sampler's ranges */
 enum { FILTER_LP12 = 0, FILTER_LP24 = 1, FILTER_HP24 = 2, FILTER_PEAK = 3 };
@@ -355,16 +358,18 @@ typedef struct {
 } crush_state_t;
 
 /* Per-voice effect state (all but the crush): an oscillator for FM and
- * Ring Mod, Noise's generator, filters and level follower, Stretch's two
- * grains and whether Loop has wrapped. */
+ * Ring Mod, Noise's generator, filters and level follower, Stretch's
+ * grain and whether Loop has wrapped. */
 typedef struct {
     double phase;       /* oscillator, 0..1 */
     uint32_t rng;
     float pre1, pre2;   /* Noise: the last two generator values */
     float bp_z1, bp_z2; /* Noise: its band-pass */
     float follow;
-    double grain_pos[2]; /* source frames; grain 1 is half a grain behind */
-    int grain_age;      /* output frames into grain 0 */
+    double grain_pos;   /* Stretch: the grain's read, in source frames */
+    int grain_age;      /* ... output frames into the grain */
+    int grain_on;       /* ... a grain is playing (the voice's *pos is the playhead) */
+    int grain_full;     /* ... it starts at full level (the voice's first, no fade in) */
     double loop_old;    /* Loop: the read from before the last wrap, fading out */
     double loop_xf;     /* ... source frames since that wrap; < 0 when done */
     float punch_ln[2];  /* Punch's two smoothing stages, ln of the gain */
@@ -1755,13 +1760,22 @@ static void loop_frame(const sample_buf_t *s, double pos, int end, float *l, flo
     read_frame(s, pos, l, r);
 }
 
-/* A grain's frame: silent at or past the slice end. */
+/* A grain's frame, under Move's fade at the slice's end (Set 52 pad 7,
+ * to 3e-5): two parabolas over END_FADE_S of source time, 0 from the
+ * slice's last frame on. Move's dry read fades the same way; LiveChopper's
+ * dry read stops dead (PLAN "Open", Move's dry path). */
 static void grain_frame(const sample_buf_t *s, double pos, int end, float *l, float *r) {
-    if (pos >= end) {
+    double u = (end - 1 - pos) / (END_FADE_S * s->sample_rate);
+    if (u <= 0.0) {
         *l = *r = 0.0f;
         return;
     }
     read_frame(s, pos, l, r);
+    if (u < 1.0) {
+        float g = (float)(u < 0.5 ? 2.0 * u * u : 1.0 - 2.0 * (1.0 - u) * (1.0 - u));
+        *l *= g;
+        *r *= g;
+    }
 }
 
 /* One frame of a voice, the playing one or the choke tail: read the slice
@@ -1773,31 +1787,49 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
                         filter_state_t *f, float *l, float *r) {
     int stretch = inst->effect == FX_STRETCH && inst->fx_a > 1.0f;
     int loop = inst->effect == FX_LOOP;
+    float grain_f = 0.0f;
     int grain = 0;
     double ls = 0.0, le = 0.0;
     if (stretch) {
-        grain = (int)(inst->fx_b * MOVE_SAMPLE_RATE);
+        /* Move's grains (Set 52): back to back, each floor(Grain x 44100)
+         * output frames, read at the pitch from the playhead, with linear
+         * fades over its first and last GRAIN_FADE_S that reach 0 at both
+         * ends; the fade out counts from the unfloored length (5 ms is
+         * 220.5). The voice's first grain starts at full level. */
+        grain_f = inst->fx_b * (float)MOVE_SAMPLE_RATE;
+        grain = (int)grain_f;
         if (grain < 2) grain = 2;
-        if (x->grain_age >= grain) x->grain_age = 0;
-        if (x->grain_age == 0 || x->grain_age == grain / 2) {
-            /* A new grain starts at the playhead, or early enough to end
-             * inside the slice. */
-            double gs = *pos, reach = grain * step;
-            if (gs + reach > end) gs = end - reach;
-            if (gs < start) gs = start;
-            x->grain_pos[x->grain_age == 0 ? 0 : 1] = gs;
+        if (!x->grain_on) {
+            /* The voice's start, or a stretch beginning mid-voice: a grain
+             * at the read, at full level. */
+            x->grain_on = 1;
+            x->grain_full = 1;
+            x->grain_age = 0;
+            x->grain_pos = *pos;
+        } else if (x->grain_age >= grain) {
+            /* A shorter grain turned in mid-grain: the next one now. */
+            *pos += grain * step / inst->fx_a;
+            x->grain_full = 0;
+            x->grain_age = 0;
+            x->grain_pos = *pos;
         }
-        float w = sinf((float)M_PI * (float)x->grain_age / (float)grain);
-        float l0, r0, l1, r1;
-        grain_frame(s, x->grain_pos[0], end, &l0, &r0);
-        grain_frame(s, x->grain_pos[1], end, &l1, &r1);
-        w *= w;
-        *l = l0 * w + l1 * (1.0f - w);
-        *r = r0 * w + r1 * (1.0f - w);
+        const float fade = GRAIN_FADE_S * (float)MOVE_SAMPLE_RATE;
+        float w = (grain_f - 1.0f - (float)x->grain_age) / fade;
+        if (!x->grain_full) {
+            float in = (float)x->grain_age / fade;
+            if (in < w) w = in;
+        }
+        if (w > 1.0f) w = 1.0f;
+        if (w < 0.0f) w = 0.0f;
+        grain_frame(s, x->grain_pos, end, l, r);
+        *l *= w;
+        *r *= w;
     } else {
-        /* Grain 1 carries the sound when a stretch begins mid-voice. */
-        x->grain_pos[0] = x->grain_pos[1] = *pos;
-        x->grain_age = 0;
+        if (x->grain_on) {
+            /* A stretch ending mid-voice: play on from the grain's read. */
+            *pos = x->grain_pos;
+            x->grain_on = 0;
+        }
         if (loop) {
             loop_bounds(inst, s, start, end, &ls, &le);
             loop_frame(s, *pos, end, l, r);
@@ -1819,10 +1851,14 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
     filter_frame(&inst->filter_coef, f, l, r);
 
     if (stretch) {
-        x->grain_pos[0] += step;
-        x->grain_pos[1] += step;
-        x->grain_age++;
-        *pos += step / inst->fx_a;
+        x->grain_pos += step;
+        if (++x->grain_age >= grain) {
+            /* The next grain, from the playhead a grain on at 1/Factor. */
+            *pos += grain * step / inst->fx_a;
+            x->grain_full = 0;
+            x->grain_age = 0;
+            x->grain_pos = *pos;
+        }
     } else if (loop) {
         if (x->loop_xf >= 0.0) {
             x->loop_old += step;
@@ -1875,7 +1911,6 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     memset(&inst->fx, 0, sizeof inst->fx);
     inst->fx.rng = rng ? rng : 22222u;
     inst->fx.loop_xf = -1.0;
-    inst->fx.grain_pos[0] = inst->fx.grain_pos[1] = inst->play_pos;
     memset(&inst->filter, 0, sizeof inst->filter);
     start_sub(inst);
     inst->playing_slice = idx;
