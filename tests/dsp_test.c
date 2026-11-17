@@ -240,6 +240,14 @@ static int play_count(void *inst, int max_blocks, int *crossings) {
     return blocks;
 }
 
+/* The loudest sample of the last block (left channel). */
+static int max_abs(void) {
+    int worst = 0;
+    for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++)
+        if (abs(out[i * 2]) > worst) worst = abs(out[i * 2]);
+    return worst;
+}
+
 static int max_step(void) {
     int worst = 0;
     for (int i = 1; i < MOVE_FRAMES_PER_BLOCK; i++) {
@@ -865,8 +873,7 @@ int main(void) {
             if (abs(out[i] - ref[i]) > worst) worst = abs(out[i] - ref[i]);
         CHECK(worst <= 2, "Stretch starts as the slice does (off by up to %d)", worst);
         FX_PLAY("1", "0.5 0.01");
-        CHECK(out[0] == ramp(22050, 0) && out[2] == ramp(22051, 0),
-              "Loop starts at its Offset: %d vs %d", out[0], ramp(22050, 0));
+        CHECK(memcmp(out, ref, sizeof ref) == 0, "Loop plays from the slice's start, as on Move (Set 52)");
         for (const char *e = "2345678"; *e; e++) {
             char v[2] = { *e, 0 };
             FX_PLAY(v, "0 1000");
@@ -1210,8 +1217,8 @@ int main(void) {
             api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
             for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) loop_out[f + i] = out[i * 2];
         }
-        CHECK(memcmp(loop_out + 4410, loop_out + 2 * 4410, 4410 * sizeof(int16_t)) == 0,
-              "Loop repeats the first 100 ms exactly");
+        CHECK(memcmp(loop_out + 4411 + 400, loop_out + 2 * 4411 + 400, 4000 * sizeof(int16_t)) == 0,
+              "Loop repeats the first 100 ms exactly, every 4411 frames");
         render(inst, 600);
         CHECK(field(inst, F_PLAYING) == 0 && lc->play_pos >= 0 && lc->play_pos < 4410,
               "Loop plays on past the slice's end, inside the loop (at %.1f)", lc->play_pos);
@@ -1222,8 +1229,8 @@ int main(void) {
               "Offset 50%% loops from the middle (at %.1f)", lc->play_pos);
         param(inst, "fx", "1 0.5");
         render(inst, 400);
-        CHECK(field(inst, F_PLAYING) == 0 && lc->play_pos >= 44100 - 441 && lc->play_pos < 44100,
-              "Offset 100%% still loops 10 ms, clamped at the end (at %.1f)", lc->play_pos);
+        CHECK(field(inst, F_PLAYING) == 0 && lc->play_pos >= 44100 && lc->play_pos <= 44100 + 22050
+              && max_abs() == 0, "Offset 100%% loops the silence past the end, playing on (at %.1f)", lc->play_pos);
 
         /* A loop of 44.32 cycles: the wrap dips instead of clicking */
         param(inst, "stop", "1"); render(inst, 2);
@@ -1252,6 +1259,49 @@ int main(void) {
         CHECK(lc->play_start == 2660, "a nudge moves the loop's slice start: %d", lc->play_start);
         param(inst, "stop", "1"); render(inst, 2);
         param(inst, "undo", "1");
+
+        /* Move's wrap (Set 52), on t16 (frame i = 3i mod 30000): every frame
+         * up to the loop's end is read (Offset 25 %, 100 ms: 11025 to 15435),
+         * then the read goes back to the start while the old one plays on,
+         * crossfading linearly over 9 ms (396.9 frames) of source time. */
+        api->destroy_instance(inst);
+        inst = load("build/t16.wav");
+        lc = (live_chopper_t *)inst;
+        static int16_t lp[70000];
+#define LOOP_RUN(n) do { note(inst, 68); \
+        for (int f = 0; f < (n); f += MOVE_FRAMES_PER_BLOCK) { api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK); \
+            for (int i = 0; i < MOVE_FRAMES_PER_BLOCK; i++) lp[f + i] = out[i * 2]; } \
+        param(inst, "stop", "1"); render(inst, 2); } while (0)
+        param(inst, "effect", "1"); param(inst, "fx", "0.25 0.1");
+        LOOP_RUN(25000);
+        int wrap_bad = 0;
+        for (int k = 0; k < 500; k++) {
+            double a = k / 396.9 > 1.0 ? 1.0 : k / 396.9;
+            double want = a * ramp(11025 + k, 0) + (1.0 - a) * ramp(15436 + k, 0);
+            if (fabs(lp[15436 + k] - want) > 1.0) wrap_bad++;
+        }
+        CHECK(lp[15435] == ramp(15435, 0) && wrap_bad == 0,
+              "Loop reads its end frame, then crossfades 9 ms into its start (%d frames off)", wrap_bad);
+        CHECK(memcmp(lp + 15436 + 400, lp + 15436 + 4411 + 400, 3000 * sizeof(int16_t)) == 0,
+              "Loop's period is Length + 1 frame, 4411 (Set 52: 13231 at 300 ms)");
+        param(inst, "transpose", "12");
+        LOOP_RUN(25000);
+        CHECK(memcmp(lp + 10000, lp + 10000 + 2206, 3000 * sizeof(int16_t)) == 0,
+              "+12: Length follows the pitch, 2206 output frames (Set 52 pad 15: 6616 at 300 ms)");
+        param(inst, "transpose", "0");
+        /* Past the slice's end a loop reads silence, from 2 frames before it,
+         * and wraps out of it (Set 52 pad 16: Offset 90 %, 500 ms). */
+        param(inst, "fx", "0.9 0.5");
+        LOOP_RUN(64000);
+        int quiet = 1;
+        for (int i = 44099; i < 61740; i++) quiet &= lp[i] == 0;
+        CHECK(lp[44098] == ramp(44098, 0) && quiet && lp[61741 + 500] != 0,
+              "past the end: silent from frame 44099 until the wrap, then the loop again (%d, %d)",
+              lp[44098], lp[61741 + 500]);
+        api->destroy_instance(inst);
+        inst = load("build/t441.wav");
+        lc = (live_chopper_t *)inst;
+        param(inst, "effect", "1"); param(inst, "fx", "0 0.1");
 
         /* The envelope still ends a loop */
         param(inst, "hold_us", "100000"); param(inst, "decay_us", "10000");

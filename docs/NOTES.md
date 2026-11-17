@@ -352,6 +352,25 @@ Loop:
   Attack; sine at 10 ms (pad 14) 82 LSB (42 dB under). Pad 16 shows
   ~19 LSB where each pass reaches the sample's end: likely Move's end
   fade ("Move's dry path").
+- Built in plugin.c (2026-11-17), which pinned the frame-level details:
+  - The loop runs from start + Offset × span to that + Length × rate,
+    both left fractional from the float knob values, and every frame up
+    to the end is read: 13231 frames at 300 ms, 22051 at 500 ms, 441 at
+    10 ms (float 0.01 × 44100 is 440.99999), and at +12 6616 output
+    frames (300 ms). Then the read goes back to the start exactly, the
+    fraction dropped; the crossfade's weight is (frames since the wrap) ×
+    step / 396.9.
+  - Offset 0.9 of 88200 is 79379.998 (float 0.9), read between frames:
+    rounding it down put pad 16's passes a frame early.
+  - Past the slice's end the read is silent from 2 frames before it:
+    pad 16 drops frame 88199 on its first pass and the read at 88198.998
+    on later ones. No end fade on a loop's pass (the dry path's ~9.5 ms
+    fade is the voice's end).
+  - `check` on Set 52: Loop pads 11-16 pass, position 0.01-0.02 ms rms
+    (max 0.17), bands 0.01-0.05 dB; the metric needed two fxlab changes,
+    the level fit following Move's climb over a finite Hold (one level to
+    the Attack's end, a line over the Hold, a second after) and no reads
+    within 2 frames of an envelope step.
 
 ### Move's dry path (Set 28)
 
@@ -1127,9 +1146,12 @@ each pad's level against ours for this metric alone (`position_level`),
 (b) divides both by the pad's envelope, plugin.c's render of a constant
 through the same settings (`env_*` pieces), so a read error under a decay
 counts at full size, reading only where the envelope is over 0.25, and
-(c) leaves out a finite Hold after an Attack under 1 ms in output time,
-where Move's level climbs and ours doesn't (pad 9's 0.8 ms Hold at +7: 2 %
-over 35 frames). Pads 3 and 9 then pass (0.33/0.83 and 0.14/0.30 ms), so
+(c) lets the fitted level climb over a finite Hold, as Move's does and
+ours doesn't (pad 9's 0.8 ms Hold at +7: 2 % over 35 frames): one level
+to the Attack's end, a line over the Hold, a second level after. (A
+first version skipped the Hold after an Attack under 1 ms instead; Set
+52 pad 15, Attack 1 ms at +12, has no such climb, so it lost every
+point.) Pads 3 and 9 then pass (0.33/0.83 and 0.14/0.30 ms), so
 their waivers were dropped and the transpose, pitch_env and fm position
 refs re-scored. Every other Set's position pads score the same or better
 (Set 47 pads 8-10, finite Holds: 0.58/1.02 to 0.02/0.10).

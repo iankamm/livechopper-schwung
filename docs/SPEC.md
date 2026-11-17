@@ -143,8 +143,8 @@ a Move drum rack preset or one WAV per slice.
   | Noise | Amount, 0-100 % | Color, 180 Hz-15.0 kHz |
 
   In chop mode each effect runs before the filter (sample -> effect ->
-  filter -> envelope, drumCell's order). Pitch Env, Punch and FM match
-  Move's own output; the others are stand-ins, not emulations. The waveform is drawn without
+  filter -> envelope, drumCell's order). Every effect but Stretch matches
+  Move's own output (NOTES.md); Stretch is a stand-in. The waveform is drawn without
   the effect.
 
   - Stretch: the playhead moves at 1/Factor of the normal speed, and two
@@ -152,13 +152,17 @@ a Move drum rack preset or one WAV per slice.
     windows, at the normal speed, so the pitch holds while the slice lasts
     about Factor times as long (Factor 1.00 is plain playback). A grain
     that would run past the slice's end starts early enough to fit.
-  - Loop: starts Offset of the way into the slice, as on Move, and repeats
-    the part from there, Loop Len long in the sample's own time (at least
-    10 ms, clamped to the slice's end), until the envelope ends: with Hold
-    at Inf, until another pad cuts it or the tool is hidden. Each wrap dips
-    the level for ~1.5 ms either side against clicks. The knobs move the
-    loop live, and a chop or marker nudge under a looping voice moves its
-    loop with the slice.
+  - Loop: Move's (NOTES.md "Stretch and Loop on Move"). It plays from the
+    slice's start; the loop runs from Offset of the way into the slice to
+    Loop Len past that, in the sample's own time (so it follows Transpose),
+    both kept fractional. Once the read passes the loop's last frame it
+    goes back to the loop's start, while the old read plays on past the end
+    and the two crossfade linearly over 9 ms of the sample's time. A loop
+    may run past the slice's end: there it reads silence (from 2 frames
+    before the end), so Offset 100 % loops silence. It repeats until the
+    envelope ends: with Hold at Inf, until another pad cuts it or the tool
+    is hidden. The knobs move the loop live, and a chop or marker nudge
+    under a looping voice moves its loop with the slice.
   - Pitch Env: Move's bend (NOTES.md "Pitch Env"): Amount x 48 semitones
     at the start, decaying exponentially in semitones to 1/1000 at the
     Decay. The Decay doesn't follow Transpose.

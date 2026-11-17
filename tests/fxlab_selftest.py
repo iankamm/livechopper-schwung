@@ -357,10 +357,13 @@ got = (position_verdict(1.003 * penv * pramp(1.0), penv), position_verdict(penv 
 check(got == ("PASS", "FAIL", "PASS", "FAIL"),
       "position: 0.3 %% louder passes, a 3 ms slip under the decay fails (passes with the envelope left in), "
       "2 %% fast fails: %s" % (got,))
-climb = dict(pp, Voice_Envelope_Attack=0.0001, Voice_Envelope_Hold=0.002, Voice_Transpose=12)
-check(fxlab.climb_span_ms(pp) is None and abs(fxlab.climb_span_ms(climb)[1] - 1.05) < 1e-9
-      and fxlab.climb_span_ms(dict(climb, Voice_Envelope_Hold=60.0)) is None,
-      "climb_span_ms: none at Attack 20 ms or Hold Inf; 0.1 ms + 2 ms at +12 is 1.05 ms: %s" % (fxlab.climb_span_ms(climb),))
+# The level fit follows Move's climb over a finite Hold: one level to the
+# Attack's end, a straight line over the Hold, then the second level.
+u = fxlab.hold_ramp(dict(pp, Voice_Envelope_Attack=0.001, Voice_Envelope_Hold=0.002, Voice_Transpose=12), 200)
+check(u[22] == 0.0 and abs(u[44] - 0.5) < 0.02 and u[70] == 1.0 and not fxlab.hold_ramp(params(), 200).any(),
+      "hold_ramp: 0 to Attack/2, 1 after (Attack + Hold)/2 at +12, all 0 at Hold Inf: %s" % (u[[22, 44, 70]],))
+climb = penv * pramp(1.0) * (0.98 + 0.02 * fxlab.hold_ramp(pp, pn))
+check(position_verdict(climb, penv) == "PASS", "position: Move's level climbing 2 %% over the Hold passes")
 
 print("fxlab self-test: %s" % ("all passed" if failures == 0 else "%d failed" % failures))
 sys.exit(1 if failures else 0)

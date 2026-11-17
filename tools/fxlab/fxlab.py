@@ -714,43 +714,48 @@ def curve_pitch(x, c):
 
 ENV_MIN = 0.25              # no read position where the envelope is under this (-12 dB): low on an
                             # Attack, a frame of the ramp's timing reads as ms (Set 48 pad 3: 2.8 ms at 0.1)
-CLIMB_ATTACK_S = 0.001      # ... nor over a finite Hold after an Attack shorter than this (output time)
+ENV_EDGE = 2                # ... nor within this many frames of where it is
 
 
-def climb_span_ms(params):
-    """(start, end) in ms of a finite Hold that Move's level climbs over
-    and ours doesn't (NOTES "Volume envelope": from the Attack's level,
-    0.8465 at 0.1 ms, to ~0.933; from 1 ms it starts at ~0.931, and Set
-    52's Loop pads under a 2 s Hold show no climb), else None. Times
-    divide by the pitch ratio, as Move's envelope does (Set 47)."""
+def hold_ramp(params, n):
+    """0 to the Attack's end, rising linearly to 1 over a finite Hold, then
+    1, in output frames (times divided by the pitch ratio, as Move's
+    envelope does, Set 47); all 0 at Hold Inf or in A-S-R."""
+    u = np.zeros(n)
     hold = params.get("Voice_Envelope_Hold", 60.0)
     if hold >= 60.0 or params.get("Voice_Envelope_Mode", "A-H-D") != "A-H-D":
-        return None
+        return u
     r = 1.0
     if params.get("Voice_PitchToEnvelopeModulation", True):
         r = 2 ** ((params.get("Voice_Transpose", 0) * 100 + params.get("Voice_Detune", 0.0)) / 1200)
-    attack = params.get("Voice_Envelope_Attack", 0.0001) / r
-    if attack >= CLIMB_ATTACK_S:
-        return None
-    return 0.0, (attack + hold / r) * 1000
+    t0 = params.get("Voice_Envelope_Attack", 0.0001) / r * RATE
+    t1 = t0 + hold / r * RATE
+    return np.clip((np.arange(n) - t0) / max(t1 - t0, 1.0), 0.0, 1.0)
 
 
 def position_level(x, ours, env, end_ms, params=None):
-    """Move's level against ours on a position_ramp pad, fitted over the
-    pad (START_MS to end_ms, where the envelope is over ENV_MIN). The ramp
-    is near -16000 at its start, so 0.3 % of level reads as 3 ms there
-    (Set 48 pads 3 and 9 against the take's dry level, 0.2-0.3 %): the
-    gain and bands metrics judge the level, this one the read. Not over
-    climb_span_ms."""
+    """Move's level against ours on a position_ramp pad, per frame: the
+    ramp is near -16000 at its start, so 0.3 % of level reads as 3 ms
+    there (Set 48 pads 3 and 9 against the take's dry level, 0.2-0.3 %).
+    Fitted over the pad (START_MS to end_ms, where the envelope is over
+    ENV_MIN) as one level to the Attack's end that moves linearly over a
+    finite Hold to a second one, then holds: Move's level climbs over a
+    finite Hold and ours doesn't (NOTES "Volume envelope"; Set 48 pad 9:
+    2 % over its 0.8 ms Hold at +7; Set 52 pad 15: ~0.1 % over 1 s). The
+    gain and bands metrics judge the level, this one the read."""
     n = min(len(x), len(ours), int(end_ms * RATE / 1000))
-    s = slice(int(START_MS * RATE / 1000), max(int(START_MS * RATE / 1000), n))
+    u = hold_ramp(params or {}, len(x))
     w = np.ones(n, bool) if env is None else env[:n] / ENV_DC >= ENV_MIN
-    w[:s.start] = False
-    span = climb_span_ms(params) if params else None
-    if span:
-        w[:int(np.ceil(span[1] * RATE / 1000))] = False
-    den = float(np.dot(ours[:n][w], ours[:n][w]))
-    return float(np.dot(x[:n][w], ours[:n][w])) / den if den > 0 else 1.0
+    w[:min(n, int(START_MS * RATE / 1000))] = False
+    o, y, uu = ours[:n][w], x[:n][w], u[:n][w]
+    if not len(o) or float(np.dot(o, o)) <= 0:
+        return np.ones(len(x))
+    if uu.max() - uu.min() > 1e-6:
+        a = np.stack([o * (1 - uu), o * uu], axis=1)
+        g0, g1 = np.linalg.lstsq(a, y, rcond=None)[0]
+    else:
+        g0 = g1 = float(np.dot(y, o)) / float(np.dot(o, o))
+    return g0 + (g1 - g0) * u
 
 
 def curve_position(x, c):
@@ -759,19 +764,20 @@ def curve_position(x, c):
     Attack ramp or a Decay counts at its size, not scaled down by the
     level. Move's envelope is taken to be ours (measure fits the level
     first, position_level); where it isn't, the difference reads as
-    position, so the climb over a finite Hold after a short Attack (NOTES
-    "Volume envelope") is left out (climb_span_ms)."""
+    position (the climb over a finite Hold is fitted out there)."""
     env = c.get("env")
     if env is None:
         v = ramp_position_ms(x, 1.0, c["n_src"])
         return np.arange(len(v)) / RATE * 1000, v
     n = min(len(x), len(env))
     e = np.convolve(env[:n] / ENV_DC, [0.5, 0.5], mode="same")
-    keep = e >= ENV_MIN
-    span = climb_span_ms(c["params"]) if c.get("params") else None
-    if span:
-        keep[:int(np.ceil(span[1] * RATE / 1000))] = False
-    keep = np.flatnonzero(keep)
+    # Next to a step in the envelope (a loop's read crossing the slice's
+    # end, Set 52 pad 16) the neighbours averaged in are on its far side.
+    ok = env[:n] / ENV_DC >= ENV_MIN
+    for k in range(1, ENV_EDGE + 1):
+        ok[k:] &= ok[:-k].copy()
+        ok[:-k] &= ok[k:].copy()
+    keep = np.flatnonzero(ok & (e >= ENV_MIN))
     v = ramp_position_ms(x[:n], np.maximum(e, ENV_MIN), c["n_src"])
     return keep / RATE * 1000, v[keep]
 

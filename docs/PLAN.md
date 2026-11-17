@@ -28,6 +28,13 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      Done 2026-11-17 (NOTES "The position metric under an envelope").
    - 2c. Loop: the per-effect workflow to "matched" (PLAN "Method"). If
      its wrap turns out to be Move's end fade, model that with it (step 3).
+     Built 2026-11-17 (not Move's end fade: a 9 ms linear crossfade);
+     Set 52's Loop pads pass `check` (position 0.01-0.02 ms rms). Next:
+     the acceptance Set (finite Holds or Gate, Attack 1 ms or more), refs,
+     preview, `device-check`, A/B. Open: how Move's Loop treats a Drum
+     Preset pad's region (Voice_PlaybackStart/Length): Set 52 measured
+     whole files, as the Slices export makes; the region may count as the
+     sample (as built) or the loop may read on past it.
    - 2d. Stretch: from Set 52, match it if its grains are deterministic and
      fit a model; otherwise keep the stand-in, document it in SPEC as
      LiveChopper's own, and A/B it for information only.
@@ -141,7 +148,7 @@ description of each effect, against LiveChopper's stand-ins:
 | Effect | Live's manual | Stand-in today |
 |---|---|---|
 | Stretch | "changes the sample's length without altering its pitch"; Factor "a multiple of the original playback speed", Grain Size in ms | two Hann grains half a grain apart (NOTES "Stretch and Loop stand-ins") |
-| Loop | "repeats a portion of the sample"; Offset "the loop start point relative to the sample start", Length in ms | repeats from Offset, a 1.5 ms dip at each wrap |
+| Loop | "repeats a portion of the sample"; Offset "the loop start point relative to the sample start", Length in ms | fitted to Move (Set 52): plays from the start, wraps at Offset + Length with a 9 ms crossfade |
 | Pitch Env | -100 to 100 % | matched to Move (48 semitones at 100 %) |
 | Punch | ducking with a fixed attack, emphasising the transient; Release is how long the gain reduction takes to return | matched to Move |
 | 8-Bit | "a combination of filtering, bit reduction, and sample rate reduction"; Decay is the low-pass's decay | fitted to Move (Set 49): hold, A-law 8 bits, a two-pole low-pass a Decay closes to 300 Hz |

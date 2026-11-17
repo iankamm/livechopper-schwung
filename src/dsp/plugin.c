@@ -126,9 +126,12 @@
  * time, so it doesn't follow Transpose. Stretch
  * moves the playhead at 1/Factor speed and plays two Hann-windowed grains
  * of Grain Size from it, half a grain apart, at the normal speed (Factor
- * 1.00 is plain playback). Loop starts at Offset (of the slice) and repeats
- * the part from there for Length (in source time) until the
- * envelope ends, dipping the level for ~1.5 ms either side of each wrap.
+ * 1.00 is plain playback). Loop is Move's (Set 52): it plays from the
+ * slice's start, and when the read reaches Offset (of the slice) + Length
+ * (in source time) a new read starts at Offset while the old one plays on
+ * past the loop's end, the two crossfading linearly over 9 ms of source
+ * time; past the slice's end it reads silence. It repeats until the
+ * envelope ends.
  * Slice export leaves the effect out.
  *
  * Filter: the drum sampler's filter, which the exported preset sets.
@@ -288,6 +291,7 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define CRUSH_LP_FLOOR_HZ 300.0f    /* where a Decay heads */
 #define CRUSH_LP_DECAY_K 6.9077553f /* 1/1000 of the way left at the Decay: ln 1000 */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
+#define LOOP_XF_S 0.009             /* Loop's crossfade at a wrap, in source time (Set 52: 396.9 frames) */
 
 /* Filter, in the drum sampler's ranges */
 enum { FILTER_LP12 = 0, FILTER_LP24 = 1, FILTER_HP24 = 2, FILTER_PEAK = 3 };
@@ -361,7 +365,8 @@ typedef struct {
     float follow;
     double grain_pos[2]; /* source frames; grain 1 is half a grain behind */
     int grain_age;      /* output frames into grain 0 */
-    int loop_wrapped;
+    double loop_old;    /* Loop: the read from before the last wrap, fading out */
+    double loop_xf;     /* ... source frames since that wrap; < 0 when done */
     float punch_ln[2];  /* Punch's two smoothing stages, ln of the gain */
 } fx_state_t;
 
@@ -1724,22 +1729,30 @@ static void read_frame(const sample_buf_t *s, double pos, float *l, float *r) {
     *r = d[idx * 2 + 1] + (d[nxt * 2 + 1] - d[idx * 2 + 1]) * frac;
 }
 
-/* Loop's region in the slice [start, end), in source frames: from Offset
- * of the way in, Length long (at least LOOP_MIN_S or the whole slice),
- * clamped to the slice's end. */
+/* Loop's region, in source frames, as Move has it (Set 52): from Offset
+ * of the way into the slice [start, end) to Length past that (at least
+ * LOOP_MIN_S), both left fractional from the float knob values. Every
+ * frame up to the end is read, so 300 ms loops 13231 frames (+12: 6616
+ * output frames), and Offset 0.9 of 88200 starts at 79379.998, read
+ * between frames. It may run past the slice's end (pad 16). */
 static void loop_bounds(const live_chopper_t *inst, const sample_buf_t *s, int start, int end,
-                        int *ls, int *le) {
+                        double *ls, double *le) {
     int span = end - start;
     if (span < 1) span = 1;
-    int min_len = (int)(LOOP_MIN_S * (float)s->sample_rate);
-    if (min_len > span) min_len = span;
-    if (min_len < 1) min_len = 1;
-    int a = start + (int)(inst->fx_a * (float)span);
-    if (a > start + span - min_len) a = start + span - min_len;
-    int len = (int)(inst->fx_b * (float)s->sample_rate + 0.5f);
-    if (len < min_len) len = min_len;
-    *ls = a;
-    *le = len < start + span - a ? a + len : start + span;
+    double len = inst->fx_b > LOOP_MIN_S ? inst->fx_b : LOOP_MIN_S;
+    *ls = start + (double)inst->fx_a * span;
+    *le = *ls + len * s->sample_rate;
+}
+
+/* Loop's read: silent past the slice's end, from 2 frames before it (Set
+ * 52 pad 16: Move drops the slice's last frame, and a read between its
+ * last two). */
+static void loop_frame(const sample_buf_t *s, double pos, int end, float *l, float *r) {
+    if (pos > end - 2) {
+        *l = *r = 0.0f;
+        return;
+    }
+    read_frame(s, pos, l, r);
 }
 
 /* A grain's frame: silent at or past the slice end. */
@@ -1760,7 +1773,8 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
                         filter_state_t *f, float *l, float *r) {
     int stretch = inst->effect == FX_STRETCH && inst->fx_a > 1.0f;
     int loop = inst->effect == FX_LOOP;
-    int grain = 0, ls = 0, le = 0;
+    int grain = 0;
+    double ls = 0.0, le = 0.0;
     if (stretch) {
         grain = (int)(inst->fx_b * MOVE_SAMPLE_RATE);
         if (grain < 2) grain = 2;
@@ -1784,21 +1798,20 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
         /* Grain 1 carries the sound when a stretch begins mid-voice. */
         x->grain_pos[0] = x->grain_pos[1] = *pos;
         x->grain_age = 0;
-        read_frame(s, *pos, l, r);
         if (loop) {
             loop_bounds(inst, s, start, end, &ls, &le);
-            int len = le - ls;
-            int fade = len / 4 < DECLICK_FRAMES ? len / 4 : DECLICK_FRAMES;
-            if (fade > 0) {
-                float g = 1.0f;
-                if (*pos > le - fade) g = *pos < le ? (float)(le - *pos) / (float)fade : 0.0f;
-                if (x->loop_wrapped && *pos >= ls && *pos < ls + fade) {
-                    float gi = (float)(*pos - ls) / (float)fade;
-                    if (gi < g) g = gi;
-                }
-                *l *= g;
-                *r *= g;
+            loop_frame(s, *pos, end, l, r);
+            if (x->loop_xf >= 0.0) {
+                /* The read from before the wrap fades out as this one fades in. */
+                float a = (float)(x->loop_xf / (LOOP_XF_S * s->sample_rate));
+                if (a > 1.0f) a = 1.0f;
+                float ol, or_;
+                loop_frame(s, x->loop_old, end, &ol, &or_);
+                *l = *l * a + ol * (1.0f - a);
+                *r = *r * a + or_ * (1.0f - a);
             }
+        } else {
+            read_frame(s, *pos, l, r);
         }
     }
     crush_frame(inst, c, t, l, r);
@@ -1811,11 +1824,20 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
         x->grain_age++;
         *pos += step / inst->fx_a;
     } else if (loop) {
-        *pos += step;
-        if (*pos >= le) {
-            *pos -= le - ls;
-            if (*pos < ls || *pos >= le) *pos = ls;
-            x->loop_wrapped = 1;
+        if (x->loop_xf >= 0.0) {
+            x->loop_old += step;
+            x->loop_xf += step;
+            if (x->loop_xf >= LOOP_XF_S * s->sample_rate) x->loop_xf = -1.0;
+        }
+        if (*pos + step > le) {
+            /* Move's wrap, once the last frame within the end is read:
+             * back to the loop's start, the fraction dropped, while the
+             * old read plays on past the end and fades out. */
+            x->loop_old = *pos + step;
+            x->loop_xf = 0.0;
+            *pos = ls;
+        } else {
+            *pos += step;
         }
     } else {
         *pos += step * fx_rate(inst, x, t);
@@ -1843,12 +1865,6 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     inst->play_pos = inst->slice_start[idx];
     inst->play_start = inst->slice_start[idx];
     inst->play_end = inst->slice_end[idx];
-    if (inst->effect == FX_LOOP) {
-        /* Loop starts at its Offset (heard on Move). */
-        int ls, le;
-        loop_bounds(inst, s, inst->play_start, inst->play_end, &ls, &le);
-        inst->play_pos = ls;
-    }
     inst->env_pos = 0;
     inst->env_clock = 0.0;
     inst->gate_note = note;
@@ -1858,6 +1874,7 @@ static void play_slice(live_chopper_t *inst, int idx, int note) {
     uint32_t rng = inst->fx.rng;
     memset(&inst->fx, 0, sizeof inst->fx);
     inst->fx.rng = rng ? rng : 22222u;
+    inst->fx.loop_xf = -1.0;
     inst->fx.grain_pos[0] = inst->fx.grain_pos[1] = inst->play_pos;
     memset(&inst->filter, 0, sizeof inst->filter);
     start_sub(inst);
@@ -2438,7 +2455,8 @@ static void render_block(void *instance, int16_t *out, int frames) {
         if (i % FILTER_COEF_FRAMES == 0) filter_update(inst);
 
         if (inst->playing) {
-            if ((int)inst->play_pos >= inst->play_end || env_finished(inst)) {
+            /* A loop may run past the slice's end into silence (Set 52). */
+            if (((int)inst->play_pos >= inst->play_end && inst->effect != FX_LOOP) || env_finished(inst)) {
                 inst->playing = 0;
                 inst->playing_slice = -1;
             } else {
