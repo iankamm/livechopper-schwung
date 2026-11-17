@@ -305,6 +305,54 @@ sample start" and Loop Length its duration in ms. The design (SPEC
   start into the loop, and was changed to match). Neither sounds like
   Move's own.
 
+### Stretch and Loop on Move (Set 52)
+
+Set 52, 2026-11-17 (`tools/fxlab/sets/set52_stretch_loop_scout.json`,
+take and saved Song.abl in `.claude/recordings/set52/`; the take is cut at
+96 s as `take_cut96.wav` because pad 16 loops on, split in `set52/sl/`).
+Both are simple, deterministic and unlike LiveChopper's stand-ins. A
+numpy model of each (session scratchpad `s52/model.py`) fits Move as
+below; the dry Low-Pass 24 and the Attack were left out of it.
+
+Stretch:
+- Grains don't overlap. Grain k starts at output frame k·H, where H is
+  floor(Grain × 44100) frames (5 ms is 220, not 220.5: pad 5's click
+  copies are 209 apart, 220 × (1 - 1/20)). It reads from the playhead,
+  p_k = k·H·r/F (r the pitch ratio, F the Factor), and from there at r,
+  interpolating linearly between frames (pad 4's copies alternate full and
+  0.516 high, on whole and half frames).
+- Each grain fades in linearly over its first 44.1 frames (1 ms) and out
+  over its last 44.1, so the level dips to 0 at every boundary (pad 7;
+  pad 5's copies trace both ramps).
+- H doesn't follow Transpose; the playhead and the read inside a grain do
+  (pad 9 at +12: copies every 4410 frames, at mid-grain).
+- Deterministic: pad 10 repeats pad 4 bit for bit.
+- Fit: position_ramp at Factor 2 (pad 7) 16.6 LSB rms (53 dB under), sine
+  at Factor 20 / 5 ms (pad 8) 54 LSB (45 dB under); click pads 40-57 LSB,
+  about the Low-Pass 24's ring after each click.
+- Open: at Factor 2 (pads 3, 9) the click copies fall ~12.5 LSB for each
+  100 ms of the sample read (24321 to 24098 over the sample; every source
+  click is 29204), not seen at Factor 20. Untraced, 0.08 dB.
+
+Loop:
+- Plays from the sample's start, not from Offset (pads 12, 13, 15, 16 all
+  read from frame 0, Song.abl's Offset 0.25 / 0.9). That contradicts the
+  check by ear of 2026-11-11 ("Loop starts at its Offset"), which the
+  stand-in follows.
+- When the read reaches Offset·length + Length, a new read starts at
+  Offset·length; the old one carries on past the loop's end, and the two
+  crossfade linearly over 397 frames (9.0 ms) of the sample's time.
+  Length is in the sample's time too, so both follow Transpose (pad 15,
+  +12: a 6616-frame loop, a 198-frame crossfade). 10 ms is 441 frames
+  (pad 14).
+- Past the sample's end the loop reads silence (pad 16: Offset 90 %,
+  500 ms plays 200 ms of sample, 300 ms of silence, then wraps). At Hold
+  Inf it loops on (pad 16 still looping at the take's end, 72 s on).
+- Fit: position_ramp pads 11-13, 15, 16 to 0.6-3.4 LSB rms past the
+  Attack; sine at 10 ms (pad 14) 82 LSB (42 dB under). Pad 16 shows
+  ~19 LSB where each pass reaches the sample's end: likely Move's end
+  fade ("Move's dry path").
+
 ### Move's dry path (Set 28)
 
 Set 28, 2026-11-12: the six sounds at Stretch 1.00, Attack minimum, Hold

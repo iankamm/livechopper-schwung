@@ -20,6 +20,9 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
    - 2a. One scouting Set for both (Set 52,
      `tools/fxlab/sets/set52_stretch_loop_scout.json`), as Sets 40-42
      served Sub Osc and Noise: what each does, priced before committing.
+     Done 2026-11-17 (NOTES "Stretch and Loop on Move"): both are simple
+     and deterministic, and a numpy model of each fits Move, so 2d is
+     "match" too.
    - 2b. Make the position metric work under a non-flat envelope ("Open"),
      since Loop's pads need a finite Hold; re-score the position refs.
    - 2c. Loop: the per-effect workflow to "matched" (PLAN "Method"). If
