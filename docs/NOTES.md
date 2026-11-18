@@ -205,8 +205,16 @@ holds the raw values):
   and Detune), the value at bottom left, and the sampler icon at bottom
   right.
 - Turning fast skips values: a slow click moves Transpose 1 st, a fast
-  turn 2-3. Whether LiveChopper does the same is unchecked (PLAN
-  "Open").
+  turn 2-3. It is the encoder's own: logged on the device (2026-11-18, a
+  debug ui.js logging Knob 1's raw CC, `.claude/recordings/knobs/`),
+  slow clicks arrive as 1 / 127, one message a detent ~100 ms apart,
+  while a fast turn sends a message every 8-9 ms carrying 1 to 3 detents
+  up (26, 16 and 1 of 43) or 1 to 4 down (127, 126, 125, 124). Schwung's
+  `decodeDelta` passes the count through and every LiveChopper knob steps
+  by it (one value or knob click a detent; the effect list and the other
+  lists gate it per 4), so LiveChopper skips as Move does. Untested: any
+  acceleration of Move's own UI on top of the encoder's counts (its 2-3
+  are the counts seen here).
 - Start: the marker is a full-height line with a flag at the top, moving
   one screen column a slow click. Zoomed in, it travels to the screen's
   centre and then the waveform scrolls under it. Only two zoom levels

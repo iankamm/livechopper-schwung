@@ -48,11 +48,12 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      LiveChopper's own, and A/B it for information only. They are: built
      to Move's model and done 2026-11-18 (Set 54, preview, `device-check`
      and listening A/B passed, "Status").
-3. **Settle the "Open" items that change the sound** (next): the preview level
-   (unity, 1.45 dB above Move; its constant part built 2026-11-18), Move's dry onset (its 4-frame attack ramp
-   and end fade, the onset heard in Pitch Env's A/B), and fast turns. The
-   small untraced offsets that pass can stay open past 1.0.
-4. **Polish and bug-fix on the device:** a full pass of the workflow
+3. **Settle the "Open" items that change the sound:** done 2026-11-18.
+   The preview level and Move's dry onset and end fade are one envelope
+   (Sets 55, 56), built and released in v0.17.0; fast turns already
+   matched (the encoder's counts). Stretch's end fade under Transpose and
+   the small untraced offsets that pass stay open past 1.0.
+4. **Polish and bug-fix on the device** (next): a full pass of the workflow
    (chop, fine-tune, export, then the exported preset on Move against
    chop mode), help.json, the screen reader's announcements, a knob
    reversed by one click (Punch's preview, 2026-11-16: 83 % reached from
@@ -449,9 +450,10 @@ reference.
   the Hold's end: Set 38 pad 15 fails bands on it, Set 35 pad 15 passed.
   Bears on "Preview level": Move's level isn't one number. Acceptance
   Sets keep Hold Inf.
-- **Fast turns:** Move skips 2-3 values on a fast turn (NOTES, screen
-  session 1). LiveChopper reads the encoder's delta, so it may already do
-  the same; unchecked.
+- **Fast turns:** settled 2026-11-18 (NOTES, screen session 1): the
+  skipping is the encoder's, which sends 2-4 detents a message on a fast
+  turn, and LiveChopper steps by the count as Move does. Whether Move's
+  UI accelerates on top is untested.
 
 ## Other ideas (not committed to)
 
