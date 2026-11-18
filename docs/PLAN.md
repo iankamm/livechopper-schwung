@@ -10,8 +10,9 @@ comes off this list. What was measured along the way goes to
 Agreed 2026-11-15, after v0.9.0: finish matching the effects, polish and
 fix bugs, then release v1.0.0. Point releases in between are fine.
 
-1. **Match the remaining effects** (below, "Status"): Stretch (Loop
-   and 8-Bit done 2026-11-17, following Transpose 2026-11-16).
+1. **Match the remaining effects** (below, "Status"): done 2026-11-18
+   with Stretch (Loop and 8-Bit 2026-11-17, following Transpose
+   2026-11-16).
 2. **Decide what 1.0 needs of Stretch and Loop** (next): matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Neither has been measured on Move, and they differ in
@@ -45,7 +46,8 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
    - 2d. Stretch: from Set 52, match it if its grains are deterministic and
      fit a model; otherwise keep the stand-in, document it in SPEC as
      LiveChopper's own, and A/B it for information only. They are: built
-     2026-11-17 to Move's model ("Status"); acceptance next.
+     to Move's model and done 2026-11-18 (Set 54, preview, `device-check`
+     and listening A/B passed, "Status").
 3. **Settle the "Open" items that change the sound:** the preview level
    (unity, 1.45 dB above Move), Move's dry onset (its 4-frame attack ramp
    and end fade, the onset heard in Pitch Env's A/B), and fast turns. The
@@ -153,7 +155,11 @@ measurements; Stretch (built 2026-11-17) still needs its acceptance
   and drum_synth; 8 s apart), seed 1124,
   `tools/fxlab/sets/set54_stretch_accept.json`. Recorded 2026-11-17:
   first `check` 13 of 16 (the transposed sine pads), then 16 of 16 with
-  the grain in source frames. Next: refs, preview, `device-check`, A/B. Sets are written with
+  the grain in source frames; refs in `tests/move_refs/stretch/`. Done
+  2026-11-18: the Skipback preview (preview10) equals the render on all
+  16 hits, Set 54 against it 16 of 16, `device-check` (Sets 52 and 54,
+  32 pads, 0 LSB) and listening A/B passed (no difference heard on any
+  of 16 pairs). Open: a tiny playhead drift under Transpose (NOTES). Sets are written with
   `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio

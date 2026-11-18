@@ -393,6 +393,19 @@ Stretch:
   - With both: `check` on Set 54 16 of 16 (bands at most 0.33/1.58 dB,
     pad 6, click_train), Set 52 still 16 of 16; through plugin.c pads 4
     and 8 22-33 LSB rms mid (the climb), pad 9 0.44.
+- Accepted on Set 54 (2026-11-17, `fxlab.py accept-set Stretch --seed
+  1124`, `tools/fxlab/sets/set54_stretch_accept.json`): Attack 1.03 ms on
+  every pad, Factors 1.32-19.77, Grains 5.02-279 ms, pads 4, 8 at -12,
+  9 at +6, 12 at +3, five pads under Hold Inf to the sample's end, on
+  sine_441, click_train, position_ramp and drum_synth. `check` 16 of 16
+  after the Transpose fit above; refs in `tests/move_refs/stretch/`.
+- Done 2026-11-18 (preview10, `.claude/recordings/preview10/`): every
+  preview hit equals the render at the values played, sample for sample
+  (two hits first played at Attack 1.03 s, not ms, were retaken; the
+  click_train pieces re-cut at the render's fitted onset, as `split`
+  anchors them on the second click). Set 54 against the preview 16 of 16
+  (worst bands 0.24/1.07 dB, pad 6). `device-check` on Sets 52 and 54:
+  32 pads, 0 LSB. Listening A/B: no difference heard on any of 16 pairs.
 
 Loop:
 - Plays from the sample's start, not from Offset (pads 12, 13, 15, 16 all
