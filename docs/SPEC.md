@@ -131,10 +131,11 @@ a Move drum rack preset or one WAV per slice.
   (-1.45 dB) at the minimum Attack under Hold Inf, 0.9311 at 1 ms.
 - End fade: a slice fades out over its last 441 frames (10 ms, S-shaped:
   two parabolas) as Move's pads do, reaching 0 on its last frame.
-  Transposed it lasts 441 x the pitch ratio output frames (882 at +12),
-  as on Move; Move places it a little differently there (NOTES), which
-  isn't modelled. Stretch's grains fade at the end on their own rule;
-  Loop's read carries on past the end.
+  Transposed, as on Move, it still starts 441 frames before the end but
+  falls as if over 441 x the pitch ratio: transposed up the slice stops
+  partway down (halfway at +12), down it reaches 0 early (5 ms early at
+  -12). Stretch's grains fade at the end on their own rule; Loop's read
+  carries on past the end.
 - Effect: one global setting that sets the drum sampler's playback effect
   on every pad. Main Knob 6 steps through Move's nine, one every 4
   detents, in Move's order: Stretch (the default, at factor 1.00: what

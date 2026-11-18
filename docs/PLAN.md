@@ -413,8 +413,10 @@ reference.
   the peak over a finite Hold, the peak under Gate). Built 2026-11-18, with the end fade at 0 st
   and its length at +-12; checked on the device 2026-11-18 (preview12:
   a 0.1 ms Hold Inf hit plays at Move's level, 1.0000 against Set 55's
-  pad); still to measure on Move: the envelope at Transposes off the octave (0.1 ms at +7 is
-  predicted 2.5 dB down) and the end fade's place at other pitches.
+  pad); and off the octave on Set 56
+  (every level as predicted, +7 2.5 dB down; the end fade's rule at every
+  pitch, built). Open: Stretch's end fade under Transpose (built in
+  source time, unmeasured).
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
   an obvious cause; log the values the preview actually used and render
@@ -422,8 +424,8 @@ reference.
 - **Where the full-scale clip sits:** Move clips after the effect and
   before its filter, LiveChopper after its filter (NOTES "Punch",
   ceiling). It matters only when the filter rings.
-- **Move's dry path** (attack ramp and end fade explained by Set 55; the
-  end fade's place under Transpose needs more pitches): its 4-frame attack ramp, ~9.5 ms end fade and
+- **Move's dry path** (attack ramp and end fade built from Sets 55 and
+  56; the Nyquist ring is left): its 4-frame attack ramp, ~9.5 ms end fade and
   Nyquist ring (NOTES "Move's dry path") are candidates for chop mode.
   The metrics don't need them. Pitch Env's A/B (2026-11-13) heard a
   subtle onset difference on every pair, the dry one included, and

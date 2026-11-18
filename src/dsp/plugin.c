@@ -1296,9 +1296,10 @@ static double attack_f(const live_chopper_t *inst) {
 }
 
 /* Where Move's Attack stops, of the peak (Set 55): its last frame on the
- * clock, which steps by the pitch ratio r, at or under af. Measured at 0
- * and +-12 st only. Under one step (0.1 ms above +25.7 st) that would be
- * the first frame, 0: silence, so at least one step counts, untested. */
+ * clock, which steps by the pitch ratio r, at or under af (Set 56: every
+ * pitch from -24 to +24 st to 4 digits). Under one step (0.1 ms above
+ * +25.7 st) Move plays at the peak, not at the first frame's 0 (Set 56,
+ * +36): at least one step counts. */
 static double attack_end_level(double af, double r) {
     if (af <= 0.0) return 1.0;
     double k = floor(af / r + 1e-9);
@@ -1823,14 +1824,16 @@ static void grain_frame(const sample_buf_t *s, double pos, int end, float *l, fl
     }
 }
 
-/* A dry read under Move's fade at the slice's end (Set 55): grain_frame's
- * two parabolas, 0 from the slice's last frame on, over END_FADE_DRY x r
- * output frames (441 x r^2 of source) at pitch ratio r. At 0 st that is
- * Move's exactly (pad 10); Move's lasts 441 x r at +-12 too, but it is
- * centred on the end at +12 (the voice stops halfway down) and ends 29
- * frames early at -12, which isn't modelled (NOTES). */
+/* A dry read under Move's fade at the slice's end (Sets 55, 56): grain_frame's
+ * two parabolas, from 441 output frames before the end at any pitch,
+ * falling as if over 441 x r of them (r the pitch ratio): u = tau / (441 r)
+ * + 1 - 1 / r, tau the output frames left to the slice's last frame. So
+ * transposed up the voice stops partway down (at +12 halfway), down it
+ * reaches 0 441 (1 - r) frames early; at 0 st it is 441 frames to 0 on the
+ * last frame. Fits Move from -24 to +36 st. */
 static void dry_frame(const sample_buf_t *s, double pos, int end, double r, float *l, float *rt) {
-    double u = (end - 1 - pos) / (END_FADE_DRY * r * r * s->sample_rate / MOVE_SAMPLE_RATE);
+    double step = r * s->sample_rate / MOVE_SAMPLE_RATE;
+    double u = (end - 1 - pos) / (step * END_FADE_DRY * r) + 1.0 - 1.0 / r;
     if (u <= 0.0) {
         *l = *rt = 0.0f;
         return;

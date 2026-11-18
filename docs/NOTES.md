@@ -561,8 +561,8 @@ Hold" as one envelope:
   read before it).
 - Built 2026-11-18 (plugin.c env_gain, attack_end_level, dry_frame):
   the output is env_gain x PEAK_LEVEL (0.933255: 0.84649 x 4.41 / 4);
-  a slice's dry read fades over 441 x r output frames to its end (exact at
-  0 st, the length only at +-12). The default Attack is now Move's 0.1 ms
+  a slice's dry read fades at its end as Move's does (exact at 0 st, at
+  other pitches from Set 56, below). The default Attack is now Move's 0.1 ms
   (it was 0, which under this envelope would play at the peak, 0.75 dB
   over the export). Host renders (level_ref "dry") are levelled so the
   Attack's dry level at 0 st is unity, as fxlab levels Move's takes, so
@@ -582,12 +582,28 @@ Hold" as one envelope:
   from frame 5, released at 0.569 s, 14 LSB max around the release).
   The Hold Inf hit against Move's own Set 55 pad 10: level 1.0000, 4.1
   LSB rms to the end (30 in the end fade's last 600 frames).
-- Predictions, untested: at Transposes off the octave the Attack stops
-  on its last clock step, so 0.1 ms at +7 would stop at 0.68 of the peak
-  (-3.4 dB under it, -2.5 dB under 0 st); above +25.7 st (0.1 ms under
-  one clock step) it would be silent, so plugin.c counts at least one
-  step there. A sample shorter than the fade (441 x r frames) is faded
-  all through (+48: 7056 frames).
+- **Set 56** (2026-11-18, `tools/fxlab/sets/set56_pitch_env.json`,
+  `.claude/recordings/set56/`): position_ramp under Hold Inf at 0.1 ms
+  on 0, +1, +2, +3, +5, +7, +24, +36, -1, -3, -5, -7 and -24 st, +7 at
+  1 ms and 0.3 ms, +25 ct. Every level is the model's to 4 digits, drawn
+  before the take: +7 0.6341 (predicted 0.6342, -2.5 dB under 0 st), +2
+  0.7126, +3 0.7550, -1 0.7990, -5 0.7927, +25 ct 0.8588, -24 0.8994,
+  +7 at 1 ms 0.9195, at 0.3 ms 0.8455. At +36, under one clock step,
+  Move plays at the peak (0.9335), not silent: plugin.c's guard is Move's
+  behaviour.
+- **End fade under Transpose** (Sets 55, 56): it starts 441 output frames
+  before the sample's last frame at every pitch and falls as if over
+  441 x r of them, u = tau / (441 r) + 1 - 1 / r (tau the output frames
+  left): fitted F = 441 r and its zero at T + 441 (r - 1) to 1-2 frames
+  from -7 to +12 st, and the rule alone fits +7, +24, +36 and -24 (rms
+  1e-4 to 0.015 of the level). Up, Move stops the voice at the end partway
+  down (+12 halfway, +24 at 0.89); down, it reaches 0 441 (1 - r) frames
+  early (-12 220.5, -24 331) and the sound ends there. (Set 55's first
+  fit put -12's zero 29 frames early: its piece was cut short.) Built in
+  dry_frame; `check` Set 56 16 of 16, the +24 and +36 pads' position from
+  48 and 337 ms rms to 0.02 and 0.18. Stretch's grains still fade in
+  source time (grain_frame), never measured transposed: Set 54's +3 and +6
+  end pads pass with it.
 
 ### Punch (Sets 29-31)
 

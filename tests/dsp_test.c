@@ -494,12 +494,7 @@ int main(void) {
     until_silent(inst);
     note(inst, 69);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-    {   /* under the end fade, 441 x 16 output frames here: longer than the slice */
-        double u1 = (44000 - 1 - 80) / (441.0 * 256), u2 = (44000 - 1 - 96) / (441.0 * 256);
-        int w1 = (int)lrint(ramp(80, 0) * 2 * u1 * u1), w2 = (int)lrint(ramp(96, 0) * 2 * u2 * u2);
-        CHECK(abs(out[2] - w1) <= 1 && abs(out[4] - w2) <= 1, "transpose +48 reads every 16th frame (%d %d, want %d %d)",
-              out[2], out[4], w1, w2);
-    }
+    CHECK(out[2] == ramp(80, 0) && out[4] == ramp(96, 0), "transpose +48 reads every 16th frame (%d %d, want %d %d)", out[2], out[4], ramp(80,0), ramp(96,0));
     char tr[128];
     int t4 = 0;
     get(inst, "settings", tr, sizeof tr);
@@ -729,7 +724,7 @@ int main(void) {
         fwrite("data", 1, 4, f); wr32(f, n * 2);
         for (int i = 0; i < n; i++) wr16(f, 16000);
         fclose(f);
-        static int16_t v[44160];
+        static int16_t v[88320];
         const double P = 16000.0 * PEAK_LEVEL;
         {   /* a fresh instance starts at Move's minimum Attack, as the export writes it */
             void *fresh = api->create_instance(".", NULL);
@@ -786,7 +781,8 @@ int main(void) {
         CHECK(bad == 0 && abs(v[2000] - 16000) <= 1, "level_ref dry: %d %d %d %d %d, then %d",
               v[0], v[1], v[2], v[3], v[4], v[2000]);
 
-        /* The end fade: 441 frames at 0 st, 882 at +12 (441 x r output frames) */
+        /* The end fade (Sets 55, 56): from 441 frames before the end, falling as
+         * over 441 x r; at +12 the voice stops halfway down */
         param(inst, "attack_us", "0");
         capture(inst, v, 44160);
         double u = 221 / 441.0, g = 1 - 2 * (1 - u) * (1 - u);
@@ -794,9 +790,18 @@ int main(void) {
               "end fade at 0 st: %d at its middle (want %.0f), %d on the last frame", v[44099 - 221], 16000 * g, v[44099]);
         param(inst, "transpose", "12");
         capture(inst, v, 22080);
-        u = (44099 - 2 * 21608) / 1764.0; g = 1 - 2 * (1 - u) * (1 - u);
-        CHECK(abs(v[21608] - (int)lrint(16000 * g)) <= 2 && v[22049] < 200,
-              "end fade at +12 over 882 frames: %d at its middle (want %.0f)", v[21608], 16000 * g);
+        u = (44099 - 2 * 21829) / 2.0 / 882 + 0.5; g = 1 - 2 * (1 - u) * (1 - u);       /* 0.875 */
+        double u2 = (44099 - 2 * 22049) / 2.0 / 882 + 0.5, g2 = 2 * u2 * u2;              /* ~0.5 */
+        CHECK(abs(v[21829] - (int)lrint(16000 * g)) <= 2 && abs(v[22049] - (int)lrint(16000 * g2)) <= 2
+              && abs(v[21600] - 16000) <= 2 && v[22055] == 0,
+              "end fade at +12: %d (want %.0f), %d on the last frame (want %.0f), then 0 (%d)",
+              v[21829], 16000 * g, v[22049], 16000 * g2, v[22055]);
+        param(inst, "transpose", "-12");                     /* reaches 0 220.5 frames early */
+        capture(inst, v, 88320);
+        u = (44099 - 0.5 * 87900) / 0.5 / 220.5 - 1.0; g = 2 * u * u;                  /* 0.247 */
+        CHECK(abs(v[87700] - 16000) <= 2 && abs(v[87900] - (int)lrint(16000 * g)) <= 2 && v[87990] == 0,
+              "end fade at -12: %d (want %.0f), 0 from 220.5 frames before the end (%d)",
+              v[87900], 16000 * g, v[87990]);
         param(inst, "transpose", "0");
         api->destroy_instance(inst);
     }

@@ -1,0 +1,26 @@
+{
+ "name": "Set 56 Pitch Envelope",
+ "about": "Set 55's envelope off the octave (PLAN step 3, NOTES \"Move's dry level and end fade\"): every pad position_ramp, Stretch 1.00, Low-Pass 24 open, Hold Inf, Decay 60 s, so each shows where the Attack stops (its level held to the end) and the end fade's length and place. The model's level for each (the Attack stopping on its last clock step at or under A x 44100, steps of the pitch ratio; of the peak 0.9333): pad 1 0 st 0.8465 (the reference); 0.1 ms at +1 0.8968, +2 0.7126, +3 0.7550, +5 0.8474, +7 0.6342, +24 0.8465, +36 0.9333 (under one clock step: plugin.c's guard, Move may be silent), -1 0.7990, -3 0.8898, -5 0.7927, -7 0.8474 (pads 2-12); +7 at 1 ms 0.9195 and at 0.3 ms 0.8455 (pads 13, 14); 0 st detuned +25 ct 0.8588 (pad 15); -24 0.8994 (pad 16, last: 8 s long). 6 s apart.",
+ "tempo": 120,
+ "spacing_beats": 12,
+ "defaults": {"Voice_Envelope_Attack": 0.0001, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0,
+              "Voice_Envelope_Mode": "A-H-D", "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+ "pads": [
+  {"sample": "position_ramp.wav"},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 1}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 2}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 3}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 5}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 7}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 24}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 36}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": -1}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": -3}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": -5}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": -7}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 7, "Voice_Envelope_Attack": 0.001}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 7, "Voice_Envelope_Attack": 0.0003}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Detune": 0.25}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": -24}}
+ ]
+}
