@@ -53,14 +53,14 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
    (Sets 55, 56), built and released in v0.17.0; fast turns already
    matched (the encoder's counts). Stretch's end fade under Transpose and
    the small untraced offsets that pass stay open past 1.0.
-4. **Polish and bug-fix on the device** (next): a full pass of the workflow
-   (chop, fine-tune, export, then the exported preset on Move against
-   chop mode), help.json, the screen reader's announcements, a knob
-   reversed by one click (Punch's preview, 2026-11-16: 83 % reached from
-   84 % with one click down may have landed on 1080, not the 1090
-   `stepKnob` predicts; a two-hit take, straight up and up-then-down,
-   settles it), and anything found in use; the weekly CI run
-   ("Maintenance").
+4. **Polish and bug-fix on the device** (in progress; 1.0 waits for more
+   polish). Done 2026-11-18: a full pass of the workflow on the device
+   (chop, fine-tune, resume, Tools, export, the exported preset on Move
+   against chop mode), help.json (Export said "crush" for the effect),
+   the screen reader (Left/Right now speaks the selected pad), the weekly
+   CI run ("Maintenance"); the knob reversed by one click is closed
+   (NOTES "Every knob follows Move": the positions are where dialling
+   straight up lands). Next: anything found in use.
 5. **Release v1.0.0**, its notes summing up the module as a whole.
 
 ## Match the drum sampler effects to Move
@@ -464,5 +464,5 @@ reference.
 
 ## Maintenance
 
-- A weekly scheduled CI run, so a new Schwung release is tested even while
-  this repo is idle.
+- The weekly CI run is on (2026-11-18, Mondays): watch it for a new
+  Schwung release breaking the module.

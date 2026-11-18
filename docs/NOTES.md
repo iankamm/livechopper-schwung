@@ -215,6 +215,13 @@ holds the raw values):
   lists gate it per 4), so LiveChopper skips as Move does. Untested: any
   acceleration of Move's own UI on top of the encoder's counts (its 2-3
   are the counts seen here).
+- A click down after a click up isn't short (closed 2026-11-18): Punch's
+  preview (2026-11-16) had read as 83 % landing on 1080 and 28 % on 360
+  after "up to the next readout, one click down", where stepping predicts
+  1090 and 370. But 1080 and 360 are exactly where dialling straight up
+  to 83 % and 28 % lands, LiveChopper on the device steps with the same
+  `stepKnob` the tests run, and a slow click arrives as one detent either
+  way (the log above). Those hits were dialled straight up.
 - Start: the marker is a full-height line with a flag at the top, moving
   one screen column a slow click. Zoomed in, it travels to the screen's
   centre and then the waveform scrolls under it. Only two zoom levels
