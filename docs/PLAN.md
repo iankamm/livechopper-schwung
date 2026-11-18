@@ -13,7 +13,7 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
 1. **Match the remaining effects** (below, "Status"): done 2026-11-18
    with Stretch (Loop and 8-Bit 2026-11-17, following Transpose
    2026-11-16).
-2. **Decide what 1.0 needs of Stretch and Loop** (next): matched
+2. **Decide what 1.0 needs of Stretch and Loop** (done 2026-11-18): matched
    to Move, or shipped as LiveChopper's own stand-ins, documented in
    SPEC as such. Neither has been measured on Move, and they differ in
    cost (Loop is a read position, which position_ramp shows; Stretch's
@@ -48,8 +48,8 @@ fix bugs, then release v1.0.0. Point releases in between are fine.
      LiveChopper's own, and A/B it for information only. They are: built
      to Move's model and done 2026-11-18 (Set 54, preview, `device-check`
      and listening A/B passed, "Status").
-3. **Settle the "Open" items that change the sound:** the preview level
-   (unity, 1.45 dB above Move), Move's dry onset (its 4-frame attack ramp
+3. **Settle the "Open" items that change the sound** (next): the preview level
+   (unity, 1.45 dB above Move; its constant part built 2026-11-18), Move's dry onset (its 4-frame attack ramp
    and end fade, the onset heard in Pitch Env's A/B), and fast turns. The
    small untraced offsets that pass can stay open past 1.0.
 4. **Polish and bug-fix on the device:** a full pass of the workflow
@@ -394,14 +394,18 @@ reference.
   pieces sound, so a preview let go early passes (Set 48 pad 4 held
   0.119 s against 0.40 s, bands 0.04). Compare to the longer piece's end.
 
-- **Preview level:** LiveChopper's chop mode plays at unity, 1.45 dB above
-  Move's dry level (0.8465, NOTES "Move's dry path"), so a chop sounds
+- **Preview level:** chop mode used to play at unity, 1.45 dB above
+  Move's dry level (0.8465, NOTES "Move's dry path"), so a chop sounded
   louder before export than after. `check` compares each take at its own
-  level, so it doesn't fail on it. Decided 2026-11-17: match Move, in two
-  stages. First the constant 0.8465 (Move's level at the minimum Attack
-  under Hold Inf, the default). Then the level's dependence on Attack
-  (0.9311 at 1 ms; points between to be measured) and its climb over a
-  finite Hold ("The level under a finite Hold"), with Move's dry onset.
+  level, so it didn't fail on it. Decided 2026-11-17: match Move, in two
+  stages. Stage 1, built 2026-11-18 (SPEC "Level"): the constant 0.8465
+  (Move's level at the minimum Attack under Hold Inf, the default); the
+  host renders stay at unity (`preview_level` 1), so a preview take of
+  the new build no longer needs `check --gain 1.0`. Still to check on the
+  device: a preview's dry hit reads 0.8465 against the render. Stage 2:
+  the level's dependence on Attack (0.9311 at 1 ms; points between to be
+  measured) and its climb over a finite Hold ("The level under a finite
+  Hold"), with Move's dry onset.
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
   an obvious cause; log the values the preview actually used and render

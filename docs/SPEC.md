@@ -120,6 +120,11 @@ a Move drum rack preset or one WAV per slice.
   decimal and, like every other readout, no "+": "1.5 dB", "-6.0 dB".
   Applied to playback (ramped over a block, so no clicks; boosts clip at
   full scale). The waveform is drawn at the gained level.
+- Level: chop mode plays at Move's dry level, 0.8465 of the sample
+  (-1.45 dB, after Gain), so a chop sounds as loud as the exported pad
+  does on Move at the minimum Attack with Hold Inf. Move's level rises
+  with Attack and over a finite Hold; chop mode doesn't follow that yet
+  (PLAN "Preview level").
 - Effect: one global setting that sets the drum sampler's playback effect
   on every pad. Main Knob 6 steps through Move's nine, one every 4
   detents, in Move's order: Stretch (the default, at factor 1.00: what

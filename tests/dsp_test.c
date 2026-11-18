@@ -122,6 +122,9 @@ static void get(void *inst, const char *k, char *buf, int len) {
 
 static void *load(const char *path) {
     void *inst = api->create_instance(".", NULL);
+    /* At the sample's own level, as fx_render renders; test_preview_level
+     * checks the default. */
+    param(inst, "preview_level", "1");
     param(inst, "file_path", path);
     char st[256];
     for (int t = 0; t < 400; t++) {
@@ -696,6 +699,53 @@ int main(void) {
         sscanf(set, "%*d %*d %*d %*d %*d %*d %d", &g7);
         CHECK(g7 == 240, "gain clamps at +24 dB: %s", set);
         param(inst, "gain_db10", "0");
+        api->destroy_instance(inst);
+    }
+
+    /* ---- Level: chop mode plays at Move's dry level, 0.8465 (Set 28) ---- */
+    {
+        inst = load("build/g16.wav");                       /* load() sets level 1 */
+        note(inst, 68); render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
+        memcpy(ref, out, sizeof ref);
+        api->destroy_instance(inst);
+
+        /* A fresh instance without the tools' setting: the default level */
+        inst = api->create_instance(".", NULL);
+        param(inst, "file_path", "build/g16.wav");
+        char st[256] = "";
+        for (int t = 0; t < 400 && strncmp(st, "ready", 5) != 0; t++) {
+            render(inst, 1);
+            get(inst, "status", st, sizeof st);
+            usleep(5000);
+        }
+        note(inst, 68); render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        int worst = 0, peak = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) {
+            int e = abs(out[i] - (int)lrint(ref[i] * 0.8465));
+            if (e > worst) worst = e;
+            if (abs(ref[i]) > peak) peak = abs(ref[i]);
+        }
+        CHECK(peak > 4000 && worst <= 1, "default level is 0.8465 (worst error %d, ref peak %d)", worst, peak);
+
+        /* Out-of-range values clamp to 0..1 */
+        until_silent(inst);
+        param(inst, "preview_level", "2");
+        note(inst, 68); render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        worst = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++)
+            if (abs(out[i] - ref[i]) > worst) worst = abs(out[i] - ref[i]);
+        CHECK(worst <= 1, "preview_level clamps at 1 (worst error %d)", worst);
+        until_silent(inst);
+        param(inst, "preview_level", "-1");
+        note(inst, 68); render(inst, 1);
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        peak = 0;
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) if (abs(out[i]) > peak) peak = abs(out[i]);
+        CHECK(peak == 0, "preview_level clamps at 0 (peak %d)", peak);
         api->destroy_instance(inst);
     }
 

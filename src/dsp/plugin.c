@@ -74,6 +74,13 @@
  * get_param("normalize_gain") is the gain that puts it at 0 dBFS, so
  * Normalize is just a gain setting. Slice export applies the gain.
  *
+ * Level: the output is scaled by PREVIEW_LEVEL, Move's dry level (0.8465,
+ * -1.45 dB, docs/NOTES.md "Move's dry path"), so a chop plays as loud as
+ * the exported preset does on Move. set_param("preview_level") changes it
+ * (0 to 1); the host tools (tests/dsp_test.c, tools/fxlab/fx_render.c) set
+ * 1 so their renders stay at the sample's own level, which the Move
+ * references are fitted against.
+ *
  * Channels: set_param("convert_channels", "mono" | "left" | "right") asks
  * the worker to rewrite the playing file as a 1-channel WAV (the mean of
  * the channels, or just the first or second) in its own format and bit
@@ -191,6 +198,7 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 /* Envelope and pitch */
 #define HOLD_FULL (-1)              /* hold until the slice ends */
 #define DEFAULT_DECAY_US 50000
+#define PREVIEW_LEVEL 0.8465f       /* Move's dry level at the minimum Attack, Hold Inf (Set 28) */
 #define MAX_ENV_US 60000000         /* 60 s: Move's Hold and Decay maximum */
 #define TRANSPOSE_MIN (-48)        /* semitones, as on Move's drum sampler */
 #define TRANSPOSE_MAX 48
@@ -450,6 +458,7 @@ typedef struct {
     int gain_db10;                              /* tenths of a dB, -700 to 240 */
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
+    float level;                                /* output scale, PREVIEW_LEVEL by default */
     float crush_hz;                             /* 0 = off, else CRUSH_HZ_MIN-MAX; not
                                                  * rounded: Move's knob values aren't whole */
     float crush_decay;                          /* 8-Bit Decay, s; CRUSH_DECAY_OFF = off */
@@ -2160,6 +2169,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     set_transpose(inst, 0);
     set_gain(inst, 0);
     inst->gain_cur = inst->gain_target;
+    inst->level = PREVIEW_LEVEL;
     set_filter_type(inst, FILTER_LP24);
     set_filter_hz10(inst, FILTER_HZ10_MAX);
     set_filter_res(inst, 0);
@@ -2331,6 +2341,11 @@ static void set_param(void *instance, const char *key, const char *val) {
         set_gain(inst, parse_int(&p));
         return;
     }
+    if (strcmp(key, "preview_level") == 0) {
+        float v = strtof(val, NULL);
+        inst->level = v > 1.0f ? 1.0f : (v > 0.0f ? v : 0.0f);
+        return;
+    }
     if (strcmp(key, "crush_hz") == 0) {
         set_crush(inst, strtof(val, NULL));
         return;
@@ -2478,9 +2493,10 @@ static void render_block(void *instance, int16_t *out, int frames) {
     adopt_incoming(inst);
 
     sample_buf_t *s = inst->current;
-    /* Gain ramps linearly to its target across the block. */
-    float g0 = inst->gain_cur, g1 = inst->gain_target;
-    inst->gain_cur = g1;
+    /* Gain ramps linearly to its target across the block; the level
+     * scales both ends. */
+    float g0 = inst->gain_cur * inst->level, g1 = inst->gain_target * inst->level;
+    inst->gain_cur = inst->gain_target;
     /* Sub Osc's tone stops when the effect does. */
     if (inst->effect != FX_SUB_OSC) fade_out_sub(inst);
     if (!s || (!inst->playing && !inst->tail_active && !inst->sub.on && !inst->sub_tail.on)) {
