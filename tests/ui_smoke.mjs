@@ -128,6 +128,15 @@ check(!dsp.playing && padLeds[69] === WHITE && padLeds[68] === RED && padLeds[70
 dsp.sel = 2; tick(1);
 check(padLeds[70] === WHITE && padLeds[69] === RED, 'white follows the selection');
 dsp.sel = 1; tick(1);
+// Left/Right: the new pad is spoken once the DSP has it; playing a pad isn't
+check(!log.some(l => l.startsWith('SAY: Pad 3 of 3 selected')), 'playing a pad does not announce the selection');
+mark = sets.length;
+midi(0xB0, 63, 127); tick(1);
+check(sets.slice(mark).includes('select=2'), 'Right selects the next pad: ' + JSON.stringify(sets.slice(mark)));
+dsp.sel = 2; tick(1);
+check(log.at(-1) === 'SAY: Pad 3 of 3 selected', 'Right announces the pad: ' + log.at(-1));
+midi(0xB0, 62, 127); tick(1); dsp.sel = 1; tick(1);
+check(log.at(-1) === 'SAY: Pad 2 of 3 selected', 'Left announces the pad: ' + log.at(-1));
 
 // Holding Shift makes Knob 5 Length (the end marker), as on Move
 mark = sets.length;

@@ -259,6 +259,7 @@ var convertJob = null;      /* { seq, mode, ticks } while the DSP rewrites the f
 var CONVERT_TIMEOUT_TICKS = 3000;
 var CONV_FAILED = 0, CONV_OK = 1, CONV_ALREADY_MONO = 2, CONV_LINKED = 3;   /* plugin.c */
 var lastSelectedSlice = -1;
+var spokenSelect = -1;      /* Left/Right asked for this pad: say it once the DSP has it */
 var lastPlayingSlice = -1;
 var buttonLedOn = {};        /* last on/off sent per button CC */
 var exited = false;         /* no LED updates once we have handed back */
@@ -487,6 +488,8 @@ function selectSlice(idx) {
     if (idx < 0) idx = sliceCount - 1;
     if (idx >= sliceCount) idx = 0;
     flushNudge();
+    if (idx === selectedSlice) announce("Pad " + (idx + 1) + " of " + sliceCount + " selected");
+    else spokenSelect = idx;
     setParamNow("select", String(idx));
 }
 
@@ -1672,6 +1675,8 @@ globalThis.tick = function() {
         if (selectedSlice !== lastSelectedSlice || started) {
             lastSelectedSlice = selectedSlice;
             revealSlice();
+            if (selectedSlice === spokenSelect) announce("Pad " + (selectedSlice + 1) + " of " + sliceCount + " selected");
+            spokenSelect = -1;
         } else if (announceTimer > 0 && followMarker) {
             keepMarkerVisible();
         }
