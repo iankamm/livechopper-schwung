@@ -416,7 +416,8 @@ reference.
   pad); and off the octave on Set 56
   (every level as predicted, +7 2.5 dB down; the end fade's rule at every
   pitch, built). Open: Stretch's end fade under Transpose (built in
-  source time, unmeasured).
+  source time; on Set 54's one usable pad, +3, Move's runs a little
+  earlier, NOTES; settling it needs a Set of Stretch end pads).
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
   an obvious cause; log the values the preview actually used and render

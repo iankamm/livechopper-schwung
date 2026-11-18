@@ -604,6 +604,19 @@ Hold" as one envelope:
   48 and 337 ms rms to 0.02 and 0.18. Stretch's grains still fade in
   source time (grain_frame), never measured transposed: Set 54's +3 and +6
   end pads pass with it.
+- Stretch's end fade under Transpose (2026-11-18, `.claude/tools/stretch/`
+  endfade.py, fadegrid.py, fadegrid2.py): only Set 54 pad 12 (sine_441,
+  +3, Factor 2.60, Grain 5 ms) sounds at its end (pad 9 +6 drum and Set
+  52 pad 9 +12 click are silent by then). Against Move's window levels
+  (one grain each, so the +3 playhead drift drops out) over the last 3000
+  frames: the built rule (441 source frames) 333 LSB rms, the dry read's
+  rule 295, 441 x r source frames 209; a free fit u = (end - 1 - pos) / D
+  + c 20 LSB at D 515, c 0.025 on the grain's read, and as well (20 LSB,
+  D 512.5, c -0.225) on the playhead, so one pad can't tell which;
+  D = 441 x r with c 0.035 gives 25. Move's fade there runs from ~1300
+  output frames before the end, the built one ~10 % late in its first
+  half. Left open (PLAN "Open"): it needs Stretch end pads at several
+  pitches, Factors and Grains to settle.
 
 ### Punch (Sets 29-31)
 
