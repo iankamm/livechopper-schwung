@@ -575,6 +575,13 @@ Hold" as one envelope:
   to 0.01/0.02), Stretch and Loop pads' bands as good or better. Sub
   Osc's level is now stated against the peak (29215.3 = 32209.5 x 4 /
   4.41), so its renders are unchanged.
+- On the device (preview12, 2026-11-18; `device-check` on Sets 55, 35,
+  38, 54: 74 pads, 0 LSB): three position_ramp hits at 0.1 ms in chop
+  mode against plugin.c's renders, take / render 0.84649 on every frame
+  (Hold Inf and Hold 505 ms / Decay 990 ms within 1 LSB; Gate, the peak
+  from frame 5, released at 0.569 s, 14 LSB max around the release).
+  The Hold Inf hit against Move's own Set 55 pad 10: level 1.0000, 4.1
+  LSB rms to the end (30 in the end fade's last 600 frames).
 - Predictions, untested: at Transposes off the octave the Attack stops
   on its last clock step, so 0.1 ms at +7 would stop at 0.68 of the peak
   (-3.4 dB under it, -2.5 dB under 0 st); above +25.7 st (0.1 ms under

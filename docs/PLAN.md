@@ -411,8 +411,9 @@ reference.
   "Move's dry level and end fade"): one envelope explains all of it
   (peak 0.9333, the Attack stopping on its last whole frame, a line to
   the peak over a finite Hold, the peak under Gate). Built 2026-11-18, with the end fade at 0 st
-  and its length at +-12; still to check on the device (a preview), and
-  on Move: the envelope at Transposes off the octave (0.1 ms at +7 is
+  and its length at +-12; checked on the device 2026-11-18 (preview12:
+  a 0.1 ms Hold Inf hit plays at Move's level, 1.0000 against Set 55's
+  pad); still to measure on Move: the envelope at Transposes off the octave (0.1 ms at +7 is
   predicted 2.5 dB down) and the end fade's place at other pitches.
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
