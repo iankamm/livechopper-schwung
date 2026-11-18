@@ -75,6 +75,9 @@ check); keep those. Also read its own CLAUDE.md.
   adds docs/releases/vX.Y.Z.md, the user-facing changes since the last tag.
   The release workflow publishes that file as the release description and
   fails without it. Draft the notes for approval along with the tag.
+  Keep them general: what the user hears and does, an effect
+  "approximates Move's"; no measured specifics of how Move does it (no
+  ms/dB values, curves or mechanisms). Those stay in docs/NOTES.md.
 - Logs on device: /data/UserData/schwung/debug.log (see ../schwung/CLAUDE.md
   "Testing" for how to enable).
 
