@@ -401,8 +401,10 @@ reference.
   stages. Stage 1, built 2026-11-18 (SPEC "Level"): the constant 0.8465
   (Move's level at the minimum Attack under Hold Inf, the default); the
   host renders stay at unity (`preview_level` 1), so a preview take of
-  the new build no longer needs `check --gain 1.0`. Still to check on the
-  device: a preview's dry hit reads 0.8465 against the render. Stage 2:
+  the new build no longer needs `check --gain 1.0`. On the device
+  (2026-11-18) a preview's dry hit reads 0.84650 against the render. At
+  Attack 1.03 ms Move reads 0.92287 (Set 54), so there chop mode now sits
+  0.75 dB under Move instead of 0.70 dB over it, until stage 2. Stage 2:
   the level's dependence on Attack (0.9311 at 1 ms; points between to be
   measured) and its climb over a finite Hold ("The level under a finite
   Hold"), with Move's dry onset.
