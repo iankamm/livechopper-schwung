@@ -1,0 +1,27 @@
+{
+ "name": "Set 55 Level Onset",
+ "about": "Move's dry level and onset (PLAN step 3, \"Preview level\" stage 2 and \"Move's dry path\"). Every pad Stretch 1.00, Low-Pass 24 open, Decay 60 s, Hold Inf unless shown. Level against Attack under Hold Inf, on sine_441: 0.1 ms (pad 1, the 0.8465 reference), 0.2, 0.3, 0.5, 0.7, 1.0 (0.9311 expected), 2, 5 and 20 ms (pads 2-9: where between and does it go past 0.933?). position_ramp, which reads the envelope frame by frame and ends at +16000 with no fade of its own: Attack 0.1 ms under Hold Inf (pad 10: the 4-frame ramp, any slow climb under Hold Inf, the end fade at 0 st). The climb over a finite Hold: position_ramp at Attack 0.1 ms and 0.5 ms, Hold 500 ms, Decay 1 s (pads 11, 12: is the climb from the Attack's level to ~0.933, and where does the Decay start?); sine_441 at 0.1 ms, Hold 1.5 s, Decay 10 ms (pad 13: does a longer Hold end at the same level, so the climb is a fraction of the Hold?); Gate held 1 s at 0.1 ms, Decay 100 ms (pad 14: does the level climb under a Gate?). position_ramp at 0.1 ms under Hold Inf, +12 and -12 st (pads 15, 16: the end fade in source or output frames, and the level at a pitch-scaled Attack). 6 s apart.",
+ "tempo": 120,
+ "spacing_beats": 12,
+ "defaults": {"Voice_Envelope_Attack": 0.0001, "Voice_Envelope_Hold": 60.0, "Voice_Envelope_Decay": 60.0,
+              "Voice_Envelope_Mode": "A-H-D", "Effect_Type": "Stretch", "Effect_StretchFactor": 1.0},
+ "pads": [
+  {"sample": "sine_441.wav"},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.0002}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.0003}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.0005}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.0007}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.001}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.002}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.005}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Attack": 0.02}},
+  {"sample": "position_ramp.wav"},
+  {"sample": "position_ramp.wav", "params": {"Voice_Envelope_Hold": 0.5, "Voice_Envelope_Decay": 1.0}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Envelope_Attack": 0.0005, "Voice_Envelope_Hold": 0.5,
+                                             "Voice_Envelope_Decay": 1.0}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Hold": 1.5, "Voice_Envelope_Decay": 0.01}},
+  {"sample": "sine_441.wav", "params": {"Voice_Envelope_Mode": "A-S-R", "Voice_Envelope_Decay": 0.1}, "gate_s": 1.0},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": 12}},
+  {"sample": "position_ramp.wav", "params": {"Voice_Transpose": -12}}
+ ]
+}

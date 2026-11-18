@@ -510,6 +510,56 @@ Full Velocity (`.claude/recordings/set28/`):
   compressor, "Analog Clip" and Limiter and Move's speaker enhancer (+6 dB
   at 150 Hz, a dip at 500 Hz, the ramp reduced to a blip).
 
+### Move's dry level and end fade (Set 55)
+
+Set 55, 2026-11-18 (`tools/fxlab/sets/set55_level_onset.json`,
+`.claude/recordings/set55/`): 16 dry pads (Stretch 1.00, Decay 60 s),
+levels against plugin.c's unity render (`.claude/tools/level/`). It
+explains "the dry level depends on Attack" and "the climb over a finite
+Hold" as one envelope:
+
+- **Attack:** on frame n the level is P x n / (Attack x 44100), P =
+  0.9333, and the Attack ends after its last whole frame, at
+  L = P x floor(Attack x 44100) / (Attack x 44100). With Hold Inf the
+  level stays at L. Every pad fits it to 4 digits:
+
+  | Attack | frames | L / P | L predicted | L measured |
+  |---|---|---|---|---|
+  | 0.1 ms | 4.41 | 4/4.41 | 0.8466 | 0.8465 |
+  | 0.2 ms | 8.82 | 8/8.82 | 0.8466 | 0.8465 |
+  | 0.3 ms | 13.23 | 13/13.23 | 0.9171 | 0.9170 |
+  | 0.5 ms | 22.05 | 22/22.05 | 0.9312 | 0.9311 |
+  | 0.7 ms | 30.87 | 30/30.87 | 0.9070 | 0.9069 |
+  | 1, 2, 5 ms | 44.1, 88.2, 220.5 | 0.9977 | 0.9312 | 0.9311 |
+  | 20 ms | 882 | 1 | 0.9333 | 0.9333 |
+
+  So the level isn't monotonic in Attack (0.7 ms is under 0.5 ms), and
+  Set 28's "4-frame ramp" (0.25, 0.49, 0.76, 0.99 of 0.8465) is this ramp
+  seen against L. The frames count on the envelope's clock: at +12 and
+  -12 (pads 15, 16) 0.1 ms still gives 0.8465 (clock 0, 2, 4 and
+  0, 0.5, ... 4.0; the last under 4.41 is 4 both times).
+- **Hold:** a straight line from L to P over the Hold (pad 11: 0.84649
+  to 0.93357 over 500 ms, rms 1e-6 off the line; pad 12, Attack 0.5 ms:
+  0.93114 to 0.93359), then the Decay from there. Under Hold Inf there is
+  no climb (pad 16: 0.8465 still at 3.9 s), so it isn't a 60 s Hold.
+  Untraced, 0.03-0.15 %: the line ends at 0.93357 where the Attack's P is
+  0.93330, and pad 13's 1.5 s Hold runs a little steeper (0.05887/s
+  against 0.05789/s, which would end at 0.9348).
+- **Gate:** the level jumps to P on the first frame after the Attack
+  (pad 14: 0.847 on frames 1-4, 0.933 from frame 5), so a gated pad at
+  0.1 ms plays 0.75 dB over the same pad triggered under Hold Inf.
+- **End fade:** at 0 st Set 28's S curve, 2u^2 / 1-2(1-u)^2 over 441
+  frames, reaching 0 at the end (pad 10: fitted 442 frames, 1 frame
+  late). Transposed, it lasts 441 x the pitch ratio output frames
+  (fitted, rms under 2e-4): at +12 (pad 15) 882 frames, centred on the
+  sample's end, and the voice stops at the end, halfway down (a step from
+  0.5 x to 0); at -12 (pad 16) 220.5 frames, reaching 0 29 frames before
+  the end. Where it sits for other pitches isn't settled by two points.
+  Stretch's end fade (built in source time, "Stretch and Loop on Move")
+  was never tested transposed either.
+- Pad 5's take jumps 272 frames at 1.71 s (a capture glitch; its level is
+  read before it).
+
 ### Punch (Sets 29-31)
 
 Done 2026-11-12: fitted on Sets 29 and 30, accepted on Set 31 (seed 1112,

@@ -407,7 +407,10 @@ reference.
   0.75 dB under Move instead of 0.70 dB over it, until stage 2. Stage 2:
   the level's dependence on Attack (0.9311 at 1 ms; points between to be
   measured) and its climb over a finite Hold ("The level under a finite
-  Hold"), with Move's dry onset.
+  Hold"), with Move's dry onset. Measured on Set 55 (2026-11-18, NOTES
+  "Move's dry level and end fade"): one envelope explains all of it
+  (peak 0.9333, the Attack stopping on its last whole frame, a line to
+  the peak over a finite Hold, the peak under Gate); to build.
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
   an obvious cause; log the values the preview actually used and render
@@ -415,7 +418,8 @@ reference.
 - **Where the full-scale clip sits:** Move clips after the effect and
   before its filter, LiveChopper after its filter (NOTES "Punch",
   ceiling). It matters only when the filter rings.
-- **Move's dry path:** its 4-frame attack ramp, ~9.5 ms end fade and
+- **Move's dry path** (attack ramp and end fade explained by Set 55; the
+  end fade's place under Transpose needs more pitches): its 4-frame attack ramp, ~9.5 ms end fade and
   Nyquist ring (NOTES "Move's dry path") are candidates for chop mode.
   The metrics don't need them. Pitch Env's A/B (2026-11-13) heard a
   subtle onset difference on every pair, the dry one included, and
@@ -430,7 +434,8 @@ reference.
   pad 9: one quiet 44 Hz band window at 4.45 dB against 3, accepted
   2026-11-14). Under 0.2 % of the modulation's net shift; not the depth
   alone. Untraced.
-- **The level under a finite Hold:** Move's level climbs linearly over
+- **The level under a finite Hold** (explained by Set 55, see "Preview
+  level"): Move's level climbs linearly over
   the Hold, from the Attack's dry level (0.8465 at 0.1 ms, 0.9311 at
   1 ms) to about 0.933 (NOTES "Volume envelope"); with Hold Inf it stays
   put. LiveChopper's envelope is flat. At Attack 0.1 ms that's 0.85 dB by
