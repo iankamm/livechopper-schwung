@@ -366,6 +366,33 @@ Stretch:
     the Low-Pass 24's ring at each click, which LiveChopper bypasses.
     `check` on Set 52: 16 of 16 (Stretch bands at most 0.39/2.17 dB,
     pads 4 and 10, the ring again).
+- Transpose, from Set 54 (2026-11-17, its sine pads at -12 and +3 failed
+  `check` by 3-5 dB in the bands): a grain counts in source frames.
+  - It is L = floor(G x r) source frames (G the unfloored float above, r
+    the pitch ratio), so ceil(L / r) output frames: pad 4 (G 3049.97,
+    -12 st) plays 3048, pad 8 (2437.84) 2436, pad 12 (221.26, +3) 222,
+    each the best of a sweep of H by a clear margin; at r = 1 it is
+    floor(G) as before. Pad 12's spectrum shows it too: lines at 201.4 +
+    m x 198.6 Hz, 44100 / 222.
+  - The fades count in source frames: weight s / 44.1 in and
+    (G x r - 1 - s) / 44.1 out, s = j x r the read into the grain (pads 4
+    and 8: 740-834 LSB rms in 1.5 s with output-time fades, 12 with
+    these; pad 12: 31.5, against 34 from L - 1, 37 from G x r - r and 90
+    from L). At r = 1
+    it is the rule above.
+  - The playhead still moves H x r / Factor a grain (pad 12 tells it from
+    L / Factor).
+  - Left open: a drift of the playhead, linear and tiny, fitted grain by
+    grain: +3.2e-6 of the advance at +3 (pad 12), -9e-7 at +6 (pad 9),
+    under 1e-7 at -12 (exact r) and at Transpose 0. Not float32 in the
+    playhead or the Factor (tried). Move's pitch ratio is a few ppm off
+    2^(t/12), maybe; over pad 12's 4.4 s it is 0.3 frame, 80 LSB rms on a
+    sine, and `check` passes it.
+  - Pads 4, 7 and 8 also show the dry path's level climb over a finite
+    Hold ("Open"): one fitted gain leaves a V-shaped residual.
+  - With both: `check` on Set 54 16 of 16 (bands at most 0.33/1.58 dB,
+    pad 6, click_train), Set 52 still 16 of 16; through plugin.c pads 4
+    and 8 22-33 LSB rms mid (the climb), pad 9 0.44.
 
 Loop:
 - Plays from the sample's start, not from Offset (pads 12, 13, 15, 16 all

@@ -122,10 +122,11 @@
  * 8-Bit's
  * Decay closes the crush's low-pass from 20 kHz towards 300 Hz,
  * exponentially, 1/1000 of the way left at the Decay; it runs in output
- * time, so it doesn't follow Transpose. Stretch is Move's (Set 52):
- * grains of floor(Grain Size x 44100) output frames, back to back, grain
- * k read at the pitch from the playhead k x grain x pitch / Factor, each
- * with linear 1 ms fades that reach 0 at both ends (the voice's first
+ * time, so it doesn't follow Transpose. Stretch is Move's (Sets 52, 54):
+ * grains of floor(Grain Size x 44100 x pitch) source frames (so H = ceil
+ * of that / pitch output frames), back to back, grain k read at the pitch
+ * from the playhead k x H x pitch / Factor, each with linear fades over
+ * 1 ms of source that reach 0 at both ends (the voice's first
  * grain starts at full level), under a 10 ms S-shaped fade at the slice's
  * end; Factor 1.00 is plain playback. Loop is Move's (Set 52): it plays from the
  * slice's start, and when the read reaches Offset (of the slice) + Length
@@ -293,7 +294,7 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
 #define CRUSH_LP_DECAY_K 6.9077553f /* 1/1000 of the way left at the Decay: ln 1000 */
 #define LOOP_MIN_S 0.01f            /* shortest loop: Loop Length's minimum */
 #define LOOP_XF_S 0.009             /* Loop's crossfade at a wrap, in source time (Set 52: 396.9 frames) */
-#define GRAIN_FADE_S 0.001f         /* Stretch: each grain's linear fades, in output time (44.1 frames) */
+#define GRAIN_FADE_S 0.001f         /* Stretch: each grain's linear fades, in source time (44.1 frames) */
 #define END_FADE_S 0.01             /* Stretch: Move's fade at the slice's end, in source time (441 frames) */
 
 /* Filter, in the drum sampler's ranges */
@@ -1791,13 +1792,16 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
     int grain = 0;
     double ls = 0.0, le = 0.0;
     if (stretch) {
-        /* Move's grains (Set 52): back to back, each floor(Grain x 44100)
-         * output frames, read at the pitch from the playhead, with linear
-         * fades over its first and last GRAIN_FADE_S that reach 0 at both
-         * ends; the fade out counts from the unfloored length (5 ms is
-         * 220.5). The voice's first grain starts at full level. */
+        /* Move's grains (Sets 52, 54): back to back, each floor(Grain x
+         * 44100 x pitch) source frames long, so ceil of that / pitch output
+         * frames (floor(Grain x 44100) at pitch 1); read at the pitch from
+         * the playhead, with linear fades over its first and last
+         * GRAIN_FADE_S of source that reach 0 at both ends; the fade out
+         * counts from the unfloored length (5 ms is 220.5). The voice's
+         * first grain starts at full level. */
         grain_f = inst->fx_b * (float)MOVE_SAMPLE_RATE;
-        grain = (int)grain_f;
+        double src_len = floor((double)grain_f * step);
+        grain = (int)ceil(src_len / step - 1e-9);
         if (grain < 2) grain = 2;
         if (!x->grain_on) {
             /* The voice's start, or a stretch beginning mid-voice: a grain
@@ -1814,9 +1818,10 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
             x->grain_pos = *pos;
         }
         const float fade = GRAIN_FADE_S * (float)MOVE_SAMPLE_RATE;
-        float w = (grain_f - 1.0f - (float)x->grain_age) / fade;
+        float into = (float)(x->grain_age * step);     /* source frames into the grain */
+        float w = ((float)(grain_f * step) - 1.0f - into) / fade;
         if (!x->grain_full) {
-            float in = (float)x->grain_age / fade;
+            float in = into / fade;
             if (in < w) w = in;
         }
         if (w > 1.0f) w = 1.0f;

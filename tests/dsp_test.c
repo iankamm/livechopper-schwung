@@ -1182,19 +1182,26 @@ int main(void) {
               "Sub Osc follows +12 in Freq, not in its decay (peak %d)", peak);
     }
 
-    /* ---- Stretch, frame by frame: Move's grains (Set 52) ---- */
+    /* ---- Stretch, frame by frame: Move's grains (Sets 52, 54) ---- */
     {
         /* A 1 s ramp: each output frame shows the frame read, times the
-         * grain's fade and the end fade. */
+         * grain's fade and the end fade. Under Transpose a grain is
+         * floor(Grain x 44100 x pitch) source frames, so ceil of that /
+         * pitch output frames, and its fades count in source frames. */
         write_wav("build/sramp.wav", 44100, 1, 44100, 16);
         inst = load("build/sramp.wav");
         static int16_t got[90000];
-        struct { const char *fx; double factor, grain; } cases[] = {
-            { "2 0.1", 2.0, 0.1 },          /* 4410-frame grains, playhead 2205 a grain */
-            { "20 0.005", 20.0, 0.005 },    /* 220 frames, the fade out from 220.5 */
+        struct { const char *fx; double factor, grain; int tr, check_n; } cases[] = {
+            { "2 0.1", 2.0, 0.1, 0, 88200 },        /* 4410-frame grains, playhead 2205 a grain */
+            { "20 0.005", 20.0, 0.005, 0, 670 },    /* 220 frames, the fade out from 220.5 */
+            { "2.6 0.005017", 2.6, 0.005017, 3, 4000 },   /* 221.25 x 1.189 = 263.1: 263 source, 222 output */
+            { "5.5 0.06916", 5.5, 0.06916, -12, 9200 },   /* 3049.96 x 0.5: 1524 source, 3048 output */
         };
-        for (int c = 0; c < 2; c++) {
+        for (int c = 0; c < 4; c++) {
+            char tr[8];
+            snprintf(tr, sizeof tr, "%d", cases[c].tr);
             param(inst, "stop", "1"); until_silent(inst);
+            param(inst, "transpose", tr);
             param(inst, "effect", "0"); param(inst, "fx", cases[c].fx);
             note(inst, 68);
             int n = 0;
@@ -1204,14 +1211,14 @@ int main(void) {
                 n += MOVE_FRAMES_PER_BLOCK;
                 if (field(inst, F_PLAYING) < 0) break;
             }
+            double rr = pow(2.0, cases[c].tr / 12.0);
             float gf = (float)cases[c].grain * 44100.0f;
-            int H = (int)gf, worst = 0, at = -1;
-            int check_n = c == 0 ? 88200 : 3 * H + 10;
-            for (int t = 0; t < check_n && t < n; t++) {
+            int H = (int)ceil(floor(gf * rr) / rr - 1e-9), worst = 0, at = -1;
+            for (int t = 0; t < cases[c].check_n && t < n; t++) {
                 int k = t / H, j = t % H;
-                double pos = (double)k * H / cases[c].factor + j;
-                double w = (gf - 1.0 - j) / 44.1;
-                if (k > 0 && j / 44.1 < w) w = j / 44.1;
+                double pos = (double)k * H * rr / cases[c].factor + j * rr;
+                double w = (gf * rr - 1.0 - j * rr) / 44.1;
+                if (k > 0 && j * rr / 44.1 < w) w = j * rr / 44.1;
                 w = w > 1.0 ? 1.0 : w < 0.0 ? 0.0 : w;
                 double u = (44099.0 - pos) / 441.0;
                 double e = u <= 0.0 ? 0.0 : u >= 1.0 ? 1.0 : u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
@@ -1220,8 +1227,10 @@ int main(void) {
                 int want = (int)lrint(v * w * e);
                 if (abs(got[t] - want) > worst) { worst = abs(got[t] - want); at = t; }
             }
-            CHECK(worst <= 1, "Stretch %s: Move's grains frame by frame (worst %d at %d)", cases[c].fx, worst, at);
+            CHECK(worst <= 1, "Stretch %s at %+d st: Move's grains frame by frame (H %d, worst %d at %d)",
+                  cases[c].fx, cases[c].tr, H, worst, at);
         }
+        param(inst, "transpose", "0");
         /* Factor 2, 100 ms: grain 1 reaches 0 at both ends; the voice's
          * first grain starts at full level; 20 grains, then the end. */
         param(inst, "stop", "1"); until_silent(inst);

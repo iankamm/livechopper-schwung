@@ -141,8 +141,9 @@ measurements; Stretch (built 2026-11-17) still needs its acceptance
   passed (no difference heard on any of 16 pairs). Open: a Drum Preset
   pad's region under Loop.
 - Stretch: built 2026-11-17 from Set 52 (NOTES "Stretch and Loop on
-  Move", "Built"): back-to-back grains of floor(Grain x 44100) frames
-  with 1 ms linear fades to 0 at both ends (none in on the voice's first),
+  Move", "Built"): back-to-back grains of floor(Grain x 44100 x pitch)
+  source frames (ceil of that / pitch output frames, from Set 54) with
+  1 ms linear fades in source time to 0 at both ends (none in on the voice's first),
   the playhead a grain's read / Factor a grain, and Move's 10 ms end fade
   on each grain's read. `check` on Set 52: 16 of 16. Acceptance Set 54
   drawn with `accept-set Stretch` (its own draw: every Attack 1.03 ms,
@@ -150,8 +151,9 @@ measurements; Stretch (built 2026-11-17) still needs its acceptance
   sample's end, 2 of them transposed; the rest a finite Hold of 0.3-2.5 s;
   4 pads transposed within 12 st; click_train, position_ramp, sine_441
   and drum_synth; 8 s apart), seed 1124,
-  `tools/fxlab/sets/set54_stretch_accept.json`. Next: record it, `check`,
-  refs, preview, `device-check`, A/B. Sets are written with
+  `tools/fxlab/sets/set54_stretch_accept.json`. Recorded 2026-11-17:
+  first `check` 13 of 16 (the transposed sine pads), then 16 of 16 with
+  the grain in source frames. Next: refs, preview, `device-check`, A/B. Sets are written with
   `fxlab.py make-set` from a spec in `tools/fxlab/sets/`.
 - Following Transpose: fitted on Set 47 (2026-11-16, NOTES "Following
   Transpose"): Attack, Hold and Decay take their time / pitch ratio

@@ -147,11 +147,13 @@ a Move drum rack preset or one WAV per slice.
   Move's own output (NOTES.md). The waveform is drawn without the effect.
 
   - Stretch: Move's (NOTES.md "Stretch and Loop on Move"). Grains of
-    Grain size (floor(Grain x 44100) frames of output) play back to back;
-    each reads at the normal speed (Transpose's pitch) from a playhead that
+    Grain size play back to back: each is floor(Grain x 44100 x pitch)
+    frames of the sample, which at Transpose's pitch takes ceil(that /
+    pitch) frames of output (floor(Grain x 44100) at Transpose 0). Each
+    reads at the normal speed (Transpose's pitch) from a playhead that
     moves one grain's read at 1/Factor per grain, so the pitch holds while
     the slice lasts Factor times as long. Each grain fades in and out
-    linearly over 1 ms, reaching 0 at both ends, except that the voice's
+    linearly over 1 ms of the sample, reaching 0 at both ends, except that the voice's
     first grain starts at full level. A grain reading near the slice's
     end fades out with it (Move's 10 ms S-shaped end fade) and reads
     silence past it; the voice ends when the playhead reaches the end.
