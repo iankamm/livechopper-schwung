@@ -918,12 +918,28 @@ def take_level(data, key):
                 n0, d0 = sums.get(k, (0.0, 0.0))
                 sums[k] = (n0 + num, d0 + den)
     levels = {k: n / dd for k, (n, dd) in sums.items() if dd > 0}
-    return (levels, True) if levels else ({None: DEFAULT_GAIN}, False)
+    return (levels, True) if levels else ({None: DEFAULT_GAIN, 100: DEFAULT_GAIN}, False)
+
+
+def attack_level(us):
+    """Where Move's Attack stops at 0 st, of its peak (NOTES "Move's dry
+    level and end fade"): its last whole frame, floor(af) / af."""
+    af = us * RATE / 1e6
+    return 1.0 if af <= 0 else min(1.0, max(1.0, math.floor(af + 1e-9)) / af)
 
 
 def piece_level(levels, params):
-    """The level for one piece: its Attack's dry pieces, else all of them."""
-    return levels.get(attack_us(params), levels[None])
+    """The level for one piece: its Attack's dry pieces; else the dry
+    pieces at other Attacks, moved to this one by attack_level (renders
+    are levelled by it too, level_ref "dry"); else all of them (a level
+    given with --gain)."""
+    a = attack_us(params)
+    if a in levels:
+        return levels[a]
+    known = [k for k in levels if k is not None]
+    if not known:
+        return levels[None]
+    return sum(levels[k] / attack_level(k) for k in known) / len(known) * attack_level(a)
 
 
 def levels_text(levels):

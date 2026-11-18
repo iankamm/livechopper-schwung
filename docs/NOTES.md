@@ -559,6 +559,28 @@ Hold" as one envelope:
   was never tested transposed either.
 - Pad 5's take jumps 272 frames at 1.71 s (a capture glitch; its level is
   read before it).
+- Built 2026-11-18 (plugin.c env_gain, attack_end_level, dry_frame):
+  the output is env_gain x PEAK_LEVEL (0.933255: 0.84649 x 4.41 / 4);
+  a slice's dry read fades over 441 x r output frames to its end (exact at
+  0 st, the length only at +-12). The default Attack is now Move's 0.1 ms
+  (it was 0, which under this envelope would play at the peak, 0.75 dB
+  over the export). Host renders (level_ref "dry") are levelled so the
+  Attack's dry level at 0 st is unity, as fxlab levels Move's takes, so
+  the refs kept their level; fxlab's piece_level now moves a known dry
+  level to another Attack by floor(af) / af, so Set 35 needs no
+  `--gain` (0.1 ms read 0.84634 from its pad 15). `check`: Set 55 15 of
+  16 (pad 5, the glitch), the 0 st and +-12 end pads within 0.03 dB;
+  Set 38 pad 15, which failed bands on the climb, 0.01/0.04 dB; refs
+  166 of 166, the envelope refs re-saved from Set 35 (pad 15 0.23/0.42
+  to 0.01/0.02), Stretch and Loop pads' bands as good or better. Sub
+  Osc's level is now stated against the peak (29215.3 = 32209.5 x 4 /
+  4.41), so its renders are unchanged.
+- Predictions, untested: at Transposes off the octave the Attack stops
+  on its last clock step, so 0.1 ms at +7 would stop at 0.68 of the peak
+  (-3.4 dB under it, -2.5 dB under 0 st); above +25.7 st (0.1 ms under
+  one clock step) it would be silent, so plugin.c counts at least one
+  step there. A sample shorter than the fade (441 x r frames) is faded
+  all through (+48: 7056 frames).
 
 ### Punch (Sets 29-31)
 

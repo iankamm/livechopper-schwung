@@ -32,9 +32,9 @@ int main(int argc, char **argv) {
     }
     plugin_api_v2_t *api = move_plugin_init_v2(NULL);
     void *inst = api->create_instance(".", NULL);
-    /* At the sample's own level, not chop mode's Move level: the Move
+    /* Levelled by the Attack's dry level, as fxlab levels Move's takes: the Move
      * references are fitted against it. */
-    api->set_param(inst, "preview_level", "1");
+    api->set_param(inst, "level_ref", "dry");
     api->set_param(inst, "file_path", argv[1]);
     int16_t out[MOVE_FRAMES_PER_BLOCK * 2];
     char st[256] = "";

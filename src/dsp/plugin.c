@@ -74,12 +74,16 @@
  * get_param("normalize_gain") is the gain that puts it at 0 dBFS, so
  * Normalize is just a gain setting. Slice export applies the gain.
  *
- * Level: the output is scaled by PREVIEW_LEVEL, Move's dry level (0.8465,
- * -1.45 dB, docs/NOTES.md "Move's dry path"), so a chop plays as loud as
- * the exported preset does on Move. set_param("preview_level") changes it
- * (0 to 1); the host tools (tests/dsp_test.c, tools/fxlab/fx_render.c) set
- * 1 so their renders stay at the sample's own level, which the Move
- * references are fitted against.
+ * Level: Move's envelope (docs/NOTES.md "Move's dry level and end fade",
+ * Set 55) peaks at PEAK_LEVEL (0.9333) of the sample, and its Attack stops
+ * short of the peak: on its last whole frame, at floor(A x 44100) / (A x
+ * 44100) of it on the envelope's clock (0.8465 at 0.1 ms). The output is
+ * env_gain x PEAK_LEVEL, so a chop plays as loud as the exported pad does
+ * on Move. set_param("level_ref", "dry") instead scales it so the Attack's
+ * dry level at 0 st under Hold Inf is unity, as fxlab levels Move's takes
+ * (by their dry pads at the same Attack): the host tools
+ * (tests/dsp_test.c, tools/fxlab/fx_render.c) render that way, so the
+ * Move references keep their level; "move" is the default.
  *
  * Channels: set_param("convert_channels", "mono" | "left" | "right") asks
  * the worker to rewrite the playing file as a 1-channel WAV (the mean of
@@ -198,7 +202,12 @@ static const int PEAK_BLOCK[PEAK_LEVELS] = { 64, 1024, 16384 };
 /* Envelope and pitch */
 #define HOLD_FULL (-1)              /* hold until the slice ends */
 #define DEFAULT_DECAY_US 50000
-#define PREVIEW_LEVEL 0.8465f       /* Move's dry level at the minimum Attack, Hold Inf (Set 28) */
+/* Move's envelope peak, of the sample: its 0.1 ms dry level (0.84649,
+ * Sets 28 and 55) over that Attack's 4 / 4.41 (Set 55: 0.9333 at 20 ms
+ * and under Gate). */
+#define PEAK_LEVEL 0.933255f
+#define ATTACK_MIN_US 100            /* Move's minimum Attack, the default (what the export writes for less) */
+#define END_FADE_DRY 441.0          /* Move's end fade at 0 st, output frames (Set 55) */
 #define MAX_ENV_US 60000000         /* 60 s: Move's Hold and Decay maximum */
 #define TRANSPOSE_MIN (-48)        /* semitones, as on Move's drum sampler */
 #define TRANSPOSE_MAX 48
@@ -271,8 +280,9 @@ static const float FX_DEFAULT[FX_COUNT][2] = {
  * 10^(-3.5 (1 - Amount)) (-70 dB at 0, which is off) x exp(-2 pi t /
  * Decay), at a damped resonator's sqrt(w^2 - (2 pi / Decay)^2), through
  * a first-order 11 Hz high-pass, from half a frame before the frame after
- * the note on. The level is Move's 27265 over its dry level (0.84649). */
-#define SUB_OSC_LEVEL 32209.5f
+ * the note on. The level is Move's 27265 over its envelope peak
+ * (PEAK_LEVEL): fitted as 32209.5 over the 0.1 ms dry level, x 4 / 4.41. */
+#define SUB_OSC_LEVEL 29215.3f
 #define SUB_OSC_AMOUNT_DB 70.0f
 #define SUB_OSC_HP_HZ 11.0f
 /* Noise, fitted to Move's (Sets 41, 42 and 45): white noise through
@@ -458,7 +468,7 @@ typedef struct {
     int gain_db10;                              /* tenths of a dB, -700 to 240 */
     float gain_target;                          /* linear, from gain_db10 */
     float gain_cur;                             /* linear, ramps to gain_target */
-    float level;                                /* output scale, PREVIEW_LEVEL by default */
+    int level_dry;                              /* level_ref "dry": the tools' unity (above) */
     float crush_hz;                             /* 0 = off, else CRUSH_HZ_MIN-MAX; not
                                                  * rounded: Move's knob values aren't whole */
     float crush_decay;                          /* 8-Bit Decay, s; CRUSH_DECAY_OFF = off */
@@ -1280,20 +1290,45 @@ static int note_to_pad(int note) {
 }
 
 /* Start a slice from its beginning. Cuts off whatever was playing. */
-/* Envelope gain for the main voice at its current position. */
+/* The Attack in envelope-clock frames, unfloored (0.1 ms: 4.41). */
+static double attack_f(const live_chopper_t *inst) {
+    return inst->attack_us * (MOVE_SAMPLE_RATE / 1e6);
+}
+
+/* Where Move's Attack stops, of the peak (Set 55): its last frame on the
+ * clock, which steps by the pitch ratio r, at or under af. Measured at 0
+ * and +-12 st only. Under one step (0.1 ms above +25.7 st) that would be
+ * the first frame, 0: silence, so at least one step counts, untested. */
+static double attack_end_level(double af, double r) {
+    if (af <= 0.0) return 1.0;
+    double k = floor(af / r + 1e-9);
+    double l = (k < 1.0 ? 1.0 : k) * r / af;
+    return l > 1.0 ? 1.0 : l;
+}
+
+/* Envelope gain for the main voice at its current position, of Move's
+ * peak (Set 55): the Attack a line from 0 that stops on its last frame
+ * (attack_end_level); under Hold Inf it stays there, over a finite Hold
+ * it climbs in a line to the peak, then the Decay from the peak; gated,
+ * the peak right after the Attack. */
 static float env_gain(const live_chopper_t *inst) {
     double p = inst->env_clock;
+    double af = attack_f(inst);
     if (inst->gated) {
         if (inst->release_pos >= 0) {
             if (inst->release_pos >= inst->decay_frames) return 0.0f;
             return inst->release_gain * expf(-ENV_DECAY_K * (float)inst->release_pos / (float)inst->decay_frames);
         }
-        if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
+        if (af > 0.0 && p <= af) return (float)(p / af);
         return 1.0f;
     }
-    if (p < inst->attack_frames) return (float)p / (float)inst->attack_frames;
+    if (af > 0.0 && p <= af) return (float)(p / af);
     p -= inst->attack_frames;
-    if (inst->hold_frames == HOLD_FULL || p < inst->hold_frames) return 1.0f;
+    if (inst->hold_frames == HOLD_FULL || p < inst->hold_frames) {
+        double l = attack_end_level(af, inst->pitch_ratio);
+        if (inst->hold_frames == HOLD_FULL) return (float)l;
+        return (float)(l + (1.0 - l) * (p > 0.0 ? p : 0.0) / inst->hold_frames);
+    }
     p -= inst->hold_frames;
     if (p >= inst->decay_frames) return 0.0f;
     return expf(-ENV_DECAY_K * (float)p / (float)inst->decay_frames);
@@ -1772,8 +1807,8 @@ static void loop_frame(const sample_buf_t *s, double pos, int end, float *l, flo
 
 /* A grain's frame, under Move's fade at the slice's end (Set 52 pad 7,
  * to 3e-5): two parabolas over END_FADE_S of source time, 0 from the
- * slice's last frame on. Move's dry read fades the same way; LiveChopper's
- * dry read stops dead (PLAN "Open", Move's dry path). */
+ * slice's last frame on. Move's dry read fades the same way at 0 st
+ * (dry_frame). */
 static void grain_frame(const sample_buf_t *s, double pos, int end, float *l, float *r) {
     double u = (end - 1 - pos) / (END_FADE_S * s->sample_rate);
     if (u <= 0.0) {
@@ -1785,6 +1820,26 @@ static void grain_frame(const sample_buf_t *s, double pos, int end, float *l, fl
         float g = (float)(u < 0.5 ? 2.0 * u * u : 1.0 - 2.0 * (1.0 - u) * (1.0 - u));
         *l *= g;
         *r *= g;
+    }
+}
+
+/* A dry read under Move's fade at the slice's end (Set 55): grain_frame's
+ * two parabolas, 0 from the slice's last frame on, over END_FADE_DRY x r
+ * output frames (441 x r^2 of source) at pitch ratio r. At 0 st that is
+ * Move's exactly (pad 10); Move's lasts 441 x r at +-12 too, but it is
+ * centred on the end at +12 (the voice stops halfway down) and ends 29
+ * frames early at -12, which isn't modelled (NOTES). */
+static void dry_frame(const sample_buf_t *s, double pos, int end, double r, float *l, float *rt) {
+    double u = (end - 1 - pos) / (END_FADE_DRY * r * r * s->sample_rate / MOVE_SAMPLE_RATE);
+    if (u <= 0.0) {
+        *l = *rt = 0.0f;
+        return;
+    }
+    read_frame(s, pos, l, rt);
+    if (u < 1.0) {
+        float g = (float)(u < 0.5 ? 2.0 * u * u : 1.0 - 2.0 * (1.0 - u) * (1.0 - u));
+        *l *= g;
+        *rt *= g;
     }
 }
 
@@ -1857,7 +1912,7 @@ static void voice_frame(live_chopper_t *inst, const sample_buf_t *s, double step
                 *r = *r * a + or_ * (1.0f - a);
             }
         } else {
-            read_frame(s, *pos, l, r);
+            dry_frame(s, *pos, end, inst->pitch_ratio, l, r);
         }
     }
     crush_frame(inst, c, t, l, r);
@@ -2161,7 +2216,8 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     inst->playing_slice = -1;
     inst->gate_note = -1;
     inst->release_pos = -1;
-    inst->attack_us = 0;
+    inst->attack_us = ATTACK_MIN_US;
+    inst->attack_frames = us_to_frames(ATTACK_MIN_US);
     inst->hold_us = HOLD_FULL;
     inst->hold_frames = HOLD_FULL;
     inst->decay_us = DEFAULT_DECAY_US;
@@ -2169,7 +2225,6 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     set_transpose(inst, 0);
     set_gain(inst, 0);
     inst->gain_cur = inst->gain_target;
-    inst->level = PREVIEW_LEVEL;
     set_filter_type(inst, FILTER_LP24);
     set_filter_hz10(inst, FILTER_HZ10_MAX);
     set_filter_res(inst, 0);
@@ -2341,9 +2396,8 @@ static void set_param(void *instance, const char *key, const char *val) {
         set_gain(inst, parse_int(&p));
         return;
     }
-    if (strcmp(key, "preview_level") == 0) {
-        float v = strtof(val, NULL);
-        inst->level = v > 1.0f ? 1.0f : (v > 0.0f ? v : 0.0f);
+    if (strcmp(key, "level_ref") == 0) {
+        inst->level_dry = strcmp(val, "dry") == 0;
         return;
     }
     if (strcmp(key, "crush_hz") == 0) {
@@ -2495,7 +2549,8 @@ static void render_block(void *instance, int16_t *out, int frames) {
     sample_buf_t *s = inst->current;
     /* Gain ramps linearly to its target across the block; the level
      * scales both ends. */
-    float g0 = inst->gain_cur * inst->level, g1 = inst->gain_target * inst->level;
+    float level = inst->level_dry ? (float)(1.0 / attack_end_level(attack_f(inst), 1.0)) : PEAK_LEVEL;
+    float g0 = inst->gain_cur * level, g1 = inst->gain_target * level;
     inst->gain_cur = inst->gain_target;
     /* Sub Osc's tone stops when the effect does. */
     if (inst->effect != FX_SUB_OSC) fade_out_sub(inst);

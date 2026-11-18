@@ -122,9 +122,10 @@ static void get(void *inst, const char *k, char *buf, int len) {
 
 static void *load(const char *path) {
     void *inst = api->create_instance(".", NULL);
-    /* At the sample's own level, as fx_render renders; test_preview_level
+    /* At the sample's own level, as fx_render renders; the "Level" case
      * checks the default. */
-    param(inst, "preview_level", "1");
+    param(inst, "level_ref", "dry");
+    param(inst, "attack_us", "0");          /* the raw sample from frame 0 (the default is 0.1 ms) */
     param(inst, "file_path", path);
     char st[256];
     for (int t = 0; t < 400; t++) {
@@ -194,6 +195,16 @@ static int field(void *inst, int i) {
 static void until_silent(void *inst) {
     for (int i = 0; i < 2000 && field(inst, F_PLAYING) != -1; i++) render(inst, 1);
     render(inst, 1);
+}
+
+/* Play Pad 1 from silence and keep the left channel's first frames. */
+static void capture(void *inst, int16_t *dst, int frames) {
+    until_silent(inst);
+    note(inst, 68);
+    for (int at = 0; at < frames; at += MOVE_FRAMES_PER_BLOCK) {
+        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
+        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK && at + i < frames; i++) dst[at + i] = out[i * 2];
+    }
 }
 
 /* Stop, set the filter while silent, play Pad 1 and return the RMS of the
@@ -471,18 +482,24 @@ int main(void) {
     CHECK(strcmp(slices(inst), "2:0-64,64-44000") == 0, "trim last end %s", slices(inst));
 
     /* ---- Transpose +12 plays at double speed ---- */
+    /* (on Pad 2, slice 64-44000: Pad 1's 64 frames lie inside Move's end fade) */
     param(inst, "transpose", "12");
     until_silent(inst);
-    note(inst, 68);
+    note(inst, 69);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-    CHECK(out[2] == ramp(2, 0) && out[4] == ramp(4, 0), "transpose +12 reads every other frame (%d %d %d, want %d %d %d; %s)", out[0], out[2], out[4], ramp(0,0), ramp(2,0), ramp(4,0), slices(inst));
+    CHECK(out[2] == ramp(66, 0) && out[4] == ramp(68, 0), "transpose +12 reads every other frame (%d %d %d, want %d %d %d; %s)", out[0], out[2], out[4], ramp(64,0), ramp(66,0), ramp(68,0), slices(inst));
 
     /* ---- Transpose clamps to +-48, Move's range; +48 reads every 16th frame ---- */
     param(inst, "transpose", "99");
     until_silent(inst);
-    note(inst, 68);
+    note(inst, 69);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-    CHECK(out[2] == ramp(16, 0) && out[4] == ramp(32, 0), "transpose +48 reads every 16th frame (%d %d, want %d %d)", out[2], out[4], ramp(16,0), ramp(32,0));
+    {   /* under the end fade, 441 x 16 output frames here: longer than the slice */
+        double u1 = (44000 - 1 - 80) / (441.0 * 256), u2 = (44000 - 1 - 96) / (441.0 * 256);
+        int w1 = (int)lrint(ramp(80, 0) * 2 * u1 * u1), w2 = (int)lrint(ramp(96, 0) * 2 * u2 * u2);
+        CHECK(abs(out[2] - w1) <= 1 && abs(out[4] - w2) <= 1, "transpose +48 reads every 16th frame (%d %d, want %d %d)",
+              out[2], out[4], w1, w2);
+    }
     char tr[128];
     int t4 = 0;
     get(inst, "settings", tr, sizeof tr);
@@ -497,9 +514,9 @@ int main(void) {
     /* ---- Detune: cents on top of transpose, clamped to +-50 ---- */
     param(inst, "detune", "999");           /* clamps to +50: ratio 2^(50/1200) */
     until_silent(inst);
-    note(inst, 68);
+    note(inst, 69);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-    CHECK(abs(out[80] - 124) <= 1, "detune +50 cents reads 40 frames as 41.17 (%d, want ~124)", out[80]);
+    CHECK(abs(out[80] - 316) <= 1, "detune +50 cents reads 40 frames as 41.17 (%d, want ~316)", out[80]);
     char det[128];
     get(inst, "settings", det, sizeof det);
     int d6 = 0;
@@ -507,9 +524,9 @@ int main(void) {
     CHECK(d6 == 50, "detune clamped and reported: %s", det);
     param(inst, "detune", "-50");
     until_silent(inst);
-    note(inst, 68);
+    note(inst, 69);
     api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-    CHECK(abs(out[80] - 117) <= 1, "detune -50 cents reads 40 frames as 38.86 (%d, want ~117)", out[80]);
+    CHECK(abs(out[80] - 309) <= 1, "detune -50 cents reads 40 frames as 38.86 (%d, want ~309)", out[80]);
     param(inst, "detune", "0");
 
     /* ---- Envelope: attack ramps, hold/decay end the voice ---- */
@@ -702,50 +719,85 @@ int main(void) {
         api->destroy_instance(inst);
     }
 
-    /* ---- Level: chop mode plays at Move's dry level, 0.8465 (Set 28) ---- */
+    /* ---- Level and envelope: Move's (NOTES "Move's dry level and end fade", Set 55) ---- */
     {
-        inst = load("build/g16.wav");                       /* load() sets level 1 */
-        note(inst, 68); render(inst, 1);
-        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-        int16_t ref[MOVE_FRAMES_PER_BLOCK * 2];
-        memcpy(ref, out, sizeof ref);
-        api->destroy_instance(inst);
-
-        /* A fresh instance without the tools' setting: the default level */
-        inst = api->create_instance(".", NULL);
-        param(inst, "file_path", "build/g16.wav");
-        char st[256] = "";
-        for (int t = 0; t < 400 && strncmp(st, "ready", 5) != 0; t++) {
-            render(inst, 1);
-            get(inst, "status", st, sizeof st);
-            usleep(5000);
+        FILE *f = fopen("build/dc16.wav", "wb");           /* 16000 for 1 s, mono */
+        int n = 44100;
+        fwrite("RIFF", 1, 4, f); wr32(f, 36 + n * 2); fwrite("WAVE", 1, 4, f);
+        fwrite("fmt ", 1, 4, f); wr32(f, 16); wr16(f, 1); wr16(f, 1);
+        wr32(f, 44100); wr32(f, 88200); wr16(f, 2); wr16(f, 16);
+        fwrite("data", 1, 4, f); wr32(f, n * 2);
+        for (int i = 0; i < n; i++) wr16(f, 16000);
+        fclose(f);
+        static int16_t v[44160];
+        const double P = 16000.0 * PEAK_LEVEL;
+        {   /* a fresh instance starts at Move's minimum Attack, as the export writes it */
+            void *fresh = api->create_instance(".", NULL);
+            char st0[128];
+            get(fresh, "settings", st0, sizeof st0);
+            CHECK(atoi(st0) == 100, "default Attack is 0.1 ms: %s", st0);
+            api->destroy_instance(fresh);
         }
-        note(inst, 68); render(inst, 1);
-        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-        int worst = 0, peak = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) {
-            int e = abs(out[i] - (int)lrint(ref[i] * 0.8465));
-            if (e > worst) worst = e;
-            if (abs(ref[i]) > peak) peak = abs(ref[i]);
-        }
-        CHECK(peak > 4000 && worst <= 1, "default level is 0.8465 (worst error %d, ref peak %d)", worst, peak);
+        inst = load("build/dc16.wav");
+        param(inst, "level_ref", "move");                   /* the default, as chop mode plays */
 
-        /* Out-of-range values clamp to 0..1 */
+        /* 0.1 ms = 4.41 frames: n / 4.41 of the peak, stopping at 4 / 4.41 */
+        param(inst, "attack_us", "100");
+        capture(inst, v, 2048);
+        int bad = 0;
+        for (int i = 0; i <= 4; i++) if (abs(v[i] - (int)lrint(P * i / 4.41)) > 1) bad++;
+        CHECK(bad == 0 && abs(v[5] - (int)lrint(P * 4 / 4.41)) <= 1 && abs(v[2000] - v[5]) <= 1,
+              "0.1 ms: %d %d %d %d %d, then %d (want %.0f)", v[0], v[1], v[2], v[3], v[4], v[2000], P * 4 / 4.41);
+        CHECK(abs(v[2000] - 13544) <= 1, "0.1 ms under Hold Inf plays at 0.8465 (%d of 16000)", v[2000]);
+        param(inst, "attack_us", "700");                    /* 30.87 frames: stops at 30 / 30.87 */
+        capture(inst, v, 2048);
+        CHECK(abs(v[2000] - (int)lrint(P * 30 / 30.87)) <= 1, "0.7 ms stops under 0.5 ms (%d, want %.0f)",
+              v[2000], P * 30 / 30.87);
+        param(inst, "attack_us", "20000");                  /* 882 frames: reaches the peak */
+        capture(inst, v, 2048);
+        CHECK(abs(v[441] - (int)lrint(P * 441 / 882)) <= 1 && abs(v[2000] - (int)lrint(P)) <= 1,
+              "20 ms reaches the peak (%d, want %.0f)", v[2000], P);
+
+        /* A finite Hold climbs in a line to the peak; the Decay starts there */
+        param(inst, "attack_us", "100");
+        param(inst, "hold_us", "100000");                   /* 4410 frames */
+        param(inst, "decay_us", "60000000");
+        capture(inst, v, 8192);
+        double l = 4 / 4.41, mid = P * (l + (1 - l) * 2205 / 4410.0);
+        CHECK(abs(v[4 + 2205] - (int)lrint(mid)) <= 1 && abs(v[4 + 4410] - (int)lrint(P)) <= 1,
+              "Hold climbs: %d halfway (want %.0f), %d at its end (want %.0f)", v[4 + 2205], mid, v[4 + 4410], P);
+        param(inst, "hold_us", "-1");
+        param(inst, "decay_us", "50000");
+
+        /* Gated: the peak right after the Attack */
+        param(inst, "gate", "1");
+        capture(inst, v, 1024);
+        CHECK(abs(v[4] - (int)lrint(P * 4 / 4.41)) <= 1 && abs(v[5] - (int)lrint(P)) <= 1 && abs(v[900] - (int)lrint(P)) <= 1,
+              "gated: %d on frame 4, %d after (want %.0f)", v[4], v[900], P);
+        param(inst, "gate", "0");
+        note_off(inst, 68);
         until_silent(inst);
-        param(inst, "preview_level", "2");
-        note(inst, 68); render(inst, 1);
-        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-        worst = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++)
-            if (abs(out[i] - ref[i]) > worst) worst = abs(out[i] - ref[i]);
-        CHECK(worst <= 1, "preview_level clamps at 1 (worst error %d)", worst);
-        until_silent(inst);
-        param(inst, "preview_level", "-1");
-        note(inst, 68); render(inst, 1);
-        api->render_block(inst, out, MOVE_FRAMES_PER_BLOCK);
-        peak = 0;
-        for (int i = 0; i < MOVE_FRAMES_PER_BLOCK * 2; i++) if (abs(out[i]) > peak) peak = abs(out[i]);
-        CHECK(peak == 0, "preview_level clamps at 0 (peak %d)", peak);
+
+        /* The tools' unity: the Attack's dry level at 0 st is 1, the ramp n / 4 */
+        param(inst, "level_ref", "dry");
+        capture(inst, v, 2048);
+        bad = 0;
+        for (int i = 0; i <= 4; i++) if (abs(v[i] - 4000 * i) > 1) bad++;
+        CHECK(bad == 0 && abs(v[2000] - 16000) <= 1, "level_ref dry: %d %d %d %d %d, then %d",
+              v[0], v[1], v[2], v[3], v[4], v[2000]);
+
+        /* The end fade: 441 frames at 0 st, 882 at +12 (441 x r output frames) */
+        param(inst, "attack_us", "0");
+        capture(inst, v, 44160);
+        double u = 221 / 441.0, g = 1 - 2 * (1 - u) * (1 - u);
+        CHECK(v[44099] == 0 && abs(v[44099 - 221] - (int)lrint(16000 * g)) <= 1 && v[44099 - 441] == 16000,
+              "end fade at 0 st: %d at its middle (want %.0f), %d on the last frame", v[44099 - 221], 16000 * g, v[44099]);
+        param(inst, "transpose", "12");
+        capture(inst, v, 22080);
+        u = (44099 - 2 * 21608) / 1764.0; g = 1 - 2 * (1 - u) * (1 - u);
+        CHECK(abs(v[21608] - (int)lrint(16000 * g)) <= 2 && v[22049] < 200,
+              "end fade at +12 over 882 frames: %d at its middle (want %.0f)", v[21608], 16000 * g);
+        param(inst, "transpose", "0");
         api->destroy_instance(inst);
     }
 

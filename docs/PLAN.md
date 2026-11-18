@@ -400,7 +400,7 @@ reference.
   level, so it didn't fail on it. Decided 2026-11-17: match Move, in two
   stages. Stage 1, built 2026-11-18 (SPEC "Level"): the constant 0.8465
   (Move's level at the minimum Attack under Hold Inf, the default); the
-  host renders stay at unity (`preview_level` 1), so a preview take of
+  host renders stay at unity (now `level_ref` "dry"), so a preview take of
   the new build no longer needs `check --gain 1.0`. On the device
   (2026-11-18) a preview's dry hit reads 0.84650 against the render. At
   Attack 1.03 ms Move reads 0.92287 (Set 54), so there chop mode now sits
@@ -410,7 +410,10 @@ reference.
   Hold"), with Move's dry onset. Measured on Set 55 (2026-11-18, NOTES
   "Move's dry level and end fade"): one envelope explains all of it
   (peak 0.9333, the Attack stopping on its last whole frame, a line to
-  the peak over a finite Hold, the peak under Gate); to build.
+  the peak over a finite Hold, the peak under Gate). Built 2026-11-18, with the end fade at 0 st
+  and its length at +-12; still to check on the device (a preview), and
+  on Move: the envelope at Transposes off the octave (0.1 ms at +7 is
+  predicted 2.5 dB down) and the end fade's place at other pitches.
 - **Preview against the render:** on Punch they differ by up to 0.28 dB,
   untraced. Both knob models step the same grid, so the knob values aren't
   an obvious cause; log the values the preview actually used and render

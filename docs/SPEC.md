@@ -103,10 +103,16 @@ a Move drum rack preset or one WAV per slice.
   sampler's A-H-D mode) applied to every slice in chop mode and carried into
   the export for every pad. Main Knobs 3/4/5, on the knob model with Move's
   log curves: Attack 0.10 ms to 20.0 s, Hold 1.00 ms to Inf (until the
-  slice ends), Decay 1.00 ms to 60.0 s. Default: attack at its minimum
-  (played as 0, so slices sound like the raw sample), Hold Inf, Decay
-  50.0 ms. The Decay, and Gate's release, fall as Move's do: a straight
-  line in dB, -84 dB at the Decay time (NOTES.md "Volume envelope").
+  slice ends), Decay 1.00 ms to 60.0 s. Default: attack at its minimum,
+  Hold Inf, Decay 50.0 ms. The envelope is Move's (NOTES.md "Move's dry
+  level and end fade"): the Attack rises a frame at a time towards Move's
+  peak and stops on its last whole frame (at 0.1 ms, 4.41 frames, on
+  4 / 4.41 of the peak, so the level depends on Attack: 0.7 ms stops
+  lower than 0.5 ms); under Hold Inf the level stays there, over a finite
+  Hold it climbs in a line to the peak, and under Gate it jumps to the
+  peak after the Attack. The Decay, and Gate's release, fall as Move's do:
+  a straight line in dB from the peak, -84 dB at the Decay time (NOTES.md
+  "Volume envelope").
   Attack, Hold and Decay follow the pitch (Transpose and Detune), as
   Move's Envelope Follows Pitch does, which every exported pad has on: at
   +12 st each takes half its time, so the envelope covers the same part
@@ -120,11 +126,15 @@ a Move drum rack preset or one WAV per slice.
   decimal and, like every other readout, no "+": "1.5 dB", "-6.0 dB".
   Applied to playback (ramped over a block, so no clicks; boosts clip at
   full scale). The waveform is drawn at the gained level.
-- Level: chop mode plays at Move's dry level, 0.8465 of the sample
-  (-1.45 dB, after Gain), so a chop sounds as loud as the exported pad
-  does on Move at the minimum Attack with Hold Inf. Move's level rises
-  with Attack and over a finite Hold; chop mode doesn't follow that yet
-  (PLAN "Preview level").
+- Level: the envelope's peak is Move's, 0.9333 of the sample (after
+  Gain), so a chop sounds as loud as the exported pad does on Move: 0.8465
+  (-1.45 dB) at the minimum Attack under Hold Inf, 0.9311 at 1 ms.
+- End fade: a slice fades out over its last 441 frames (10 ms, S-shaped:
+  two parabolas) as Move's pads do, reaching 0 on its last frame.
+  Transposed it lasts 441 x the pitch ratio output frames (882 at +12),
+  as on Move; Move places it a little differently there (NOTES), which
+  isn't modelled. Stretch's grains fade at the end on their own rule;
+  Loop's read carries on past the end.
 - Effect: one global setting that sets the drum sampler's playback effect
   on every pad. Main Knob 6 steps through Move's nine, one every 4
   detents, in Move's order: Stretch (the default, at factor 1.00: what
